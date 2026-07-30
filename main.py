@@ -20,6 +20,7 @@ import os
 import re
 import socket
 import struct
+import sys
 import threading
 import time
 import uuid
@@ -70,202 +71,234 @@ sys.stdout = log_capturer
 sys.stderr = log_capturer
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 网络连通性检测（检测能否访问百度）
+# ══════════════════════════════════════════════════════════════════════════════
+
+NETWORK_CHECK_URL = "https://www.baidu.com"
+_network_status_cache: dict[str, Any] = {
+    "online": True,        # 默认假设在线
+    "last_check": 0.0,
+    "last_success": 0.0,
+    "consecutive_failures": 0,
+}
+_network_status_lock = threading.Lock()
+NETWORK_CHECK_INTERVAL = 15  # 秒，前端轮询间隔参考值
+
+def check_network_reachability() -> bool:
+    """检测能否访问百度，成功返回 True，失败返回 False"""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    req = urllib.request.Request(
+        NETWORK_CHECK_URL,
+        headers={"User-Agent": f"{APP_NAME}/1.0", "Accept": "text/html"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+            # 只要能连通（无论返回什么状态码），都算网络正常
+            return 200 <= resp.status < 600
+    except Exception:
+        return False
+
+def get_network_status(force: bool = False) -> dict[str, Any]:
+    """获取当前网络状态，带缓存（避免每次请求都探测）"""
+    global _network_status_cache
+    now = time.time()
+    with _network_status_lock:
+        cached = _network_status_cache
+        # 缓存 5 秒，平衡实时性和探测频率
+        if not force and now - cached["last_check"] < 5:
+            return {"online": cached["online"], "last_success": cached["last_success"]}
+        # 执行探测
+        is_online = check_network_reachability()
+        cached["last_check"] = now
+        if is_online:
+            cached["online"] = True
+            cached["last_success"] = now
+            cached["consecutive_failures"] = 0
+        else:
+            cached["consecutive_failures"] += 1
+            # 连续失败 2 次才判定为离线（避免误判）
+            if cached["consecutive_failures"] >= 2:
+                cached["online"] = False
+        return {"online": cached["online"], "last_success": cached["last_success"]}
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 常量 & 配置
 # ══════════════════════════════════════════════════════════════════════════════
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-# 默认读取 py 脚本同目录的 servers.json，亦可通过环境变量 SERVERS_FILE 指定
-DEFAULT_SERVERS_FILE = str(SCRIPT_DIR / "servers.json")
-SERVERS_FILE = os.getenv("SERVERS_FILE", "").strip() or DEFAULT_SERVERS_FILE
+# 远程下载的服务器列表（后台线程自动更新）
+LOCAL_SERVERS_FILE = str(SCRIPT_DIR / "servers.json")
+# 手动添加的服务器列表（用户通过前端添加/删除）
+MANUAL_SERVERS_FILE = str(SCRIPT_DIR / "servers_manual.json")
+# 兼容旧版：可通过环境变量 SERVERS_FILE 指定手动服务器文件路径
+SERVERS_FILE = os.getenv("SERVERS_FILE", "").strip() or MANUAL_SERVERS_FILE
+# 向后兼容别名
+DEFAULT_SERVERS_FILE = MANUAL_SERVERS_FILE
+
+# 远程仓库下载间隔（秒）—— 与前端 10 秒自动刷新互不影响
+REMOTE_DOWNLOAD_INTERVAL = 30
+# 前端自动刷新间隔（毫秒）—— 仅前端用，此处仅作说明
+# 前端 JS 中 scheduleRefresh 默认 10000ms
 
 APP_NAME = "direct-lan-play-monitor"
 CACHE_TTL = max(1, int(os.getenv("CACHE_TTL", "12")))
 REQUEST_TIMEOUT = max(1.0, float(os.getenv("REQUEST_TIMEOUT", "3")))
 MAX_WORKERS = 32
 
+# 远程仓库地址
+REMOTE_CHINESE_DB_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlay-Monitor/refs/heads/main/chinese_db.json"
+REMOTE_SERVERS_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlay-Monitor/refs/heads/main/servers.json"
+
+# 下载到同目录的本地文件名
+LOCAL_CHINESE_DB_FILE = str(SCRIPT_DIR / "chinese_db.json")
+
+# 内置兜底配置（仅当远程下载失败时使用）
 DEFAULT_SERVERS: list[dict[str, Any]] = [
     {
       "id": "1",
-      "name": "tekn0",
-      "host": "tekn0.net",
+      "name": "内置服务器",
+      "host": "example.com",
       "port": 11451,
       "type": "graphql",
-      "region": "🇺🇸 美国 加利福尼亚 旧金山 DigitalOcean"
-    },
-    {
-      "id": "2",
-      "name": "jaxlewis",
-      "host": "srv.jaxlewis.top",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇨🇳 中国 河南 郑州 联通"
-    },
-    {
-      "id": "3",
-      "name": "jaysea1",
-      "host": "switch.jayseateam.nl",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇳🇱  荷兰 北荷兰 阿姆斯特丹"
-    },
-    {
-      "id": "4",
-      "name": "jaysea2",
-      "host": "switch.jayseateam.nl",
-      "port": 11453,
-      "type": "graphql",
-      "region": "🇳🇱 荷兰 北荷兰 阿姆斯特丹"
-    },
-    {
-      "id": "5",
-      "name": "lbxmb",
-      "host": "lan.lbxmb.fr",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇫🇷 法国 法兰西岛 巴黎"
-    },
-    {
-      "id": "6",
-      "name": "muitxobem",
-      "host": "muitxobem-lanplay.ddns.net",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇺🇸 美国"
-    },   
-    {
-      "id": "7",
-      "name": "lp1",
-      "host": "lp1.cpalm.org",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇨🇳 中国 台湾 高雄 中華電信"
-    },
-    {
-      "id": "8",
-      "name": "owlet",
-      "host": "www.grayowlet.cn",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇨🇳 中国 内蒙古 锡林郭勒 联通"
-    },
-    {
-      "id": "9",
-      "name": "olunira",
-      "host": "olunira.fun",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇨🇳 中国 北京 阿里云"
-    },
-    {
-      "id": "10",
-      "name": "mulaosi",
-      "host": "ns.mulaosi.cn",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇨🇳 广东 清远 电信"
-    },
-    {
-      "id": "11",
-      "name": "r3ps4j",
-      "host": "switch.r3ps4j.nl",
-      "port": 11452,
-      "type": "graphql",
-      "region": "🇨🇳 丹麦 首都 哥本哈根"
-    },
-    {
-      "id": "12",
-      "name": "erdbeerbaerlp",
-      "host": "erdbeerbaerlp.de",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇩🇪 德国 萨克森"
-    },
-    {
-      "id": "13",
-      "name": "tomodachilife",
-      "host": "8.138.237.87",
-      "port": 11451,
-      "type": "graphql",
-      "region": "🇨🇳 中国 广东 广州 阿里云"
+      "region": "🇨🇳"
     }
 ]
 
 BUILTIN_GAME_TITLES: dict[str, str] = {
-    "FFFFFFFFFFFFFFFF": "未知游戏",
-    "01006A800016E000": "任天堂明星大乱斗 特别版",
-    "0100152000022000": "马里奥赛车8 豪华版",
-    "010029F00FCC4000": "马里奥网球 ACE",
-    "010028600EBDA000": "超级马里奥3D世界+狂怒世界",
-    "0100DCA0064A6000": "路易吉洋馆3",
-    "01006F8002326000": "集合啦！动物森友会",
-    "0100F8F0000A2000": "喷射战士2",
-    "0100C2500FC20000": "喷射战士3",
-    "0100D71004694000": "我的世界",
-    "01006FD0080B2000": "胡闹厨房2",
-    "01001B300B9BE000": "暗黑破坏神III 永恒收藏版",
-    "010060A00B53C000": "武装原型",
-    "01000BF0152FA000": "僵尸部队4 死亡战争",
-    "010007B010FCC000": "狙击精英4",
-    "010018100CD46000": "生化危机5",
-    "01002A000CD48000": "生化危机6",
-    "0100C8A00B8A2000": "生化危机 启示录1",
-    "0100E0B0093F0000": "生化危机 启示录2",
-    "01001C700873E000": "噬神者3",
-    "01008C8012920000": "消逝的光芒",
-    "010078D000F88000": "龙珠 超宇宙2",
-    "0100B3C00C6C2000": "龙珠斗士Z",
-    "010035F022078000": "龙珠 电光炸裂！ZERO",
-    "01008DB008C2C000": "宝可梦 剑",
-    "0100ABF008968000": "宝可梦 盾",
-    "0100A3D008C5C000": "宝可梦 朱",
-    "01008F6008C5E000": "宝可梦 紫",
-    "0100F43008C44000": "宝可梦 传说 Z-A",
-    "0100770008DD8000": "怪物猎人 XX 终极版",
-    "0100559011740000": "怪物猎人崛起 曙光",
-    "0100E65002BB8000": "星露谷物语",
-    "01007960049A0000": "猎天使魔女2",
-    "010092A0172E4000": "双人成行",
-    "010051F0207B2000": "朋友收集 梦想生活",
-    "01009970122E4000": "无主之地3 终极版",
-    "0100CBF022E18000": "NBA 2K26",
-    "0100E4700C648000": "刀剑神域 夺命凶弹",
-    "0100EF200DA60000": "岛屿生存者",
-    "010090400D366000": "火炬之光2",
-    "0100C0401921A000": "热血物语SP",
-    "01003EB01C2F0000": "百万吨级武藏W",
-    "01005ED00CD70000": "破门而入：行动小队",
-    "01005FF00C7CC000": "极速俱乐部2",
-    "010001300D14A000": "城堡破坏者 重制版",
+    "FFFFFFFFFFFFFFFF": "未知游戏"
 }
-
-REMOTE_CHINESE_DB_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/lan-play-monitor/refs/heads/main/chinese_db.json"
-REMOTE_SERVERS_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/lan-play-monitor/refs/heads/main/servers.json"
 
 import ssl
 
-def load_game_titles() -> dict[str, str]:
-    merged_titles = dict(BUILTIN_GAME_TITLES)
-    print(f"[配置] 正在从远程仓库读取标题映射: {REMOTE_CHINESE_DB_URL}")
+# 远程文件下载状态（线程安全）
+_download_status_lock = threading.Lock()
+_download_status = {
+    "chinese_db_last_success": 0.0,   # 上次成功时间戳
+    "chinese_db_last_error": "",
+    "servers_last_success": 0.0,
+    "servers_last_error": "",
+    "remote_servers_available": False,  # 远程服务器列表是否可用
+}
+
+def _download_remote_file(url: str, dest_path: str) -> bool:
+    """从远程下载文件到本地，成功返回 True，失败返回 False"""
     try:
         req = urllib.request.Request(
-            REMOTE_CHINESE_DB_URL,
+            url,
             headers={"User-Agent": f"{APP_NAME}/1.0", "Accept": "application/json"}
         )
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        
-        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
-            data = json.loads(resp.read().decode("utf-8-sig"))
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            data = resp.read()
+            # 验证 JSON 合法性
+            json.loads(data.decode("utf-8-sig"))
+            # 写入临时文件再原子替换，避免半写状态
+            tmp_path = dest_path + ".tmp"
+            with open(tmp_path, "wb") as f:
+                f.write(data)
+            os.replace(tmp_path, dest_path)
+            return True
+    except Exception as exc:
+        print(f"[远程下载] 下载失败 {url} -> {dest_path}: {exc}")
+        return False
+
+def remote_download_worker():
+    """后台定时下载线程的主循环，每 REMOTE_DOWNLOAD_INTERVAL 秒执行一次"""
+    while True:
+        try:
+            # 下载标题映射
+            ok_db = _download_remote_file(REMOTE_CHINESE_DB_URL, LOCAL_CHINESE_DB_FILE)
+            with _download_status_lock:
+                if ok_db:
+                    _download_status["chinese_db_last_success"] = time.time()
+                    _download_status["chinese_db_last_error"] = ""
+                    print(f"[远程下载] ✅ 标题映射已更新: {LOCAL_CHINESE_DB_FILE}")
+                else:
+                    _download_status["chinese_db_last_error"] = "下载失败"
+
+            # 下载服务器列表
+            ok_srv = _download_remote_file(REMOTE_SERVERS_URL, LOCAL_SERVERS_FILE)
+            with _download_status_lock:
+                if ok_srv:
+                    _download_status["servers_last_success"] = time.time()
+                    _download_status["servers_last_error"] = ""
+                    _download_status["remote_servers_available"] = True
+                    print(f"[远程下载] ✅ 服务器列表已更新: {LOCAL_SERVERS_FILE}")
+                else:
+                    _download_status["servers_last_error"] = "下载失败"
+                    # 如果本地文件不存在，标记为不可用
+                    if not Path(LOCAL_SERVERS_FILE).is_file():
+                        _download_status["remote_servers_available"] = False
+
+        except Exception as exc:
+            print(f"[远程下载] 意外错误: {exc}")
+
+        time.sleep(REMOTE_DOWNLOAD_INTERVAL)
+
+def start_remote_download_thread():
+    """启动后台远程文件下载线程（首次立即执行一次）"""
+    def _first_then_loop():
+        # 首次启动立即尝试下载一次（不等 30 秒）
+        try:
+            ok_db = _download_remote_file(REMOTE_CHINESE_DB_URL, LOCAL_CHINESE_DB_FILE)
+            with _download_status_lock:
+                if ok_db:
+                    _download_status["chinese_db_last_success"] = time.time()
+                    print(f"[远程下载] ✅ 首次标题映射下载成功")
+                else:
+                    _download_status["chinese_db_last_error"] = "首次下载失败"
+
+            ok_srv = _download_remote_file(REMOTE_SERVERS_URL, LOCAL_SERVERS_FILE)
+            with _download_status_lock:
+                if ok_srv:
+                    _download_status["servers_last_success"] = time.time()
+                    _download_status["remote_servers_available"] = True
+                    print(f"[远程下载] ✅ 首次服务器列表下载成功")
+                else:
+                    _download_status["servers_last_error"] = "首次下载失败"
+                    if not Path(LOCAL_SERVERS_FILE).is_file():
+                        _download_status["remote_servers_available"] = False
+        except Exception as exc:
+            print(f"[远程下载] 首次下载异常: {exc}")
+
+        # 进入循环
+        remote_download_worker()
+
+    t = threading.Thread(target=_first_then_loop, daemon=True, name="remote-downloader")
+    t.start()
+    print(f"[远程下载] 后台下载线程已启动，间隔 {REMOTE_DOWNLOAD_INTERVAL} 秒")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 标题映射加载（优先读取本地已下载文件，失败降级到内置）
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_game_titles() -> dict[str, str]:
+    """从本地 chinese_db.json 加载标题映射，失败则降级到内置"""
+    merged_titles = dict(BUILTIN_GAME_TITLES)
+    local_path = Path(LOCAL_CHINESE_DB_FILE)
+
+    if local_path.is_file():
+        try:
+            with open(local_path, "r", encoding="utf-8-sig") as f:
+                data = json.load(f)
             if isinstance(data, dict):
                 for k, v in data.items():
                     if k and v:
                         merged_titles[str(k).upper()] = str(v)
-                print(f"[配置] 成功加载远程标题映射，共计 {len(data)} 条，合并后总数: {len(merged_titles)}")
+                print(f"[配置] 从本地文件加载标题映射: {LOCAL_CHINESE_DB_FILE}，共 {len(data)} 条，合并后总数: {len(merged_titles)}")
+                return merged_titles
             else:
-                print("[配置警告] 远程标题映射格式不正确")
-    except Exception as exc:
-        print(f"[配置警告] 无法从远程读取标题映射（{exc}），将降级使用内置映射")
+                print(f"[配置警告] 本地标题映射格式不正确: {LOCAL_CHINESE_DB_FILE}")
+        except Exception as exc:
+            print(f"[配置警告] 读取本地标题映射失败（{exc}），将使用内置映射")
+    else:
+        print(f"[配置警告] 本地标题映射文件不存在: {LOCAL_CHINESE_DB_FILE}，将使用内置映射")
+
+    print(f"[配置] 使用内置标题映射，共 {len(merged_titles)} 条")
     return merged_titles
 
 GAME_TITLES = dict(BUILTIN_GAME_TITLES)
@@ -668,7 +701,16 @@ class ActiveRoomScanner:
                 return [], str(exc)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 服务器配置管理（优先级：内置 > 远程 > 手动添加 / 环境变量）
+# 服务器配置管理
+#
+# 优先级（从高到低）：
+#   1. 远程仓库下载的 servers.json（本地文件）  ← 主要来源
+#   2. 环境变量 SERVERS_FILE 指定的文件         ← 用户自定义
+#   3. 内置 DEFAULT_SERVERS                     ← 仅远程不可用时的兜底
+#
+# 规则：
+#   - 远程服务器列表下载成功 → 隐藏内置服务器，仅使用远程列表
+#   - 远程服务器列表下载失败  → 合并内置服务器作为兜底
 # ══════════════════════════════════════════════════════════════════════════════
 
 def validate_server(raw: Any) -> dict[str, Any]:
@@ -693,7 +735,7 @@ def validate_server(raw: Any) -> dict[str, Any]:
         raise ValueError(f"服务器 {server_id} 的端口无效")
     if protocol not in {"graphql", "rest"}:
         raise ValueError(f"服务器 {server_id} 的 type 仅支持 graphql/rest")
-    
+
     res = {"id": server_id, "name": name, "host": host, "port": port, "type": protocol, "region": region}
     if "is_builtin" in raw:
         res["is_builtin"] = raw["is_builtin"]
@@ -705,68 +747,95 @@ def validate_server(raw: Any) -> dict[str, Any]:
         res["is_env"] = raw["is_env"]
     return res
 
+def _load_servers_from_file(file_path: str) -> list[dict[str, Any]]:
+    """从指定文件加载并校验服务器列表"""
+    servers = []
+    path = Path(file_path)
+    if not path.is_file():
+        return servers
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        if isinstance(raw, list):
+            for item in raw:
+                try:
+                    srv = validate_server(item)
+                    servers.append(srv)
+                except Exception as exc:
+                    print(f"[配置警告] 服务器项解析失败: {exc}")
+        else:
+            print(f"[配置警告] 服务器列表格式不正确: {file_path}")
+    except Exception as exc:
+        print(f"[配置警告] 读取服务器列表失败 {file_path}: {exc}")
+    return servers
+
 def load_servers() -> list[dict[str, Any]]:
+    """
+    加载服务器列表，优先级从高到低：
+    1. 本地 servers.json（远程仓库下载落盘的文件）—— 主要来源
+    2. 环境变量 SERVERS_FILE 指定的文件         —— 用户自定义
+    3. 手动添加的服务器（servers_manual.json）
+    4. 仅当「本地 servers.json 文件不存在」才加载内置兜底
+    """
     merged: dict[str, dict[str, Any]] = {}
     builtin_ids = set()
     remote_ids = set()
     env_ids = set()
 
-    for item in DEFAULT_SERVERS:
-        try:
-            srv = validate_server(item)
-            srv["is_builtin"] = True
-            merged[srv["id"]] = srv
-            builtin_ids.add(srv["id"])
-        except Exception as exc:
-            print(f"[配置警告] 内置服务器项解析失败: {exc}")
+    # 本地 servers.json 是否存在
+    local_exists = Path(LOCAL_SERVERS_FILE).is_file()
 
-    try:
-        req = urllib.request.Request(
-            REMOTE_SERVERS_URL,
-            headers={"User-Agent": f"{APP_NAME}/1.0", "Accept": "application/json"}
-        )
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        
-        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
-            remote_data = json.loads(resp.read().decode("utf-8-sig"))
-            if isinstance(remote_data, list):
-                for item in remote_data:
-                    srv = validate_server(item)
-                    srv["is_remote"] = True
-                    merged[srv["id"]] = srv
-                    remote_ids.add(srv["id"])
-    except Exception as exc:
-        print(f"[配置警告] 无法从远程读取服务器列表（{exc}）")
+    # 尝试从本地 servers.json 加载（远程下载的产物）
+    if local_exists:
+        remote_servers = _load_servers_from_file(LOCAL_SERVERS_FILE)
+        if remote_servers:
+            for srv in remote_servers:
+                srv.setdefault("is_remote", True)
+                merged[srv["id"]] = srv
+                remote_ids.add(srv["id"])
+            print(f"[配置] 使用本地服务器列表，共 {len(remote_servers)} 台")
+        else:
+            # 文件存在但解析为空 → 视为没有可用列表，走内置兜底
+            print(f"[配置警告] 本地服务器列表为空，使用内置服务器兜底")
+            local_exists = False
 
+    # 只有「本地文件不存在」才用内置兜底（不再关心远程下载是否成功）
+    use_builtin = not local_exists
+
+    if use_builtin:
+        print(f"[配置] 本地服务器列表不存在，使用内置服务器兜底")
+        for item in DEFAULT_SERVERS:
+            try:
+                srv = validate_server(item)
+                srv["is_builtin"] = True
+                merged[srv["id"]] = srv
+                builtin_ids.add(srv["id"])
+            except Exception as exc:
+                print(f"[配置警告] 内置服务器项解析失败: {exc}")
+
+    # 环境变量指定的配置文件（用户自定义，始终追加）
     env_path_str = os.getenv("SERVERS_FILE", "").strip()
     if env_path_str and env_path_str != DEFAULT_SERVERS_FILE:
         env_path = Path(env_path_str).expanduser()
         if env_path.is_file():
-            try:
-                raw = json.loads(env_path.read_text(encoding="utf-8"))
-                if isinstance(raw, list):
-                    for item in raw:
-                        srv = validate_server(item)
-                        srv["is_env"] = True
-                        merged[srv["id"]] = srv
-                        env_ids.add(srv["id"])
-            except Exception as exc:
-                print(f"[配置警告] 读取环境变量指定配置文件失败: {exc}")
+            for srv in _load_servers_from_file(str(env_path)):
+                srv["is_env"] = True
+                merged[srv["id"]] = srv
+                env_ids.add(srv["id"])
 
-    local_path = Path(SERVERS_FILE)
-    if local_path.is_file():
-        try:
-            raw = json.loads(local_path.read_text(encoding="utf-8"))
-            if isinstance(raw, list):
-                for item in raw:
-                    srv = validate_server(item)
-                    if srv["id"] not in builtin_ids and srv["id"] not in remote_ids and srv["id"] not in env_ids:
-                        srv["is_manual"] = True
-                        merged[srv["id"]] = srv
-        except Exception as exc:
-            print(f"[配置警告] 读取同目录 servers.json 失败: {exc}")
+    # 手动添加的服务器（始终从独立文件加载，与远程下载的 servers.json 互不干扰）
+    manual_path = Path(MANUAL_SERVERS_FILE)
+    if manual_path.is_file():
+        for srv in _load_servers_from_file(str(manual_path)):
+            if srv["id"] not in builtin_ids and srv["id"] not in remote_ids and srv["id"] not in env_ids:
+                srv.setdefault("is_manual", True)
+                merged[srv["id"]] = srv
+    # 兼容：环境变量 SERVERS_FILE 指向其他文件时也加载
+    env_manual = Path(SERVERS_FILE)
+    if env_manual.is_file() and str(env_manual) != str(manual_path):
+        for srv in _load_servers_from_file(str(env_manual)):
+            if srv["id"] not in builtin_ids and srv["id"] not in remote_ids and srv["id"] not in env_ids:
+                srv.setdefault("is_manual", True)
+                merged[srv["id"]] = srv
 
     servers = list(merged.values())
     return servers
@@ -776,17 +845,18 @@ SERVERS_BY_ID = {item["id"]: item for item in SERVERS}
 ACTIVE_SCANNERS = {item["id"]: ActiveRoomScanner(item) for item in SERVERS}
 
 def refresh_config_and_servers() -> None:
+    """刷新配置：重新加载本地文件（由后台线程定期更新）"""
     global GAME_TITLES, SERVERS, SERVERS_BY_ID, ACTIVE_SCANNERS
     try:
         GAME_TITLES = load_game_titles()
     except Exception as e:
-        print(f"[配置错误] 刷新远程标题映射失败: {e}")
+        print(f"[配置错误] 刷新标题映射失败: {e}")
 
     try:
         new_servers = load_servers()
         SERVERS = new_servers
         SERVERS_BY_ID = {item["id"]: item for item in SERVERS}
-        
+
         current_ids = set(SERVERS_BY_ID.keys())
         for sid in list(ACTIVE_SCANNERS.keys()):
             if sid not in current_ids:
@@ -1067,7 +1137,7 @@ PAGE_HTML = r"""<!doctype html>
     .brand{display:flex;align-items:center;gap:12px;min-width:0;cursor:pointer}
     .logo{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(145deg,#fff970,#ffd626);box-shadow:inset 0 0 0 2px rgba(255,255,255,.7),0 4px 12px rgba(255,200,40,.25);font-size:16px;animation:pulse 3s ease-in-out infinite;flex-shrink:0}
     @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
-    
+
     .hero-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 
     .theme-toggle{border:0;width:38px;height:38px;border-radius:12px;background:#e1f1fa;color:var(--ink);cursor:pointer;display:grid;place-items:center;font-size:16px;transition:var(--transition);flex-shrink:0}
@@ -1088,9 +1158,12 @@ PAGE_HTML = r"""<!doctype html>
       :root:not(.light) .icon-btn:hover{background:rgba(255,255,255,.15)}
     }
 
-    .dot{width:10px;height:10px;border-radius:50%;background:var(--cyan);box-shadow:0 0 0 6px rgba(25,200,174,.13);animation:pulse-dot 2s ease-in-out infinite}
+    .dot{width:12px;height:12px;border-radius:50%;background:#19c8ae;box-shadow:0 0 0 6px rgba(25,200,174,.13);animation:pulse-dot 2s ease-in-out infinite;flex-shrink:0}
+    .dot.online{background:#19c8ae;box-shadow:0 0 0 6px rgba(25,200,174,.15)}
+    .dot.offline{background:#dc3048;box-shadow:0 0 0 6px rgba(220,48,72,.15);animation:none}
+    .dot.checking{background:#e8820c;box-shadow:0 0 0 6px rgba(232,130,12,.12)}
     @keyframes pulse-dot{0%,100%{box-shadow:0 0 0 6px rgba(25,200,174,.13)}50%{box-shadow:0 0 0 10px rgba(25,200,174,.06)}}
-    .scan{display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700;font-size:13px;flex-shrink:0}
+    .scan{display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700;font-size:13px;flex-shrink:0;justify-content:flex-end}
     .refresh{border:0;border-radius:12px;padding:10px 18px;background:#e1f1fa;color:var(--ink);font-weight:750;cursor:pointer;font-size:13.5px;transition:var(--transition);display:inline-flex;align-items:center;gap:6px}
     .refresh:hover{background:#cce9f9;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.08)}
     .refresh:active{transform:translateY(0)}
@@ -1138,9 +1211,20 @@ PAGE_HTML = r"""<!doctype html>
     .server-group.dragging{opacity:0.4;transform:scale(0.98);box-shadow:0 20px 40px rgba(0,0,0,0.15)}
     .server-group.drag-over{border:2px dashed var(--cyan);background:rgba(25,200,174,.05)}
 
-    .server-group.is-manual::after{
-      content:'手动';position:absolute;top:6px;right:8px;font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(25,200,174,.15);color:var(--cyan);font-weight:700;pointer-events:none;
-    }
+    .server-group.is-manual::after,
+    .server-group.is-remote::after,
+    .server-group.is-builtin::after{ display:none; }
+
+    .card-badges{position:absolute;top:6px;right:8px;display:flex;align-items:center;gap:4px;z-index:2}
+    .badge{font-size:9px;padding:1px 6px;border-radius:4px;font-weight:700;line-height:1.6}
+    .badge-builtin{background:rgba(232,130,12,.15);color:var(--orange)}
+    .badge-remote{background:rgba(26,115,192,.15);color:#1a73c0}
+    .badge-manual{background:rgba(25,200,174,.15);color:var(--cyan)}
+    .del-btn{border:0;width:18px;height:18px;border-radius:4px;display:grid;place-items:center;
+      background:rgba(220,48,72,.12);color:var(--red);font-size:11px;line-height:1;cursor:pointer;
+      transition:all .2s;padding:0;}
+    .del-btn:hover{background:rgba(220,48,72,.25);color:#fff}
+    .del-btn:active{transform:scale(.9)}
     .server-group:hover{box-shadow:0 10px 30px rgba(82,142,178,.1)}
 
     .server-head{
@@ -1153,17 +1237,18 @@ PAGE_HTML = r"""<!doctype html>
     @media (prefers-color-scheme: dark){:root:not(.light) .server-head:hover{background:rgba(255,255,255,.03)}}
 
     .server-status-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;position:relative}
-    .server-status-dot.online{background:#19c8ae;box-shadow:0 0 0 4px rgba(25,200,174,.15)}
-    .server-status-dot.offline{background:#dc3048;box-shadow:0 0 0 4px rgba(220,48,72,.12)}
+    .server-status-dot.online{background:#19c8ae;box-shadow:0 0 0 4px rgba(25,200,174,.15);animation:server-pulse-online 2s ease-in-out infinite}
+    .server-status-dot.offline{background:#dc3048;box-shadow:0 0 0 4px rgba(220,48,72,.12);animation:none}
     .server-status-dot.checking{background:#e8820c;box-shadow:0 0 0 4px rgba(232,130,12,.12);animation:pulse-dot 1.5s ease-in-out infinite}
+    @keyframes server-pulse-online{0%,100%{box-shadow:0 0 0 4px rgba(25,200,174,.15),0 0 0 0 rgba(25,200,174,.25)}50%{box-shadow:0 0 0 8px rgba(25,200,174,.08),0 0 12px 4px rgba(25,200,174,.2)}}
 
     .server-info{flex:1;min-width:0}
-    .server-name{font-size:16px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .server-name{font-size:16px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer;user-select:text;padding:4px 8px;margin:-4px -8px;border-radius:8px;transition:var(--transition)}
+    .server-name:hover{background:rgba(125,175,210,.1)}
+    .server-name:active{background:rgba(25,200,174,.15)}
+    .server-name.copied{color:#19c8ae;background:rgba(25,200,174,.12)}
     .server-name .region{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(125,175,210,.12);color:var(--muted)}
-    .server-detail{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    .addr-text{cursor:pointer;user-select:all;transition:color .2s,background .2s;padding:1px 6px;border-radius:6px}
-    .addr-text:hover{color:var(--ink);background:rgba(125,175,210,.12)}
-    .addr-text:active{background:rgba(25,200,174,.15)}
+    .server-detail{display:none}
     .addr-copied{color:#19c8ae!important;background:rgba(25,200,174,.12)!important}
 
     .server-stats{
@@ -1337,7 +1422,7 @@ PAGE_HTML = r"""<!doctype html>
       .server-status-dot{width:10px;height:10px}
       .server-name{font-size:13.5px;gap:5px}
       .server-name .region{font-size:10px;padding:1px 6px}
-      .server-detail{font-size:11px;gap:6px;margin-top:2px}
+      .server-detail{display:none}
       .server-stats{width:210px;gap:4px}
       .server-stats .stat-item span{font-size:9.5px}
       .server-stats .stat-item b{font-size:15px;height:18px;line-height:18px}
@@ -1361,7 +1446,7 @@ PAGE_HTML = r"""<!doctype html>
       .icon-btn{width:30px;height:30px;font-size:12px}
       .scan{font-size:10.5px;gap:6px}
       .scan .refresh{padding:6px 10px;font-size:11px}
-      .server-detail .addr-text{display:none}
+      .server-detail{display:none}
       .server-stats{grid-template-columns:repeat(3,1fr);width:150px;}
       .server-stats .stat-item.idle{display:none}
     }
@@ -1378,10 +1463,11 @@ PAGE_HTML = r"""<!doctype html>
       <a class="brand" href="https://www.tomodachilife.cn/downloads/ldn-mitm/latest" target="_blank" rel="noopener noreferrer"><span class="logo">🎮</span></a>
       <button id="openLogModalBtn" class="icon-btn" title="查看运行日志">💻</button>
       <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
+      <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
       <button id="themeToggleBtn" class="theme-toggle" title="切换浅色/深色主题">🌙</button>
     </div>
     <div class="scan">
-      <i class="dot"></i><span>实时扫描</span>
+      <i id="netDot" class="dot" title="检测网络连接中..."></i>
       <button id="refreshBtn" class="refresh">
         <span class="spinner"></span>
         <span class="refresh-text"><span>刷新</span></span>
@@ -1429,6 +1515,48 @@ PAGE_HTML = r"""<!doctype html>
             <span class="btn-text">立即添加并保存</span>
           </button>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除确认弹窗 -->
+  <div id="deleteConfirmModal" class="custom-modal">
+    <div class="custom-modal-box" style="width:min(380px,calc(100% - 32px));">
+      <div class="custom-modal-header">
+        <span>⚠️ 确认删除</span>
+        <button id="closeDeleteModalBtn" class="custom-modal-close">✕</button>
+      </div>
+      <div class="custom-modal-body">
+        <p id="deleteConfirmText" style="margin:0 0 20px;font-size:14px;color:var(--ink);line-height:1.6;"></p>
+        <div style="display:flex;gap:10px;">
+          <button id="deleteCancelBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:rgba(125,175,210,.15);color:var(--ink);font-weight:700;cursor:pointer;font-size:14px;transition:var(--transition);">
+            取消
+          </button>
+          <button id="deleteConfirmBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:var(--red);color:#fff;font-weight:800;cursor:pointer;font-size:14px;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:6px;">
+            确认删除
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 恢复默认排序确认弹窗 -->
+  <div id="resetOrderModal" class="custom-modal">
+    <div class="custom-modal-box" style="width:min(380px,calc(100% - 32px));">
+      <div class="custom-modal-header">
+        <span>🔄 恢复默认排序</span>
+        <button id="closeResetModalBtn" class="custom-modal-close">✕</button>
+      </div>
+      <div class="custom-modal-body">
+        <p style="margin:0 0 20px;font-size:14px;color:var(--ink);line-height:1.6;">确定要恢复默认排序吗？当前自定义排序将被清除。</p>
+        <div style="display:flex;gap:10px;">
+          <button id="resetCancelBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:rgba(125,175,210,.15);color:var(--ink);font-weight:700;cursor:pointer;font-size:14px;transition:var(--transition);">
+            取消
+          </button>
+          <button id="resetConfirmBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:var(--cyan);color:#fff;font-weight:800;cursor:pointer;font-size:14px;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:6px;">
+            确认恢复
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1522,7 +1650,7 @@ PAGE_HTML = r"""<!doctype html>
       });
       const d = await res.json();
       if(!res.ok || !d.ok) throw new Error(d.error || '添加失败');
-      
+
       $('addName').value = '';
       $('addHost').value = '';
       $('addRegion').value = '';
@@ -1546,27 +1674,221 @@ PAGE_HTML = r"""<!doctype html>
     }
   });
 
-  async function deleteServer(serverId, serverName) {
-    if(!confirm(`确定要删除手动添加的服务器「${serverName}」吗？`)) return;
+  // 删除确认弹窗逻辑
+  const deleteModal = $('deleteConfirmModal');
+  let pendingDelete = null; // { id, name, cardEl }
+
+  function openDeleteConfirm(serverId, serverName, cardEl) {
+    pendingDelete = { id: serverId, name: serverName, cardEl: cardEl };
+    $('deleteConfirmText').textContent = `确定要删除服务器「${serverName}」吗？此操作不可恢复。`;
+    deleteModal.classList.add('open');
+  }
+
+  $('closeDeleteModalBtn').addEventListener('click', () => {
+    deleteModal.classList.remove('open');
+    pendingDelete = null;
+  });
+  $('deleteCancelBtn').addEventListener('click', () => {
+    deleteModal.classList.remove('open');
+    pendingDelete = null;
+  });
+  deleteModal.addEventListener('click', (e) => {
+    if(e.target === deleteModal) {
+      deleteModal.classList.remove('open');
+      pendingDelete = null;
+    }
+  });
+
+  $('deleteConfirmBtn').addEventListener('click', async () => {
+    if (!pendingDelete) return;
+    const { id, cardEl } = pendingDelete;
+    deleteModal.classList.remove('open');
+    pendingDelete = null;
+
     try {
       const res = await fetch('/api/servers/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: serverId })
+        body: JSON.stringify({ id })
       });
       const d = await res.json();
       if(!res.ok || !d.ok) throw new Error(d.error || '删除失败');
+      // 立即从 DOM 移除，无需等待下一次 load()
+      if (cardEl && cardEl.parentNode) {
+        cardEl.parentNode.removeChild(cardEl);
+      }
+      // 同步清掉缓存，避免 renderServers 把它加回来
+      if (state._domCache) state._domCache.delete(id);
+      state.servers = state.servers.filter(s => s.id !== id);
+      // 清除排序缓存中已删除的服务器
+      const cachedOrder = localStorage.getItem('lan_play_server_order');
+      if (cachedOrder) {
+        try {
+          const orderArr = JSON.parse(cachedOrder).filter(sid => sid !== id);
+          localStorage.setItem('lan_play_server_order', JSON.stringify(orderArr));
+        } catch(e) {}
+      }
+      // 重新计算概览数字
+      const onlineCount = state.servers.filter(s => s.status==='online').length;
+      const totalOnline = state.servers.filter(s=>s.status==='online').reduce((a,s)=>a+(s.online||0),0);
+      const totalIdle = state.servers.filter(s=>s.status==='online').reduce((a,s)=>a+(s.idle||0),0);
+      $('ovServers').textContent = `${onlineCount}/${state.servers.length}`;
+      $('ovOnline').textContent = totalOnline;
+      $('ovIdle').textContent = totalIdle;
+      // 后台静默刷新，保持列表最新
       load(true);
     } catch(e) {
       alert('删除失败: ' + e.message);
     }
-  }
+  });
+
+  // 恢复默认排序逻辑
+  const resetModal = $('resetOrderModal');
+
+  $('resetOrderBtn').addEventListener('click', () => {
+    resetModal.classList.add('open');
+  });
+
+  $('closeResetModalBtn').addEventListener('click', () => {
+    resetModal.classList.remove('open');
+  });
+  $('resetCancelBtn').addEventListener('click', () => {
+    resetModal.classList.remove('open');
+  });
+  resetModal.addEventListener('click', (e) => {
+    if(e.target === resetModal) {
+      resetModal.classList.remove('open');
+    }
+  });
+
+  $('resetConfirmBtn').addEventListener('click', async () => {
+    resetModal.classList.remove('open');
+    try {
+      // 清除 localStorage 中的排序缓存
+      localStorage.removeItem('lan_play_server_order');
+      // 通知后端清除排序（后端重新按默认顺序返回）
+      await fetch('/api/servers/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: [], reset: true })
+      }).catch(()=>{});
+      // 强制重新加载数据并渲染（恢复默认顺序）
+      await load(true);
+    } catch(e) {
+      alert('恢复默认排序失败: ' + e.message);
+    }
+  });
 
   async function getJSON(url){
     const r = await fetch(url, { headers:{ Accept:'application/json' }, cache:'no-store' });
     const d = await r.json().catch(() => ({}));
     if(!r.ok || d.ok === false) throw new Error(d.error || `请求失败 (${r.status})`);
     return d;
+  }
+
+  // ═══ 网络连通性检测（调用后端 /api/network-status，后端检测百度） ═══
+  const netDot = $('netDot');
+  let netCheckTimer = null;
+  let lastNetState = ''; // 'online' | 'offline' | 'checking' | ''
+
+  async function checkNetwork(force) {
+    if (!netDot) return;
+    // 先切换到 checking 状态
+    const prevState = lastNetState;
+    netDot.classList.remove('online', 'offline');
+    netDot.classList.add('checking');
+    netDot.title = '正在检测网络连接...';
+    lastNetState = 'checking';
+    try {
+      const url = '/api/network-status' + (force ? '?refresh=1' : '?_=' + Date.now());
+      const data = await getJSON(url);
+      // 成功拿到结果后才更新状态
+      netDot.classList.remove('checking');
+      if (data.ok && data.online) {
+        netDot.classList.add('online');
+        netDot.title = '网络正常';
+        lastNetState = 'online';
+      } else {
+        netDot.classList.add('offline');
+        netDot.title = '无网络连接';
+        lastNetState = 'offline';
+      }
+    } catch(e) {
+      netDot.classList.remove('checking');
+      netDot.classList.add('offline');
+      netDot.title = '网络检测失败：' + e.message;
+      lastNetState = 'offline';
+    }
+    // 如果状态发生了实质性变化（online <-> offline），立即用 force 再检测一次以确认
+    if (prevState && prevState !== lastNetState && lastNetState !== 'checking') {
+      setTimeout(() => { checkNetwork(true); }, 3000);
+    }
+  }
+
+  // 每 2 秒检测一次，更及时反映网络变化
+  function scheduleNetworkCheck() {
+    if (netCheckTimer) clearInterval(netCheckTimer);
+    netCheckTimer = setInterval(checkNetwork, 2000);
+  }
+
+  // 立即执行一次检测
+  checkNetwork();
+  scheduleNetworkCheck();
+
+  // ═══ 点击服务器名称 → 复制地址到剪贴板 ═══
+  function copyServerAddress(address, nameEl) {
+    if (!address) return;
+    const text = String(address);
+    const onSuccess = () => { showCopyToast(nameEl); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        showCopyToast(nameEl);
+      }).catch((err) => {
+        // 只在 clipboard API 真正失败时才 fallback，避免双重触发
+        console.warn('Clipboard API failed, using fallback', err);
+        fallbackCopy(text, nameEl);
+      });
+    } else {
+      fallbackCopy(text, nameEl);
+    }
+  }
+
+  function fallbackCopy(text, nameEl) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showCopyToast(nameEl); }
+    catch(e) { console.warn('复制失败', e); }
+    document.body.removeChild(ta);
+  }
+
+  function showCopyToast(nameEl) {
+    if (!nameEl) return;
+    // 清除之前可能存在的旧提示和定时器，防止叠加
+    if (nameEl._copyTag) {
+      try { nameEl.removeChild(nameEl._copyTag); } catch(e) {}
+      nameEl._copyTag = null;
+    }
+    if (nameEl._copyTimer) {
+      clearTimeout(nameEl._copyTimer);
+      nameEl._copyTimer = null;
+    }
+    nameEl.classList.add('copied');
+    const tag = document.createElement('span');
+    tag.className = 'copy-hint';
+    tag.style.cssText = 'font-size:11px;color:#19c8ae;font-weight:600;margin-left:6px;';
+    tag.textContent = '✓ 已复制';
+    nameEl.appendChild(tag);
+    nameEl._copyTag = tag;
+    nameEl._copyTimer = setTimeout(() => {
+      nameEl.classList.remove('copied');
+      if (nameEl.contains(tag)) nameEl.removeChild(tag);
+      nameEl._copyTag = null;
+      nameEl._copyTimer = null;
+    }, 1500);
   }
 
   const logModal = $('logModal');
@@ -1605,31 +1927,6 @@ PAGE_HTML = r"""<!doctype html>
   });
 
   const statusDot = s => s==='online' ? 'online' : s==='checking' ? 'checking' : 'offline';
-
-  function copyAddr(text, el){
-    const done = () => {
-      el.classList.add('addr-copied');
-      const original = el.textContent;
-      el.textContent = '✅ 已复制 ' + text;
-      setTimeout(() => {
-        el.classList.remove('addr-copied');
-        el.textContent = original;
-      }, 1500);
-    };
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
-    } else {
-      fallbackCopy(text, done);
-    }
-  }
-  function fallbackCopy(text, cb){
-    const ta = document.createElement('textarea');
-    ta.value = text; ta.style.position='fixed'; ta.style.left='-9999px';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); } catch(e){}
-    document.body.removeChild(ta);
-    cb && cb();
-  }
 
   function latencyHTML(s){
     if(s.status !== 'online' || s.error || s.latency_ms == null || s.latency_ms < 0){
@@ -1754,14 +2051,12 @@ PAGE_HTML = r"""<!doctype html>
     }
   }
 
-  // 拖拽排序核心逻辑：支持鼠标与触控长按3秒触发
+  // 拖拽排序核心逻辑
   let draggedEl = null;
-  let dragPressTimer = null;
 
   function initDragAndDrop(div, s) {
     div.setAttribute('draggable', 'true');
 
-    // 鼠标拖拽事件
     div.addEventListener('dragstart', (e) => {
       draggedEl = div;
       div.classList.add('dragging');
@@ -1800,50 +2095,78 @@ PAGE_HTML = r"""<!doctype html>
         } else {
           div.parentNode.insertBefore(draggedEl, div);
         }
+        // 拖放完成后立即保存排序（实时持久化）
+        saveCurrentOrder();
       }
     });
 
-    // 长按逻辑（长按3秒触发删除或特定动作，如需拖拽也可以绑定长按震动/提示）
-    let pressTimer = null;
-    const startPress = () => {
-      if(pressTimer) clearTimeout(pressTimer);
-      pressTimer = setTimeout(() => {
-        if (s.is_manual) {
-          deleteServer(s.id, s.name);
-        } else {
-          // 非手动服务器长按可触发提示或选中状态
-          if(navigator.vibrate) navigator.vibrate(50);
-        }
-      }, 3000); // 长按3秒触发
-    };
-    const cancelPress = () => {
-      if(pressTimer) clearTimeout(pressTimer);
-    };
-
-    div.addEventListener('touchstart', startPress, {passive:true});
-    div.addEventListener('touchend', cancelPress, {passive:true});
-    div.addEventListener('touchmove', cancelPress, {passive:true});
-
-    div.addEventListener('mousedown', startPress);
-    div.addEventListener('mouseup', cancelPress);
-    div.addEventListener('mouseleave', cancelPress);
+    // 手动服务器的删除按钮
+    if (s.is_manual) {
+      const delBtn = div.querySelector('.del-btn');
+      if (delBtn) {
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openDeleteConfirm(s.id, s.name, div);
+        });
+      }
+    }
   }
 
   function saveCurrentOrder() {
     const list = $('serverList');
     const ids = Array.from(list.querySelectorAll('.server-group')).map(el => el.dataset.id);
+    // 同步 state.servers 顺序
     const newServers = [];
     ids.forEach(id => {
       const s = state.servers.find(item => item.id === id);
       if(s) newServers.push(s);
     });
     state.servers = newServers;
-    // 同步到后端保存顺序
+    // 持久化到 localStorage，刷新页面后恢复
+    try {
+      localStorage.setItem('lan_play_server_order', JSON.stringify(ids));
+    } catch(e) {}
+    // 同步到后端
     fetch('/api/servers/reorder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order: ids })
     }).catch(()=>{});
+  }
+
+  function loadSavedOrder() {
+    try {
+      const cached = localStorage.getItem('lan_play_server_order');
+      if (!cached) return null;
+      const orderArr = JSON.parse(cached);
+      if (!Array.isArray(orderArr) || orderArr.length === 0) return null;
+      // 按缓存顺序重排 state.servers
+      const map = {};
+      state.servers.forEach(s => { map[s.id] = s; });
+      const ordered = [];
+      orderArr.forEach(id => { if (map[id]) ordered.push(map[id]); });
+      // 把缓存里没有的新服务器追加到末尾
+      state.servers.forEach(s => { if (!orderArr.includes(s.id)) ordered.push(s); });
+      if (ordered.length > 0) {
+        state.servers = ordered;
+        return orderArr;
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  function getServerBadge(s) {
+    if (s.is_builtin) return '<span class="badge badge-builtin">内置</span>';
+    if (s.is_remote)  return '<span class="badge badge-remote">远程</span>';
+    if (s.is_manual)   return '<span class="badge badge-manual">手动</span><button class="del-btn" title="删除此服务器">✕</button>';
+    return '';
+  }
+
+  function getServerClass(s) {
+    if (s.is_builtin) return ' is-builtin';
+    if (s.is_remote) return ' is-remote';
+    if (s.is_manual) return ' is-manual';
+    return '';
   }
 
   function renderServers(){
@@ -1894,14 +2217,43 @@ PAGE_HTML = r"""<!doctype html>
         if(dotEl && dotEl.className !== 'server-status-dot '+dot) dotEl.className = 'server-status-dot ' + dot;
 
         const nameEl = group.querySelector('.server-name');
+        const address = s.address || `${s.host}:${s.port}`;
         const nameHtml = `${esc(s.name)} ${regionTxt}`;
-        if(nameEl && nameEl.innerHTML !== nameHtml) nameEl.innerHTML = nameHtml;
+        if(nameEl){
+          if(nameEl.innerHTML !== nameHtml) nameEl.innerHTML = nameHtml;
+          // 设置可复制属性
+          nameEl.title = '点击复制服务器地址: ' + address;
+          nameEl.dataset.address = address;
+          // 避免重复绑定
+          if(!nameEl._copyBound){
+            nameEl.addEventListener('click', (e) => {
+              e.stopPropagation(); // 不触发展开/折叠
+              copyServerAddress(nameEl.dataset.address, nameEl);
+            });
+            nameEl._copyBound = true;
+          }
+        }
 
+        // 刷新右上角徽章+删除按钮
+        const badgeContainer = group.querySelector('.card-badges');
+        if (badgeContainer) {
+          const newBadge = getServerBadge(s);
+          if (badgeContainer.innerHTML !== newBadge) {
+            badgeContainer.innerHTML = newBadge;
+            // 重新绑定删除按钮事件
+            const delBtn = badgeContainer.querySelector('.del-btn');
+            if (delBtn) {
+              delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openDeleteConfirm(s.id, s.name, group);
+              });
+            }
+          }
+        }
+
+        // 地址显示已移除
         const detailEl = group.querySelector('.server-detail');
-        const detailHtml = `<span class="addr-text" title="点击复制地址">${esc(s.address)}</span>`;
-        if(detailEl && detailEl.innerHTML !== detailHtml) detailEl.innerHTML = detailHtml;
-        const addrEl = group.querySelector('.addr-text');
-        if(addrEl && !addrEl._copyBound){ addrEl._copyBound=true; addrEl.addEventListener('click', (e)=>{ e.stopPropagation(); copyAddr(s.address, addrEl); }); }
+        if(detailEl && detailEl.innerHTML !== '') detailEl.innerHTML = '';
 
         const statBs = group.querySelectorAll('.stat-item b');
         if(statBs.length>=3){
@@ -1934,19 +2286,20 @@ PAGE_HTML = r"""<!doctype html>
         if(oldMsg) oldMsg.remove();
       } else {
         const isOpen = state.expanded.has(s.id) ? 'open' : '';
-        const manualClass = s.is_manual ? ' is-manual' : '';
+        const extraClass = getServerClass(s);
+        const badgeHtml = getServerBadge(s);
+        const address = s.address || `${s.host}:${s.port}`;
         const div = document.createElement('div');
-        div.className = `server-group ${isOpen}${manualClass}`;
+        div.className = `server-group ${isOpen}${extraClass}`;
         div.dataset.id = s.id;
         div.innerHTML = `
           <div class="server-head">
             <div class="server-status-dot ${dot}"></div>
             <div class="server-info">
-              <div class="server-name">${esc(s.name)} ${regionTxt}</div>
-              <div class="server-detail">
-                <span class="addr-text" title="点击复制地址">${esc(s.address)}</span>
-              </div>
+              <div class="server-name" title="点击复制服务器地址: ${esc(address)}" data-address="${esc(address)}">${esc(s.name)} ${regionTxt}</div>
+              <div class="server-detail"></div>
             </div>
+            <div class="card-badges">${badgeHtml}</div>
             <div class="server-stats">
               <div class="stat-item online"><span>在线</span><b>${s.online||0}</b></div>
               <div class="stat-item idle"><span>空闲</span><b>${s.idle||0}</b></div>
@@ -1962,17 +2315,23 @@ PAGE_HTML = r"""<!doctype html>
             ${roomsHtml}
           </div></div>`;
 
+        // 绑定点击复制地址
+        const nameEl = div.querySelector('.server-name');
+        if (nameEl) {
+          nameEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            copyServerAddress(nameEl.dataset.address, nameEl);
+          });
+        }
+
         initDragAndDrop(div, s);
 
         existing.set(s.id, div);
         div.querySelector('.server-head').addEventListener('click', (e) => {
-          if(e.target.closest('.addr-text')) return;
           const id = div.dataset.id;
           if(state.expanded.has(id)){ state.expanded.delete(id); div.classList.remove('open'); }
           else { state.expanded.add(id); div.classList.add('open'); }
         });
-        const addrEl = div.querySelector('.addr-text');
-        if(addrEl){ addrEl.addEventListener('click', (e) => { e.stopPropagation(); copyAddr(s.address, addrEl); }); }
       }
       order.push(existing.get(s.id));
     });
@@ -1983,6 +2342,8 @@ PAGE_HTML = r"""<!doctype html>
       order.forEach(el => frag.appendChild(el));
       list.appendChild(frag);
       state.firstLoad = false;
+      // 首次渲染后，把 DOM 顺序同步到 localStorage
+      saveCurrentOrder();
     } else {
       const current = Array.from(list.children);
       let changed = current.length !== order.length;
@@ -2056,6 +2417,9 @@ PAGE_HTML = r"""<!doctype html>
     state.servers = Array.isArray(data.servers) ? data.servers : [];
     state.rooms = Array.isArray(data.rooms) ? data.rooms : [];
 
+    // 恢复本地缓存的排序
+    loadSavedOrder();
+
     if(state.firstExpand){
       state.game = 'all_servers';
       state.firstExpand = false;
@@ -2098,7 +2462,7 @@ PAGE_HTML = r"""<!doctype html>
     try{
       const url = '/api/snapshot?refresh=' + (force?'1':'0') + '&_=' + Date.now();
       const data = await getJSON(url);
-      
+
       localStorage.setItem('lan_play_cache_servers', JSON.stringify(data.servers));
       localStorage.setItem('lan_play_cache_rooms', JSON.stringify(data.rooms));
 
@@ -2111,8 +2475,11 @@ PAGE_HTML = r"""<!doctype html>
         btn.querySelector('.refresh-text').innerHTML='<span>✓ 已刷新</span>';
         setTimeout(()=>{btn.classList.remove('success');}, 1200);
       }
+      // 刷新数据后顺带检测一次网络（强制刷新状态）
+      checkNetwork(true);
     }catch(e){
       btn.classList.remove('loading');
+      checkNetwork(true);
     }finally{
       state.loading = false;
       scheduleRefresh();
@@ -2197,10 +2564,53 @@ class MonitorHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             return
 
+        if path == "/api/network-status":
+            try:
+                force_check = wants_refresh(query)
+                net_status = get_network_status(force=force_check)
+                data = {"ok": True, "online": net_status["online"]}
+                body, headers, status = make_json_response(data)
+                self.send_response(status)
+                for k, v in headers.items():
+                    self.send_header(k, v)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                err_data = {"ok": False, "error": str(e)}
+                body, headers, status = make_json_response(err_data, status=500)
+                self.send_response(status)
+                for k, v in headers.items():
+                    self.send_header(k, v)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            return
+
         if path == "/api/logs":
             try:
                 logs = log_capturer.get_logs()
-                data = {"ok": True, "logs": logs}
+                # 附加远程下载状态信息
+                with _download_status_lock:
+                    status_info = dict(_download_status)
+                log_lines = list(logs)
+                if status_info.get("remote_servers_available"):
+                    log_lines.append(f"[远程下载] 服务器列表: 正常 | 上次成功: {time.strftime('%H:%M:%S', time.localtime(status_info.get('servers_last_success', 0)))}")
+                else:
+                    log_lines.append("[远程下载] 服务器列表: 不可用（使用内置兜底）")
+                if status_info.get("chinese_db_last_error"):
+                    ts = status_info.get("chinese_db_last_success", 0)
+                    if ts:
+                        log_lines.append(f"[远程下载] 标题映射: {status_info['chinese_db_last_error']} | 上次成功: {time.strftime('%H:%M:%S', time.localtime(ts))}")
+                    else:
+                        log_lines.append(f"[远程下载] 标题映射: {status_info['chinese_db_last_error']}")
+                else:
+                    ts = status_info.get("chinese_db_last_success", 0)
+                    if ts:
+                        log_lines.append(f"[远程下载] 标题映射: 正常 | 上次成功: {time.strftime('%H:%M:%S', time.localtime(ts))}")
+                    else:
+                        log_lines.append("[远程下载] 标题映射: 正常")
+                data = {"ok": True, "logs": log_lines}
                 body, headers, status = make_json_response(data)
                 self.send_response(status)
                 for k, v in headers.items():
@@ -2253,7 +2663,8 @@ class MonitorHandler(BaseHTTPRequestHandler):
                 }
                 validated = validate_server(new_server)
 
-                local_path = Path(SERVERS_FILE)
+                # 手动添加的服务器写入到 MANUAL_SERVERS_FILE（与远程下载的 servers.json 独立）
+                local_path = Path(MANUAL_SERVERS_FILE)
                 existing_list = []
                 if local_path.is_file():
                     try:
@@ -2262,10 +2673,10 @@ class MonitorHandler(BaseHTTPRequestHandler):
                             existing_list = []
                     except Exception:
                         existing_list = []
-                
+
                 existing_list.append(validated)
                 local_path.write_text(json.dumps(existing_list, ensure_ascii=False, indent=2), encoding="utf-8")
-                
+
                 refresh_config_and_servers()
 
                 data = {"ok": True, "server": validated}
@@ -2290,17 +2701,18 @@ class MonitorHandler(BaseHTTPRequestHandler):
         if path == "/api/servers/delete":
             try:
                 sid = str(req_json.get("id", "")).strip()
-                local_path = Path(SERVERS_FILE)
+                # 只能删除手动添加的服务器
+                local_path = Path(MANUAL_SERVERS_FILE)
                 if not local_path.is_file():
                     raise RuntimeError("没有找到本地配置文件")
-                
+
                 existing_list = json.loads(local_path.read_text(encoding="utf-8"))
                 if not isinstance(existing_list, list):
                     existing_list = []
-                
+
                 new_list = [item for item in existing_list if str(item.get("id")) != sid]
                 local_path.write_text(json.dumps(new_list, ensure_ascii=False, indent=2), encoding="utf-8")
-                
+
                 refresh_config_and_servers()
 
                 data = {"ok": True}
@@ -2325,8 +2737,23 @@ class MonitorHandler(BaseHTTPRequestHandler):
         if path == "/api/servers/reorder":
             try:
                 order = req_json.get("order", [])
-                if isinstance(order, list) and order:
-                    local_path = Path(SERVERS_FILE)
+                is_reset = req_json.get("reset", False)
+
+                if is_reset:
+                    # 恢复默认排序：重写 manual_servers 文件为原始顺序（按添加时间）
+                    local_path = Path(MANUAL_SERVERS_FILE)
+                    if local_path.is_file():
+                        try:
+                            ex_list = json.loads(local_path.read_text(encoding="utf-8"))
+                            if isinstance(ex_list, list):
+                                # 写回原始顺序（已经是按添加时间排列的）
+                                local_path.write_text(json.dumps(ex_list, ensure_ascii=False, indent=2), encoding="utf-8")
+                        except Exception:
+                            pass
+                    refresh_config_and_servers()
+                elif isinstance(order, list) and order:
+                    # 重排序仅影响手动添加的服务器列表
+                    local_path = Path(MANUAL_SERVERS_FILE)
                     existing_map = {}
                     if local_path.is_file():
                         try:
@@ -2335,7 +2762,7 @@ class MonitorHandler(BaseHTTPRequestHandler):
                                 existing_map = {str(item.get("id")): item for item in ex_list}
                         except Exception:
                             pass
-                    
+
                     reordered_list = []
                     for sid in order:
                         if sid in existing_map:
@@ -2343,7 +2770,7 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     for sid, item in existing_map.items():
                         if sid not in order:
                             reordered_list.append(item)
-                    
+
                     if reordered_list:
                         local_path.write_text(json.dumps(reordered_list, ensure_ascii=False, indent=2), encoding="utf-8")
                         refresh_config_and_servers()
@@ -2376,11 +2803,17 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
 
 def main() -> None:
+    # 启动后台远程文件下载线程（独立于前端 10 秒刷新）
+    start_remote_download_thread()
+
     port = int(os.getenv("PORT", "5000"))
     server_address = ("0.0.0.0", port)
     httpd = ThreadingHTTPServer(server_address, MonitorHandler)
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 监控服务已启动，监听端口: {port}")
     print(f"访问地址：http://0.0.0.0:{port}/")
+    print(f"[配置] 远程文件下载间隔: {REMOTE_DOWNLOAD_INTERVAL} 秒")
+    print(f"[配置] 远程服务器列表本地路径: {LOCAL_SERVERS_FILE}")
+    print(f"[配置] 远程标题映射本地路径: {LOCAL_CHINESE_DB_FILE}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
