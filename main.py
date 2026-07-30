@@ -1136,6 +1136,23 @@ PAGE_HTML = r"""<!doctype html>
     .brand-area{display:flex;align-items:center;gap:8px;min-width:0;flex-shrink:0}
     .brand{display:flex;align-items:center;gap:12px;min-width:0;cursor:pointer}
     .logo{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(145deg,#fff970,#ffd626);box-shadow:inset 0 0 0 2px rgba(255,255,255,.7),0 4px 12px rgba(255,200,40,.25);font-size:16px;animation:pulse 3s ease-in-out infinite;flex-shrink:0}
+    /* 联机插件地址复制成功弹窗 */
+    .plugin-toast{
+      position:fixed;left:50%;top:90px;transform:translateX(-50%) translateY(-16px);
+      background:linear-gradient(135deg,#19c8ae,#14a891);color:#fff;
+      padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;
+      box-shadow:0 8px 28px rgba(25,200,174,.35);z-index:9999;
+      opacity:0;pointer-events:none;transition:opacity .3s ease,transform .3s ease;
+      white-space:nowrap;
+    }
+    .plugin-toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+    html.dark .plugin-toast{background:linear-gradient(135deg,#2ee6c8,#1ab89a);color:#0f1923}
+    @media (prefers-color-scheme: dark){
+      :root:not(.light) .plugin-toast{background:linear-gradient(135deg,#2ee6c8,#1ab89a);color:#0f1923}
+    }
+    @media (max-width:600px){
+      .plugin-toast{font-size:12.5px;padding:10px 18px;top:80px;white-space:normal;text-align:center;max-width:calc(100% - 32px)}
+    }
     @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
 
     .hero-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
@@ -1459,7 +1476,8 @@ PAGE_HTML = r"""<!doctype html>
 <div class="page">
   <section class="hero glass">
     <div class="brand-area">
-      <a class="brand" href="https://www.tomodachilife.cn/downloads/ldn-mitm/latest" target="_blank" rel="noopener noreferrer"><span class="logo">🎮</span></a>
+      <button id="copyPluginBtn" class="brand" title="点击复制最新版联机插件地址" style="background:none;border:0;padding:0;font:inherit;color:inherit;"><span class="logo">🎮</span></button>
+      <div id="pluginToast" class="plugin-toast">已复制最新版联机插件地址！请前往浏览器下载</div>
       <button id="openLogModalBtn" class="icon-btn" title="查看运行日志">💻</button>
       <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
       <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
@@ -1858,6 +1876,39 @@ PAGE_HTML = r"""<!doctype html>
   // 立即执行一次检测
   checkNetwork();
   scheduleNetworkCheck();
+
+  // ═══ 点击导航栏游戏图标 → 复制最新版联机插件地址 ═══
+  const PLUGIN_DOWNLOAD_URL = 'https://www.tomodachilife.cn/downloads/ldn-mitm/latest';
+
+  function showPluginToast(){
+    const toast = $('pluginToast');
+    if(!toast) return;
+    toast.classList.add('show');
+    if(toast._timer){ clearTimeout(toast._timer); }
+    toast._timer = setTimeout(() => {
+      toast.classList.remove('show');
+      toast._timer = null;
+    }, 3000);
+  }
+
+  function copyPluginLink(){
+    const onSuccess = () => { showPluginToast(); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(PLUGIN_DOWNLOAD_URL).then(onSuccess).catch(()=>{
+        const ta=document.createElement('textarea');ta.value=PLUGIN_DOWNLOAD_URL;
+        ta.style.cssText='position:fixed;opacity:0';document.body.appendChild(ta);ta.select();
+        try{document.execCommand('copy');onSuccess();}catch(e){console.warn('复制失败',e);}
+        document.body.removeChild(ta);
+      });
+    } else {
+      const ta=document.createElement('textarea');ta.value=PLUGIN_DOWNLOAD_URL;
+      ta.style.cssText='position:fixed;opacity:0';document.body.appendChild(ta);ta.select();
+      try{document.execCommand('copy');onSuccess();}catch(e){console.warn('复制失败',e);}
+      document.body.removeChild(ta);
+    }
+  }
+
+  $('copyPluginBtn').addEventListener('click', copyPluginLink);
 
   // ═══ 点击服务器名称 → 复制地址到剪贴板 ═══
   function copyServerAddress(address, nameEl) {
