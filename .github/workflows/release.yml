@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 3. 安装系统依赖
+      # 3. 安装系统依赖（增加必要工具）
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -34,12 +34,13 @@ jobs:
             python3-pip autoconf libtool \
             pkg-config zlib1g-dev libncurses5-dev \
             libncursesw5-dev cmake \
-            libffi-dev libssl-dev
+            libffi-dev libssl-dev ccache
           pip3 install --upgrade pip setuptools
 
-      # 4. 安装 Buildozer 和 Cython
+      # 4. 安装 Buildozer 和 Cython（使用清华镜像加速）
       - name: Install Buildozer
         run: |
+          pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
           pip3 install buildozer cython
 
       # 5. 缓存 Buildozer 全局目录
@@ -73,10 +74,20 @@ jobs:
           echo "Version set to: ${{ inputs.version }}"
           grep "^version" buildozer.spec
 
-      # 8. 构建 APK（修复：去掉 clean 命令）
+      # 8. 构建 APK（核心修复：清除冲突的 NDK 环境变量，使用 Buildozer 自带的 NDK）
       - name: Build APK with Buildozer
         run: |
-          buildozer android release
+          # 清除系统自带的 NDK/SDK 环境变量，避免与 Buildozer 冲突
+          unset ANDROID_NDK_ROOT
+          unset ANDROID_NDK_LATEST_HOME
+          unset ANDROID_SDK_ROOT
+          unset ANDROID_HOME
+          
+          # 设置镜像加速
+          export P4A_mirror=https://mirrors.tuna.tsinghua.edu.cn/gitlab/kivy/
+          
+          # 执行构建（增加详细日志）
+          buildozer -v android release
 
       # 9. 定位生成的 APK
       - name: Locate APK file
