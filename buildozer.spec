@@ -42,6 +42,7 @@ android.permissions = INTERNET
 
 exclude_patterns = **/test/*, **/tests/*
 android.aab = False
+package.format = apk
 
 # 签名配置
 android.keystore = ./com.lanplay.monitor.keystore
