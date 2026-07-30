@@ -41,7 +41,9 @@ else
   
   # 解压并重命名
   unzip -o bin/output.apks -d bin/
-  mv bin/universal.apk bin/LanPlayMonitor-${VERSION:-1.0.0}-release.apk
+  # mv bin/universal.apk bin/LanPlayMonitor-${VERSION:-1.0.0}-release.apk
+  mv bin/universal.apk bin/LanPlayMonitor-release.apk
   echo "已成功将 AAB 转换为 APK"
-  echo "apk_path=bin/LanPlayMonitor-${VERSION:-1.0.0}-release.apk" >> $GITHUB_OUTPUT
+  # echo "apk_path=bin/LanPlayMonitor-${VERSION:-1.0.0}-release.apk" >> $GITHUB_OUTPUT
+  echo "apk_path=bin/LanPlayMonitor-release.apk" >> $GITHUB_OUTPUT
 fi
