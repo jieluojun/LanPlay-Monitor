@@ -1,10 +1,13 @@
 name: Build Android APK Release
 
 on:
-  push:
-    tags:
-      - 'v*'          # 推送 v1.0.0 这类标签时触发
-      - '*'           # 也可改为任意 tag 都触发，自行选择
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（例如 1.0.1）'
+        required: true
+        default: '1.0.1'
+        type: string
 
 jobs:
   build-android:
@@ -16,13 +19,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 设置 Python 环境（Buildozer 需要 Python 3.8+）
+      # 2. 设置 Python 环境
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 3. 安装系统依赖（Buildozer 编译 Android 所需）
+      # 3. 安装系统依赖
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -39,7 +42,7 @@ jobs:
         run: |
           pip3 install buildozer cython
 
-      # 5. 恢复缓存的 Buildozer 依赖（加速后续构建）
+      # 5. 缓存 Buildozer 全局目录（加速后续构建）
       - name: Cache Buildozer global directory
         uses: actions/cache@v4
         with:
@@ -53,36 +56,56 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > /home/runner/work/python-apk/AndAgain/com.lanplay.monitor.keystore
-            chmod 600 /home/runner/work/python-apk/AndAgain/com.lanplay.monitor.keystore
-            echo "Keystore decoded successfully."
-          else
-            echo "Warning: KEYSTORE_BASE64 secret not set. Build will use debug keystore."
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "Error: KEYSTORE_BASE64 secret is not set."
+            echo "请前往 Settings → Secrets and variables → Actions 添加 KEYSTORE_BASE64"
+            exit 1
           fi
+          mkdir -p /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+          echo "$KEYSTORE_BASE64" | base64 -d > /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/com.lanplay.monitor.keystore
+          chmod 600 /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/com.lanplay.monitor.keystore
+          echo "Keystore decoded successfully."
 
-      # 7. 用 Buildozer 构建 APK
+      # 7. 更新版本号
+      - name: Update version in buildozer.spec
+        run: |
+          sed -i "s/^version = .*/version = ${{ inputs.version }}/" buildozer.spec
+          echo "Version set to: ${{ inputs.version }}"
+          grep "^version" buildozer.spec
+
+      # 8. 构建 APK
       - name: Build APK with Buildozer
         run: |
           buildozer android clean
-          buildozer android debug
+          buildozer android release
 
-      # 8. 定位生成的 APK 文件
+      # 9. 定位生成的 APK
       - name: Locate APK file
         id: locate_apk
         run: |
           APK_PATH=$(find bin/ -name "*.apk" | head -1)
           if [ -z "$APK_PATH" ]; then
             echo "No APK found in bin/"
+            ls -la bin/ || true
             exit 1
           fi
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           echo "Found APK: $APK_PATH"
 
-      # 9. 创建 GitHub Release 并上传 APK
+      # 10. 上传 APK 为 Artifact（保留 30 天）
+      - name: Upload APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LanPlayMonitor-v${{ inputs.version }}-release
+          path: ${{ steps.locate_apk.outputs.apk_path }}
+          retention-days: 30
+
+      # 11. 创建 GitHub Release 并上传 APK
       - name: Create Release and Upload APK
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ inputs.version }}
+          name: Release v${{ inputs.version }}
           files: ${{ steps.locate_apk.outputs.apk_path }}
           generate_release_notes: true
           fail_on_unmatched_files: true
