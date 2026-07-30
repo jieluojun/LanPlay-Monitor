@@ -1,3 +1,3 @@
-# LanPlay Monitor For Android
+# LanPlayMonitor For Android
 
 lanplay 服务器面板
