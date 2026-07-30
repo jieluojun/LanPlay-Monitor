@@ -1,5 +1,5 @@
 [app]
-title = LanPlay Monitor
+title = LanPlayMonitor
 package.name = monitor
 package.domain = com.lanplay
 source.dir = .
