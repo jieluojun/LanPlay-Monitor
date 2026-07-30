@@ -1,11 +1,11 @@
 [app]
-title = LanPlayMonitor
+title = LanPlay Monitor
 package.name = monitor
 package.domain = com.lanplay
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf,json
 source.include_patterns = image/*
-version = 1.0.1
+version = 1.0.0
 
 # ===== WebView 配置 =====
 p4a.bootstrap = webview
