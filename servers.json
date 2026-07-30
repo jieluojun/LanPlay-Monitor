@@ -1,0 +1,106 @@
+[
+    {
+      "id": "1",
+      "name": "tekn0",
+      "host": "tekn0.net",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇺🇸 美国 加利福尼亚 旧金山 DigitalOcean"
+    },
+    {
+      "id": "2",
+      "name": "jaxlewis",
+      "host": "srv.jaxlewis.top",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇨🇳 中国 河南 郑州 联通"
+    },
+    {
+      "id": "3",
+      "name": "jaysea1",
+      "host": "switch.jayseateam.nl",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇳🇱  荷兰 北荷兰 阿姆斯特丹"
+    },
+    {
+      "id": "4",
+      "name": "jaysea2",
+      "host": "switch.jayseateam.nl",
+      "port": 11453,
+      "type": "graphql",
+      "region": "🇳🇱 荷兰 北荷兰 阿姆斯特丹"
+    },
+    {
+      "id": "5",
+      "name": "lbxmb",
+      "host": "lan.lbxmb.fr",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇫🇷 法国 法兰西岛 巴黎"
+    },
+    {
+      "id": "6",
+      "name": "muitxobem",
+      "host": "muitxobem-lanplay.ddns.net",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇺🇸 美国"
+    },   
+    {
+      "id": "7",
+      "name": "lp1",
+      "host": "lp1.cpalm.org",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇨🇳 中国 台湾 高雄 中華電信"
+    },
+    {
+      "id": "8",
+      "name": "owlet",
+      "host": "www.grayowlet.cn",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇨🇳 中国 内蒙古 锡林郭勒 联通"
+    },
+    {
+      "id": "9",
+      "name": "olunira",
+      "host": "olunira.fun",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇨🇳 中国 北京 阿里云"
+    },
+    {
+      "id": "10",
+      "name": "mulaosi",
+      "host": "ns.mulaosi.cn",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇨🇳 广东 清远 电信"
+    },
+    {
+      "id": "11",
+      "name": "r3ps4j",
+      "host": "switch.r3ps4j.nl",
+      "port": 11452,
+      "type": "graphql",
+      "region": "🇨🇳 丹麦 首都 哥本哈根"
+    },
+    {
+      "id": "12",
+      "name": "erdbeerbaerlp",
+      "host": "erdbeerbaerlp.de",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇩🇪 德国 萨克森"
+    },
+    {
+      "id": "13",
+      "name": "tomodachilife",
+      "host": "8.138.237.87",
+      "port": 11451,
+      "type": "graphql",
+      "region": "🇨🇳 中国 广东 广州 阿里云"
+    }
+]
