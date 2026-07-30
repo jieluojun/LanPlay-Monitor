@@ -27,13 +27,14 @@ android.allow_api_min = 21
 android.api = 33
 android.minapi = 21
 android.ndk = 25b
-# android.sdk = 33
+android.sdk = 33
 android.ndk_api = 21
 # 强制使用特定架构
 android.archs = arm64-v8a
 
 android.gradle_download = https://services.gradle.org/distributions/gradle-7.6.4-all.zip
 android.gradle_plugin = 7.4.2
+p4a.branch = develop
 # p4a.gradle_dependencies = gradle:7.6.4
 p4a.gradle_dependencies = gradle:7.6.4, androidx.webkit:webkit:1.9.0
 p4a.gradle_options = -Dorg.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64
