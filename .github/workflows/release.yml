@@ -9,6 +9,10 @@ on:
         default: '1.0.1'
         type: string
 
+# 添加全局权限配置，允许创建 Release
+permissions:
+  contents: write
+
 jobs:
   build-android:
     name: Build APK with Buildozer
