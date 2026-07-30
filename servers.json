@@ -5,7 +5,7 @@
       "host": "tekn0.net",
       "port": 11451,
       "type": "graphql",
-      "region": "🇺🇸 美国 加利福尼亚 旧金山 DigitalOcean"
+      "region": "🇺🇸 美国 加利福尼亚 旧金山"
     },
     {
       "id": "2",
@@ -13,7 +13,7 @@
       "host": "srv.jaxlewis.top",
       "port": 11451,
       "type": "graphql",
-      "region": "🇨🇳 中国 河南 郑州 联通"
+      "region": "🇨🇳 中国 河南 郑州"
     },
     {
       "id": "3",
@@ -53,7 +53,7 @@
       "host": "lp1.cpalm.org",
       "port": 11451,
       "type": "graphql",
-      "region": "🇨🇳 中国 台湾 高雄 中華電信"
+      "region": "🇨🇳 中国 台湾 高雄"
     },
     {
       "id": "8",
@@ -61,7 +61,7 @@
       "host": "www.grayowlet.cn",
       "port": 11451,
       "type": "graphql",
-      "region": "🇨🇳 中国 内蒙古 锡林郭勒 联通"
+      "region": "🇨🇳 中国 内蒙古 锡林郭勒"
     },
     {
       "id": "9",
