@@ -148,8 +148,8 @@ REQUEST_TIMEOUT = max(1.0, float(os.getenv("REQUEST_TIMEOUT", "3")))
 MAX_WORKERS = 32
 
 # 远程仓库地址
-REMOTE_CHINESE_DB_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlay-Monitor/refs/heads/main/chinese_db.json"
-REMOTE_SERVERS_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlay-Monitor/refs/heads/main/servers.json"
+REMOTE_CHINESE_DB_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/chinese_db.json"
+REMOTE_SERVERS_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/servers.json"
 
 # 下载到同目录的本地文件名
 LOCAL_CHINESE_DB_FILE = str(SCRIPT_DIR / "chinese_db.json")
@@ -1073,7 +1073,8 @@ PAGE_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" id="themeColorMeta" content="#dff3ff">
+  <meta name="theme-color" content="#dff3ff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1923" media="(prefers-color-scheme: dark)">
   <title>LAN-Play 房间监控</title>
   <style>
     :root{
@@ -1458,7 +1459,7 @@ PAGE_HTML = r"""<!doctype html>
 <div class="page">
   <section class="hero glass">
     <div class="brand-area">
-      <a class="brand" href="https://www.tomodachilife.cn/downloads/ldn-mitm/latest" target="_blank" rel="noopener noreferrer" onclick="openInExternalBrowser(this.href, event)"><span class="logo">🎮</span></a>
+      <a class="brand" href="https://www.tomodachilife.cn/downloads/ldn-mitm/latest" target="_blank" rel="noopener noreferrer"><span class="logo">🎮</span></a>
       <button id="openLogModalBtn" class="icon-btn" title="查看运行日志">💻</button>
       <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
       <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
@@ -1593,83 +1594,7 @@ PAGE_HTML = r"""<!doctype html>
     const isDark = htmlEl.classList.contains('dark') || (!localStorage.getItem('lan_play_theme') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     themeToggleBtn.textContent = isDark ? '🌞' : '🌙';
   }
-
-  // 动态更新手机状态栏颜色，跟随当前主题
-  function updateThemeColor() {
-    const meta = $('themeColorMeta');
-    if (!meta) return;
-    const isDark = htmlEl.classList.contains('dark') || (!localStorage.getItem('lan_play_theme') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    meta.content = isDark ? '#0f1923' : '#dff3ff';
-  }
-
-  // 在 WebView 中调用系统浏览器打开外部链接
-  function openInExternalBrowser(url, event) {
-    if (event) event.preventDefault();
-    // Android WebView: 通过 Native 桥接方法
-    if (window.Android && typeof window.Android.openBrowser === 'function') {
-      window.Android.openBrowser(url);
-      return;
-    }
-    // iOS WKWebView: 通过 webkit message handler
-    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openBrowser) {
-      window.webkit.messageHandlers.openBrowser.postMessage(url);
-      return;
-    }
-    // Android WebView 通用方案: 使用 intent:// scheme 唤起外部浏览器（无需 Native 配合）
-    if (/Android/i.test(navigator.userAgent)) {
-      const intentUrl = 'intent://' + url.replace(/^https?:\/\//, '') +
-        '#Intent;scheme=' + (url.startsWith('https') ? 'https' : 'http') +
-        ';package=com.android.chrome;end';
-      window.location.href = intentUrl;
-      // 如果 intent 失败（没有 Chrome），退回到直接导航
-      setTimeout(() => { window.location.href = url; }, 500);
-      return;
-    }
-    // 通用 fallback: 使用 window.open 新开标签页
-    const newWindow = window.open(url, '_blank');
-    if (!newWindow) {
-      // 弹窗被拦截时退回到直接导航
-      window.location.href = url;
-    }
-  }
-
-  // 为所有外部链接绑定点击处理
-  function bindExternalLinks() {
-    const links = document.querySelectorAll('a[href^="http"], a[href^="https"]');
-    links.forEach(link => {
-      // 跳过已有 onclick 处理的链接
-      if (link.hasAttribute('onclick')) return;
-      link.addEventListener('click', function(e) {
-        e.preventDefault();
-        openInExternalBrowser(this.href, e);
-      });
-    });
-  }
-
   updateThemeIcon();
-  updateThemeColor();
-  bindExternalLinks();
-
-  // 监听系统深色模式变化，自动同步状态栏颜色
-  if (window.matchMedia) {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e) => {
-      // 仅当用户未手动设置主题时，跟随系统
-      if (!localStorage.getItem('lan_play_theme')) {
-        if (e.matches) {
-          htmlEl.classList.add('dark');
-          htmlEl.classList.remove('light');
-        } else {
-          htmlEl.classList.remove('dark');
-          htmlEl.classList.add('light');
-        }
-        updateThemeIcon();
-        updateThemeColor();
-      }
-    };
-    if (mq.addEventListener) mq.addEventListener('change', handler);
-    else if (mq.addListener) mq.addListener(handler);
-  }
 
   themeToggleBtn.addEventListener('click', () => {
     const isDark = htmlEl.classList.contains('dark');
@@ -1683,7 +1608,6 @@ PAGE_HTML = r"""<!doctype html>
       localStorage.setItem('lan_play_theme', 'dark');
     }
     updateThemeIcon();
-    updateThemeColor();
   });
 
   // 弹窗逻辑
@@ -1980,7 +1904,7 @@ PAGE_HTML = r"""<!doctype html>
     const tag = document.createElement('span');
     tag.className = 'copy-hint';
     tag.style.cssText = 'font-size:11px;color:#19c8ae;font-weight:600;margin-left:6px;';
-    tag.textContent = '✓ 已复制';
+    tag.textContent = '✓ 已复制服务器地址';
     nameEl.appendChild(tag);
     nameEl._copyTag = tag;
     nameEl._copyTimer = setTimeout(() => {
