@@ -12,7 +12,7 @@ on:
 jobs:
   build-android:
     name: Build APK with Buildozer
-    runs-on: ubuntu-22.04  # 关键修复：降级到 22.04
+    runs-on: ubuntu-22.04
 
     steps:
       # 1. 检出代码
@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 3. 安装系统依赖（去掉了已被移除的 libtinfo5）
+      # 3. 安装系统依赖
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -42,7 +42,7 @@ jobs:
         run: |
           pip3 install buildozer cython
 
-      # 5. 缓存 Buildozer 全局目录（加速后续构建）
+      # 5. 缓存 Buildozer 全局目录
       - name: Cache Buildozer global directory
         uses: actions/cache@v4
         with:
@@ -51,7 +51,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      # 6. 解码密钥库文件（从 GitHub Secrets 读取）
+      # 6. 解码密钥库文件
       - name: Decode Keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -73,10 +73,9 @@ jobs:
           echo "Version set to: ${{ inputs.version }}"
           grep "^version" buildozer.spec
 
-      # 8. 构建 APK
+      # 8. 构建 APK（修复：去掉 clean 命令）
       - name: Build APK with Buildozer
         run: |
-          buildozer android clean
           buildozer android release
 
       # 9. 定位生成的 APK
@@ -92,7 +91,7 @@ jobs:
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           echo "Found APK: $APK_PATH"
 
-      # 10. 上传 APK 为 Artifact（保留 30 天）
+      # 10. 上传 APK 为 Artifact
       - name: Upload APK as Artifact
         uses: actions/upload-artifact@v4
         with:
