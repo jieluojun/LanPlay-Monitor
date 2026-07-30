@@ -12,7 +12,7 @@ on:
 jobs:
   build-android:
     name: Build APK with Buildozer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # 关键修复：降级到 22.04
 
     steps:
       # 1. 检出代码
@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 3. 安装系统依赖
+      # 3. 安装系统依赖（去掉了已被移除的 libtinfo5）
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -33,7 +33,7 @@ jobs:
             git zip unzip openjdk-17-jdk \
             python3-pip autoconf libtool \
             pkg-config zlib1g-dev libncurses5-dev \
-            libncursesw5-dev libtinfo5 cmake \
+            libncursesw5-dev cmake \
             libffi-dev libssl-dev
           pip3 install --upgrade pip setuptools
 
