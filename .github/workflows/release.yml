@@ -74,30 +74,27 @@ jobs:
           echo "Version set to: ${{ inputs.version }}"
           grep "^version" buildozer.spec
 
-      # 8. 构建 APK（核心修复：强制使用 Java 17）
+      # 8. 构建 APK（强制输出 APK 格式）
       - name: Build APK with Buildozer
         run: |
-          # 清除系统自带的 NDK/SDK 环境变量，避免与 Buildozer 冲突
+          # 清除冲突的环境变量
           unset ANDROID_NDK_ROOT
           unset ANDROID_NDK_LATEST_HOME
           unset ANDROID_SDK_ROOT
           unset ANDROID_HOME
           
-          # 强制使用 Java 17（关键修复！）
+          # 强制使用 Java 17
           export JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64
           export PATH=$JAVA_HOME/bin:$PATH
           
           # 设置镜像加速
           export P4A_mirror=https://mirrors.tuna.tsinghua.edu.cn/gitlab/kivy/
           
-          # 验证 Java 版本
-          echo "=== Java Version ==="
+          # 验证环境
           java -version
-          echo "JAVA_HOME=$JAVA_HOME"
-          echo "===================="
           
-          # 执行构建
-          buildozer -v android release
+          # 强制构建 APK（不是 AAB）
+          buildozer -v android release --package-format=apk
 
       # 9. 定位生成的 APK
       - name: Locate APK file
