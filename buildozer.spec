@@ -19,7 +19,7 @@ android.webview_mixed_content_mode = 2
 icon.filename = icon.png
 fullscreen = 0
 orientation = portrait
-entrypoint = main.py
+entrypoint = ./py/main.py
 requirements = python3
 
 android.accept_sdk_license = True
