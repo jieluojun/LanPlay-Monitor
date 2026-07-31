@@ -168,7 +168,7 @@
   }
   $('copyPluginBtn').addEventListener('click', copyPluginLink);
 
-  /* 全局单例 toast —— 同一时间页面只存在一个"✓ 已复制服务器名称" */
+  /* 全局单例 toast —— 同一时间页面只存在一个"✓ 已复制" */
   let _globalToast=null;
   let _globalToastTimer=null;
   function _dismissToast(){
@@ -179,7 +179,7 @@
   function _showGlobalToast(text){
     _dismissToast();
     const t=document.createElement('div');t.className='global-copy-toast';
-    t.textContent=text||'✓ 已复制服务器地址';
+    t.textContent=text||'✓ 已复制';
     document.body.appendChild(t);
     /* 强制重排以触发动画 */
     t.offsetHeight;
