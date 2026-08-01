@@ -12,19 +12,15 @@
 <div class="page">
   <section class="hero glass">
     <div class="brand-area">
-      <button id="copyPluginBtn" class="brand" title="点击复制最新版联机插件地址" style="background:none;border:0;padding:0;font:inherit;color:inherit;"><span class="logo">🎮</span></button>
-      <div id="pluginToast" class="plugin-toast">已复制最新版联机插件地址！请前往浏览器下载</div>
+      <button id="copyPluginBtn" class="icon-btn" title="点击复制最新版联机插件地址">🎮</button>
       <button id="openLogModalBtn" class="icon-btn" title="查看运行日志">💻</button>
       <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
       <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
+      <button id="dpiToggleBtn" class="icon-btn" title="调节界面缩放 (DPI)">🔍</button>
       <button id="themeToggleBtn" class="theme-toggle" title="切换浅色/深色主题">🌙</button>
     </div>
     <div class="scan">
       <i id="netDot" class="dot" title="检测网络连接中..."></i>
-      <button id="refreshBtn" class="refresh">
-        <span class="spinner"></span>
-        <span class="refresh-text"><span>刷新</span></span>
-      </button>
     </div>
   </section>
 
@@ -98,6 +94,23 @@
         <div style="display:flex;gap:10px;">
           <button id="resetCancelBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:rgba(125,175,210,.15);color:var(--ink);font-weight:700;cursor:pointer;font-size:14px;transition:var(--transition);">取消</button>
           <button id="resetConfirmBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:var(--cyan);color:#fff;font-weight:800;cursor:pointer;font-size:14px;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:6px;">确认恢复</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DPI 调节模态框 -->
+  <div id="dpiModal" class="dpi-modal">
+    <div class="dpi-modal-box">
+      <div class="dpi-modal-header">
+        <span>🔍 缩放调节</span>
+        <button id="closeDpiModalBtn" class="dpi-modal-close">✕</button>
+      </div>
+      <div class="dpi-modal-body">
+        <div class="dpi-slider-container">
+          <span id="dpiLabel">100%</span>
+          <input type="range" id="dpiSlider" min="60" max="150" value="100" step="5">
+          <button id="dpiResetBtn" class="dpi-reset-btn">恢复默认 (100%)</button>
         </div>
       </div>
     </div>

@@ -2,23 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 独立 LAN-Play / ldn_mitm 房间监控网页（零第三方依赖版 · 优化版）
-
-优化点：
-  1. AppContext 收敛全局可变状态（线程安全）
-  2. 共享 ThreadPoolExecutor（避免反复创建线程）
-  3. UDP socket 复用 + 定期重连 + 最大迭代保护
-  4. TTLCache 带条目上限，防止内存无限增长
-  5. snapshot 浅拷贝优化，降低 GC 压力
-  6. 日志分级（info/warn/err）+ 环形缓冲区
-  7. 远程下载临时文件加 PID/UUID 防冲突
-  8. 更细粒度的异常捕获（DNS / ConnectionRefused / timeout）
-  9. 代码分区注释，大幅提升可维护性
-  10. 未知游戏显示问号图标（SVG data URI）
-  11. FFFFFFFFFFFFFFFF 不视为未知游戏，不显示复制功能
-
-启动：
-    python lan_play_monitor.py
-    # 浏览器打开 http://0.0.0.0:5000/
 """
 from __future__ import annotations
 
@@ -48,25 +31,25 @@ import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ============================================================================
-# SECTION 1 · 日志捕获器（分级 + 环形缓冲区）
+# SECTION 1 · 日志捕获器
 # ============================================================================
 
 class LogCapturer:
-    """线程安全的日志环形缓冲区，同时转发到原始 stdout。"""
-
     def __init__(self, maxlen: int = 500):
         self.terminal = sys.stdout
         self.buffer: deque[str] = deque(maxlen=maxlen)
         self.lock = threading.Lock()
 
     def write(self, message: str):
+        msg_stripped = message.strip()
+        if msg_stripped.startswith("Traceback") or "File \"/" in msg_stripped:
+            return
         if self.terminal:
             self.terminal.write(message)
             self.terminal.flush()
-        msg = message.strip()
-        if msg:
+        if msg_stripped:
             with self.lock:
-                self.buffer.append(msg)
+                self.buffer.append(msg_stripped)
 
     def flush(self):
         if self.terminal:
@@ -86,7 +69,6 @@ log_capturer = LogCapturer()
 sys.stdout = log_capturer
 sys.stderr = log_capturer
 
-# 日志快捷函数
 info = lambda *a, **k: print("[INFO]", *a, **k)
 warn = lambda *a, **k: print("[WARN]", *a, **k)
 err = lambda *a, **k: print("[ERROR]", *a, **k)
@@ -107,7 +89,6 @@ _network_status_lock = threading.Lock()
 
 
 def check_network_reachability() -> bool:
-    """检测能否访问百度，成功返回 True，失败返回 False。"""
     ctx_ssl = ssl.create_default_context()
     ctx_ssl.check_hostname = False
     ctx_ssl.verify_mode = ssl.CERT_NONE
@@ -118,13 +99,11 @@ def check_network_reachability() -> bool:
     try:
         with urllib.request.urlopen(req, timeout=5, context=ctx_ssl) as resp:
             return 200 <= resp.status < 600
-    except (urllib.error.URLError, socket.timeout, OSError) as e:
-        warn(f"[网络检测] 连接失败: {e}")
+    except (urllib.error.URLError, socket.timeout, OSError):
         return False
 
 
 def get_network_status(force: bool = False) -> dict[str, Any]:
-    """获取当前网络状态，带 5 秒缓存。"""
     global _network_status_cache
     now = time.time()
     with _network_status_lock:
@@ -154,9 +133,9 @@ SERVERS_FILE = os.getenv("SERVERS_FILE", "").strip() or MANUAL_SERVERS_FILE
 DEFAULT_SERVERS_FILE = MANUAL_SERVERS_FILE
 
 REMOTE_DOWNLOAD_INTERVAL = 30
-APP_NAME = "direct-lan-play-monitor"
-CACHE_TTL = max(1, int(os.getenv("CACHE_TTL", "8")))
-REQUEST_TIMEOUT = max(1.0, float(os.getenv("REQUEST_TIMEOUT", "3")))
+APP_NAME = "lan-play-monitor"
+CACHE_TTL = max(0.5, float(os.getenv("CACHE_TTL", "1.0")))
+REQUEST_TIMEOUT = max(1.0, float(os.getenv("REQUEST_TIMEOUT", "1.0")))  # 至少1秒
 MAX_WORKERS = 32
 
 REMOTE_CHINESE_DB_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/chinese_db.json"
@@ -179,9 +158,12 @@ BUILTIN_GAME_TITLES: dict[str, str] = {
     "FFFFFFFFFFFFFFFF": "未知游戏"
 }
 
+ROOM_CACHE = {}
+ROOM_CACHE_LOCK = threading.Lock()
+ROOM_CACHE_TTL = 10.0 #房间缓存 TTL
 
 # ============================================================================
-# SECTION 4 · 远程文件下载（后台线程）
+# SECTION 4 · 远程文件下载
 # ============================================================================
 
 _download_status_lock = threading.Lock()
@@ -195,7 +177,6 @@ _download_status: dict[str, Any] = {
 
 
 def _download_remote_file(url: str, dest_path: str) -> bool:
-    """从远程下载文件到本地，成功返回 True，失败返回 False。"""
     tmp_path = f"{dest_path}.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp"
     try:
         req = urllib.request.Request(
@@ -207,7 +188,7 @@ def _download_remote_file(url: str, dest_path: str) -> bool:
         ctx_ssl.verify_mode = ssl.CERT_NONE
         with urllib.request.urlopen(req, timeout=10, context=ctx_ssl) as resp:
             data = resp.read()
-            json.loads(data.decode("utf-8-sig"))  # 验证 JSON 合法性
+            json.loads(data.decode("utf-8-sig"))
             with open(tmp_path, "wb") as f:
                 f.write(data)
             os.replace(tmp_path, dest_path)
@@ -223,7 +204,6 @@ def _download_remote_file(url: str, dest_path: str) -> bool:
 
 
 def remote_download_worker():
-    """后台定时下载主循环。"""
     while True:
         try:
             ok_db = _download_remote_file(REMOTE_CHINESE_DB_URL, LOCAL_CHINESE_DB_FILE)
@@ -254,7 +234,6 @@ def remote_download_worker():
 
 
 def start_remote_download_thread():
-    """启动后台下载线程（首次立即执行一次）。"""
     def _first_then_loop():
         try:
             ok_db = _download_remote_file(REMOTE_CHINESE_DB_URL, LOCAL_CHINESE_DB_FILE)
@@ -288,7 +267,6 @@ def start_remote_download_thread():
 # ============================================================================
 
 def load_game_titles() -> dict[str, str]:
-    """从本地 chinese_db.json 加载标题映射，失败降级到内置。"""
     merged = dict(BUILTIN_GAME_TITLES)
     local_path = Path(LOCAL_CHINESE_DB_FILE)
     if not local_path.is_file():
@@ -310,7 +288,7 @@ def load_game_titles() -> dict[str, str]:
     return merged
 
 # ============================================================================
-# SECTION 6 · TTL 缓存（带条目上限）
+# SECTION 6 · TTL 缓存
 # ============================================================================
 
 @dataclass
@@ -320,8 +298,6 @@ class CacheItem:
 
 
 class TTLCache:
-    """线程安全 TTL 缓存，带最大条目数限制，防止内存无限增长。"""
-
     def __init__(self, max_items: int = 1024):
         self._items: dict[str, CacheItem] = {}
         self._lock = threading.Lock()
@@ -342,7 +318,6 @@ class TTLCache:
         with self._lock:
             self._items[key] = CacheItem(copy.deepcopy(value), time.monotonic() + ttl)
             if len(self._items) > self.max_items:
-                # 淘汰最早插入的一项（简单 FIFO）
                 oldest_key = next(iter(self._items))
                 self._items.pop(oldest_key, None)
 
@@ -356,6 +331,29 @@ cache = TTLCache(max_items=2048)
 # ============================================================================
 # SECTION 7 · 工具函数
 # ============================================================================
+
+def translate_error_message(msg: str) -> str:
+    if not msg:
+        return "未知错误"
+    msg_lower = msg.lower()
+    if "404" in msg:
+        return "HTTP 404 未找到"
+    if "timed out" in msg_lower:
+        return "连接超时"
+    if "remote end closed connection" in msg_lower:
+        return "远程服务器关闭连接，未响应"
+    if "connection refused" in msg_lower:
+        return "连接被拒绝"
+    if "name or service not known" in msg_lower:
+        return "DNS 解析失败"
+    if "network is unreachable" in msg_lower:
+        return "网络不可达"
+    if "ssl" in msg_lower:
+        return "SSL 证书错误"
+    if "graphql" in msg_lower:
+        return f"GraphQL 查询失败: {msg}"
+    return f"服务器错误: {msg}"
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -371,33 +369,23 @@ def int_or_zero(value: Any) -> int:
 HOST_RE = re.compile(r"^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])$")
 ID_RE = re.compile(r"^[A-Za-z0-9_ -]{1,64}$")
 
-# SVG 问号图标 (data URI)
 _QUESTION_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">'
                  '<circle cx="24" cy="24" r="22" fill="#34495e"/>'
                  '<text x="24" y="34" text-anchor="middle" font-size="30" fill="white" '
                  'font-family="sans-serif" font-weight="bold">?</text></svg>')
 QUESTION_ICON = "data:image/svg+xml," + urllib.parse.quote(_QUESTION_SVG)
-
-# FFFFFFFFFFFFFFFF 特殊标记（不视为未知游戏）
 UNKNOWN_ID = "FFFFFFFFFFFFFFFF"
 
 
 def get_game_info(content_id: str, titles_map: dict[str, str]) -> dict[str, str]:
-    """
-    从指定的标题映射中查找游戏信息。
-    如果游戏名称包含"未知游戏"且 content_id 不是 FFFFFFFFFFFFFFFF，返回问号图标。
-    FFFFFFFFFFFFFFFF 不视为未知游戏，使用默认图标。
-    """
     normalized = str(content_id or "").upper()
     game_name = titles_map.get(normalized)
     is_unknown = False
     if not game_name:
         game_name = f"未知游戏 ({normalized})" if normalized else "未知游戏"
         is_unknown = True
-    # 如果映射表中名称以"未知游戏"开头，且不是 FFFFFFFFFFFFFFFF，视为未知
     if game_name and game_name.startswith("未知游戏") and normalized != UNKNOWN_ID:
         is_unknown = True
-    # FFFFFFFFFFFFFFFF 强制不视为未知游戏
     if normalized == UNKNOWN_ID:
         is_unknown = False
         game_name = "未知游戏"
@@ -490,7 +478,7 @@ class HTTPClient:
 http = HTTPClient()
 
 # ============================================================================
-# SECTION 9 · LDN / LAN-Play UDP 扫描
+# SECTION 9 · LDN UDP 扫描
 # ============================================================================
 
 GRAPHQL_QUERY = """
@@ -508,15 +496,15 @@ query PublicRoomSnapshot {
 }
 """.strip()
 
-UDP_SCAN_SECONDS = max(0.5, float(os.getenv("UDP_SCAN_SECONDS", "1.2")))
+UDP_SCAN_SECONDS = max(0.5, float(os.getenv("UDP_SCAN_SECONDS", "0.5")))
 LDN_PORT = 11452
 LDN_MAGIC = bytes.fromhex("00144511")
 LDN_SCAN_HEADER = LDN_MAGIC + bytes(8)
 SCANNER_VIRTUAL_IP = "10.13.37.0"
 LDN_BROADCAST_IP = "10.13.255.255"
 MAX_REASSEMBLED_PACKET = 65535
-MAX_SCAN_ITERATIONS = 2000        # 防止极端网络下死循环
-SOCKET_MAX_LIFETIME = 300          # socket 最长复用 5 分钟
+MAX_SCAN_ITERATIONS = 2000
+SOCKET_MAX_LIFETIME = 300
 
 
 def internet_checksum(data: bytes) -> int:
@@ -689,13 +677,6 @@ class FragmentCollector:
 
 
 class ActiveRoomScanner:
-    """
-    UDP 扫描器（优化版）：
-      - socket 复用，避免每次 scan() 都重新创建
-      - 超过 SOCKET_MAX_LIFETIME 后自动重连
-      - 最大迭代次数保护，防止死循环
-    """
-
     def __init__(self, server: dict[str, Any]):
         self.server = server
         self._sock: socket.socket | None = None
@@ -792,25 +773,19 @@ class ActiveRoomScanner:
                 return [], str(exc)
 
 # ============================================================================
-# SECTION 10 · 应用上下文（收敛全局可变状态）
+# SECTION 10 · 应用上下文
 # ============================================================================
 
 class AppContext:
-    """
-    线程安全的全局应用状态容器。
-    所有原本散落在全局的 SERVERS / SERVERS_BY_ID / ACTIVE_SCANNERS /
-    GAME_TITLES / _download_status 都收拢到这里。
-    """
     def __init__(self):
         self.lock = threading.RLock()
         self.servers: list[dict[str, Any]] = []
         self.servers_by_id: dict[str, dict[str, Any]] = {}
-        self.scanners: dict[str, "ActiveRoomScanner"] = {}
+        self.scanners: dict[str, ActiveRoomScanner] = {}
         self.game_titles: dict[str, str] = dict(BUILTIN_GAME_TITLES)
         self.download_status: dict[str, Any] = dict(_download_status)
 
     def refresh_config(self):
-        """重新加载配置并同步 scanners。"""
         with self.lock:
             self.game_titles = load_game_titles()
             new_servers = _load_servers_merged()
@@ -833,7 +808,7 @@ class AppContext:
         with self.lock:
             return self.servers_by_id.get(sid)
 
-    def get_scanner(self, sid: str) -> "ActiveRoomScanner | None":
+    def get_scanner(self, sid: str) -> ActiveRoomScanner | None:
         with self.lock:
             return self.scanners.get(sid)
 
@@ -899,13 +874,6 @@ def _load_servers_from_file(file_path: str) -> list[dict[str, Any]]:
 
 
 def _load_servers_merged() -> list[dict[str, Any]]:
-    """
-    加载并合并服务器列表，优先级：
-      1. 本地 servers.json（远程下载）
-      2. 环境变量 SERVERS_FILE
-      3. 手动添加的服务器（servers_manual.json）
-      4. 内置兜底（仅当远程文件不存在时）
-    """
     merged: dict[str, dict[str, Any]] = {}
     builtin_ids: set[str] = set()
     remote_ids: set[str] = set()
@@ -962,10 +930,9 @@ def _load_servers_merged() -> list[dict[str, Any]]:
     return list(merged.values())
 
 # ============================================================================
-# SECTION 12 · 房间扫描 & 规范化（共享线程池）
+# SECTION 12 · 房间扫描 & 规范化
 # ============================================================================
 
-# 模块级共享线程池（避免每次 scan_all 都新建）
 SCAN_EXECUTOR = ThreadPoolExecutor(
     max_workers=min(MAX_WORKERS, 64),
     thread_name_prefix="scanner"
@@ -1054,9 +1021,7 @@ def scan_graphql(server: dict[str, Any]) -> dict[str, Any]:
             "active": max(0, online - idle), "room_count": len(rooms), "rooms": rooms
         })
     except Exception as exc:
-        if result["latency_ms"] is None:
-            result["latency_ms"] = max(1, int((time.monotonic() - started) * 1000))
-        result["error"] = str(exc)
+        result["error"] = translate_error_message(str(exc))
     return result
 
 
@@ -1083,9 +1048,7 @@ def scan_rest(server: dict[str, Any]) -> dict[str, Any]:
             "active": max(0, online - idle), "room_count": len(rooms), "rooms": rooms
         })
     except Exception as exc:
-        if result["latency_ms"] is None:
-            result["latency_ms"] = max(1, int((time.monotonic() - started) * 1000))
-        result["error"] = str(exc)
+        result["error"] = translate_error_message(str(exc))
     return result
 
 
@@ -1097,28 +1060,65 @@ def scan_server(server: dict[str, Any], force: bool = False) -> tuple[dict[str, 
             return cached, True
 
     result = scan_graphql(server) if server["type"] == "graphql" else scan_rest(server)
+    http_ok = (result.get("status") == "online" and not result.get("error"))
+
     scanner = ctx.get_scanner(server["id"])
     active_raw, scanner_error = scanner.scan() if scanner else ([], "Scanner not found")
     active_rooms = [normalize_room(item, server, i + 1, ctx.game_titles) for i, item in enumerate(active_raw)]
+    udp_has_rooms = len(active_rooms) > 0
 
-    # 合并去重（浅拷贝，避免 deepcopy 开销）
     merged: dict[str, dict[str, Any]] = {}
     for room in (*result.get("rooms", []), *active_rooms):
         rid = str(room.get("id") or f"{room.get('server_id')}:{room.get('host')}:{room.get('content_id')}")
         merged[rid] = room
-    rooms = list(merged.values())
-
-    result["rooms"] = rooms
-    result["room_count"] = len(rooms)
+    result["rooms"] = list(merged.values())
+    result["room_count"] = len(result["rooms"])
     result["scanner_error"] = scanner_error
     result["detection"] = "active-udp-scan+monitor-api"
-    if rooms and result.get("status") != "online":
+
+    if http_ok or udp_has_rooms:
         result["status"] = "online"
-        result["online"] = max(int_or_zero(result.get("online")), sum(max(1, r["node_count"]) for r in rooms))
+        http_online = int_or_zero(result.get("online"))
+        udp_online = sum(max(1, r["node_count"]) for r in active_rooms) if udp_has_rooms else 0
+        result["online"] = max(http_online, udp_online)
         result["active"] = max(0, result["online"] - int_or_zero(result.get("idle")))
         result["error"] = ""
-    if result.get("latency_ms") is None:
-        result["latency_ms"] = -1
+        if not http_ok:
+            result["latency_ms"] = None
+    else:
+        result["status"] = "offline"
+        result["online"] = 0
+        result["idle"] = 0
+        result["active"] = 0
+        result["latency_ms"] = None
+        if not result.get("error"):
+            result["error"] = "服务器不可达或未响应"
+
+    server_id = server["id"]
+    now = time.time()
+    with ROOM_CACHE_LOCK:
+        for room in result.get("rooms", []):
+            room_id = room.get("id")
+            if not room_id:
+                continue
+            key_ = (server_id, room_id)
+            ROOM_CACHE[key_] = {"room": room, "last_seen": now}
+        expired = [k for k, v in ROOM_CACHE.items() if v["last_seen"] + ROOM_CACHE_TTL < now and k[0] == server_id]
+        for k in expired:
+            del ROOM_CACHE[k]
+
+    final_rooms = {}
+    for room in result.get("rooms", []):
+        room_id = room.get("id")
+        if room_id:
+            final_rooms[room_id] = room
+    with ROOM_CACHE_LOCK:
+        for (sid, rid), cache_item in ROOM_CACHE.items():
+            if sid == server_id and rid not in final_rooms:
+                final_rooms[rid] = cache_item["room"]
+    result["rooms"] = list(final_rooms.values())
+    result["room_count"] = len(final_rooms)
+
     cache.set(key, result)
     return result, False
 
@@ -1145,11 +1145,10 @@ def scan_all(force: bool = False) -> tuple[list[dict[str, Any]], bool]:
             srv = ctx.get_server(sid) or {"id": sid, "name": "?", "host": "?", "port": 0}
             fallback = base_result(srv)
             fallback["error"] = str(exc)
-            fallback["latency_ms"] = -1
+            fallback["latency_ms"] = None
             results[sid] = fallback
             all_cached = False
 
-    # 按原始顺序返回
     return [results[s["id"]] for s in servers_snapshot if s["id"] in results], all_cached
 
 # ============================================================================
@@ -1197,7 +1196,6 @@ def make_json_response(data: dict[str, Any], cache_hit: bool = False,
 # ============================================================================
 
 def get_static_file(filename: str) -> str:
-    """读取静态文件内容，如果文件不存在则返回空字符串。"""
     file_path = SCRIPT_DIR / filename
     if file_path.is_file():
         try:
@@ -1208,20 +1206,15 @@ def get_static_file(filename: str) -> str:
 
 
 def build_html() -> str:
-    """构建完整的 HTML 页面（内联 CSS 和 JS）。"""
     html = get_static_file("index.html")
     css = get_static_file("styles.css")
     js = get_static_file("script.js")
     
-    # 如果 HTML 模板存在，注入 CSS 和 JS
     if html:
-        # 如果 HTML 中有占位符，替换它们
         html = html.replace('{{STYLES}}', css)
         html = html.replace('{{SCRIPTS}}', js)
         return html
     
-    # 降级：如果 index.html 不存在，使用内联版本
-    # 但由于我们已经拆分，这里返回一个简单的框架
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1239,242 +1232,302 @@ def build_html() -> str:
 </html>"""
 
 # ============================================================================
-# SECTION 15 · HTTP 请求处理器（多线程并发）
+# SECTION 15 · HTTP 请求处理器
 # ============================================================================
 
 class MonitorHandler(BaseHTTPRequestHandler):
-    """处理所有 HTTP 请求（页面 / API）。"""
 
-    # ── 关闭日志噪音 ──
     def log_message(self, format: str, *args: Any) -> None:
         pass
 
-    # ── GET 路由 ──
     def do_GET(self) -> None:
-        parsed_url = urllib.parse.urlparse(self.path)
-        path = parsed_url.path
-        query = parse_query(parsed_url.query)
+        try:
+            parsed_url = urllib.parse.urlparse(self.path)
+            path = parsed_url.path
+            query = parse_query(parsed_url.query)
 
-        # 根路径 → 返回前端页面
-        if path in {"", "/"}:
-            body = build_html().encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            if path in {"", "/"}:
+                body = build_html().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if path.startswith("/static/"):
+                filename = path[8:]
+                if ".." in filename or filename.startswith("/"):
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+                file_path = SCRIPT_DIR / filename
+                if file_path.is_file() and filename in ("index.html", "styles.css", "script.js"):
+                    content_type = {
+                        "index.html": "text/html; charset=utf-8",
+                        "styles.css": "text/css; charset=utf-8",
+                        "script.js": "application/javascript; charset=utf-8",
+                    }.get(filename, "application/octet-stream")
+                    try:
+                        body = file_path.read_bytes()
+                        self.send_response(200)
+                        self.send_header("Content-Type", content_type)
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+                    except Exception:
+                        pass
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            if path == "/api/servers":
+                try:
+                    servers = ctx.get_all_servers()
+                    data = {"ok": True, "servers": servers}
+                    body, headers, status = make_json_response(data)
+                    self._send(body, headers, status)
+                    return
+                except Exception as e:
+                    err(f"[API] /api/servers 异常: {e}")
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=500)
+                    self._send(body, headers, status)
+                    return
+
+            if path == "/api/snapshot":
+                try:
+                    force = wants_refresh(query)
+                    servers_data, all_cached = scan_all(force=force)
+                    all_rooms: list[dict[str, Any]] = []
+                    for s in servers_data:
+                        for r in s.get("rooms", []):
+                            rc = dict(r)
+                            all_rooms.append(rc)
+                    data = {"ok": True, "servers": servers_data, "rooms": all_rooms}
+                    body, headers, status = make_json_response(data, cache_hit=all_cached)
+                except Exception as e:
+                    err(f"[API] /api/snapshot 异常: {e}")
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=500)
+                self._send(body, headers, status)
+                return
+
+            if path == "/api/network-status":
+                try:
+                    force_check = wants_refresh(query)
+                    net_status = get_network_status(force=force_check)
+                    data = {"ok": True, "online": net_status["online"]}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=500)
+                self._send(body, headers, status)
+                return
+
+            if path == "/api/logs":
+                try:
+                    logs = log_capturer.get_logs_tail(200)
+                    with _download_status_lock:
+                        st = dict(_download_status)
+                    log_lines = list(logs)
+                    if st.get("remote_servers_available"):
+                        ts = st.get("servers_last_success", 0)
+                        log_lines.append(f"[远程下载] 服务器列表: 正常 | 上次成功: {time.strftime('%H:%M:%S', time.localtime(ts))}")
+                    else:
+                        log_lines.append("[远程下载] 服务器列表: 不可用（使用内置兜底）")
+                    if st.get("chinese_db_last_error"):
+                        ts = st.get("chinese_db_last_success", 0)
+                        msg = f"标题映射: {st['chinese_db_last_error']}"
+                        log_lines.append(f"[远程下载] {msg} | 上次成功: {time.strftime('%H:%M:%S', time.localtime(ts))}" if ts else f"[远程下载] {msg}")
+                    else:
+                        ts = st.get("chinese_db_last_success", 0)
+                        log_lines.append(f"[远程下载] 标题映射: 正常 | 上次成功: {time.strftime('%H:%M:%S', time.localtime(ts))}" if ts else "[远程下载] 标题映射: 正常")
+                    data = {"ok": True, "logs": log_lines}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=500)
+                self._send(body, headers, status)
+                return
+
+            self.send_response(404)
+            self.end_headers()
+        except Exception as e:
+            err(f"[HTTP] GET {self.path} 处理异常: {e}")
+            try:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(b"Internal Server Error")
+            except Exception:
+                pass
+
+    def do_POST(self) -> None:
+        try:
+            parsed_url = urllib.parse.urlparse(self.path)
+            path = parsed_url.path
+            content_length = int(self.headers.get("Content-Length", 0))
+            body_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            try:
+                req_json = json.loads(body_data.decode("utf-8"))
+            except Exception:
+                req_json = {}
+
+            if path == "/api/servers/add":
+                try:
+                    name = str(req_json.get("name", "")).strip()
+                    host = str(req_json.get("host", "")).strip()
+                    port = int(req_json.get("port", 11451))
+                    stype = str(req_json.get("type", "graphql")).strip().lower()
+                    region = str(req_json.get("region", "")).strip()
+                    new_id = f"manual_{uuid.uuid4().hex[:8]}"
+                    new_server = {"id": new_id, "name": name, "host": host,
+                                  "port": port, "type": stype, "region": region,
+                                  "is_manual": True}
+                    validated = validate_server(new_server)
+                    local_path = Path(MANUAL_SERVERS_FILE)
+                    existing_list = []
+                    if local_path.is_file():
+                        try:
+                            existing_list = json.loads(local_path.read_text(encoding="utf-8"))
+                            if not isinstance(existing_list, list):
+                                existing_list = []
+                        except Exception:
+                            existing_list = []
+                    existing_list.append(validated)
+                    local_path.write_text(json.dumps(existing_list, ensure_ascii=False, indent=2), encoding="utf-8")
+                    ctx.refresh_config()
+                    data = {"ok": True, "server": validated}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=400)
+                self._send(body, headers, status)
+                return
+
+            if path == "/api/servers/delete":
+                try:
+                    sid = str(req_json.get("id", "")).strip()
+                    local_path = Path(MANUAL_SERVERS_FILE)
+                    if not local_path.is_file():
+                        raise RuntimeError("没有找到本地配置文件")
+                    existing_list = json.loads(local_path.read_text(encoding="utf-8"))
+                    if not isinstance(existing_list, list):
+                        existing_list = []
+                    new_list = [item for item in existing_list if str(item.get("id")) != sid]
+                    local_path.write_text(json.dumps(new_list, ensure_ascii=False, indent=2), encoding="utf-8")
+                    ctx.refresh_config()
+                    data = {"ok": True}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=400)
+                self._send(body, headers, status)
+                return
+
+            # ★ 新增编辑接口
+            if path == "/api/servers/edit":
+                try:
+                    sid = str(req_json.get("id", "")).strip()
+                    name = str(req_json.get("name", "")).strip()
+                    host = str(req_json.get("host", "")).strip()
+                    port = int(req_json.get("port", 11451))
+                    stype = str(req_json.get("type", "graphql")).strip().lower()
+                    region = str(req_json.get("region", "")).strip()
+
+                    local_path = Path(MANUAL_SERVERS_FILE)
+                    if not local_path.is_file():
+                        raise RuntimeError("没有找到本地配置文件")
+                    existing_list = json.loads(local_path.read_text(encoding="utf-8"))
+                    if not isinstance(existing_list, list):
+                        existing_list = []
+                    found = False
+                    for item in existing_list:
+                        if str(item.get("id")) == sid:
+                            item["name"] = name
+                            item["host"] = host
+                            item["port"] = port
+                            item["type"] = stype
+                            item["region"] = region
+                            found = True
+                            break
+                    if not found:
+                        raise RuntimeError("未找到指定 ID 的服务器")
+                    local_path.write_text(json.dumps(existing_list, ensure_ascii=False, indent=2), encoding="utf-8")
+                    ctx.refresh_config()
+                    data = {"ok": True}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=400)
+                self._send(body, headers, status)
+                return
+
+            if path == "/api/servers/reorder":
+                try:
+                    order = req_json.get("order", [])
+                    is_reset = req_json.get("reset", False)
+                    local_path = Path(MANUAL_SERVERS_FILE)
+                    if is_reset:
+                        if local_path.is_file():
+                            try:
+                                ex_list = json.loads(local_path.read_text(encoding="utf-8"))
+                                if isinstance(ex_list, list):
+                                    local_path.write_text(json.dumps(ex_list, ensure_ascii=False, indent=2), encoding="utf-8")
+                            except Exception:
+                                pass
+                        ctx.refresh_config()
+                    elif isinstance(order, list) and order:
+                        existing_map: dict[str, dict] = {}
+                        if local_path.is_file():
+                            try:
+                                ex_list = json.loads(local_path.read_text(encoding="utf-8"))
+                                if isinstance(ex_list, list):
+                                    existing_map = {str(item.get("id")): item for item in ex_list}
+                            except Exception:
+                                pass
+                        reordered = [existing_map[sid] for sid in order if sid in existing_map]
+                        for sid, item in existing_map.items():
+                            if sid not in order:
+                                reordered.append(item)
+                        if reordered:
+                            local_path.write_text(json.dumps(reordered, ensure_ascii=False, indent=2), encoding="utf-8")
+                            ctx.refresh_config()
+                    data = {"ok": True}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=400)
+                self._send(body, headers, status)
+                return
+
+            self.send_response(404)
+            self.end_headers()
+        except Exception as e:
+            err(f"[HTTP] POST {self.path} 处理异常: {e}")
+            try:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(b"Internal Server Error")
+            except Exception:
+                pass
+
+    def _send(self, body: bytes, headers: dict[str, str], status: int):
+        try:
+            self.send_response(status)
+            for k, v in headers.items():
+                self.send_header(k, v)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-            return
-
-        # 提供静态文件
-        if path.startswith("/static/"):
-            filename = path[8:]  # 去掉 "/static/"
-            # 安全检查：防止目录遍历
-            if ".." in filename or filename.startswith("/"):
-                self.send_response(403)
-                self.end_headers()
-                return
-            file_path = SCRIPT_DIR / filename
-            if file_path.is_file() and filename in ("index.html", "styles.css", "script.js"):
-                content_type = {
-                    "index.html": "text/html; charset=utf-8",
-                    "styles.css": "text/css; charset=utf-8",
-                    "script.js": "application/javascript; charset=utf-8",
-                }.get(filename, "application/octet-stream")
-                try:
-                    body = file_path.read_bytes()
-                    self.send_response(200)
-                    self.send_header("Content-Type", content_type)
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-                except Exception:
-                    pass
-            self.send_response(404)
-            self.end_headers()
-            return
-
-        # /api/snapshot → 全量扫描
-        if path == "/api/snapshot":
-            try:
-                force = wants_refresh(query)
-                servers_data, all_cached = scan_all(force=force)
-                # 浅拷贝合并房间列表（避免 deepcopy 开销）
-                all_rooms: list[dict[str, Any]] = []
-                for s in servers_data:
-                    for r in s.get("rooms", []):
-                        rc = dict(r)
-                        all_rooms.append(rc)
-                data = {"ok": True, "servers": servers_data, "rooms": all_rooms}
-                body, headers, status = make_json_response(data, cache_hit=all_cached)
-            except Exception as e:
-                err(f"[API] /api/snapshot 异常: {e}")
-                data = {"ok": False, "error": str(e)}
-                body, headers, status = make_json_response(data, status=500)
-            self._send(body, headers, status)
-            return
-
-        # /api/network-status → 网络连通性
-        if path == "/api/network-status":
-            try:
-                force_check = wants_refresh(query)
-                net_status = get_network_status(force=force_check)
-                data = {"ok": True, "online": net_status["online"]}
-                body, headers, status = make_json_response(data)
-            except Exception as e:
-                data = {"ok": False, "error": str(e)}
-                body, headers, status = make_json_response(data, status=500)
-            self._send(body, headers, status)
-            return
-
-        # /api/logs → 实时日志
-        if path == "/api/logs":
-            try:
-                logs = log_capturer.get_logs_tail(200)
-                with _download_status_lock:
-                    st = dict(_download_status)
-                log_lines = list(logs)
-                if st.get("remote_servers_available"):
-                    ts = st.get("servers_last_success", 0)
-                    log_lines.append(f"[远程下载] 服务器列表: 正常 | 上次成功: {time.strftime('%H:%M:%S', time.localtime(ts))}")
-                else:
-                    log_lines.append("[远程下载] 服务器列表: 不可用（使用内置兜底）")
-                if st.get("chinese_db_last_error"):
-                    ts = st.get("chinese_db_last_success", 0)
-                    msg = f"标题映射: {st['chinese_db_last_error']}"
-                    log_lines.append(f"[远程下载] {msg} | 上次成功: {time.strftime('%H:%M:%S', time.localtime(ts))}" if ts else f"[远程下载] {msg}")
-                else:
-                    ts = st.get("chinese_db_last_success", 0)
-                    log_lines.append(f"[远程下载] 标题映射: 正常 | 上次成功: {time.strftime('%H:%M:%S', time.localtime(ts))}" if ts else "[远程下载] 标题映射: 正常")
-                data = {"ok": True, "logs": log_lines}
-                body, headers, status = make_json_response(data)
-            except Exception as e:
-                data = {"ok": False, "error": str(e)}
-                body, headers, status = make_json_response(data, status=500)
-            self._send(body, headers, status)
-            return
-
-        self.send_response(404)
-        self.end_headers()
-
-    # ── POST 路由 ──
-    def do_POST(self) -> None:
-        parsed_url = urllib.parse.urlparse(self.path)
-        path = parsed_url.path
-        content_length = int(self.headers.get("Content-Length", 0))
-        body_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
-        try:
-            req_json = json.loads(body_data.decode("utf-8"))
-        except Exception:
-            req_json = {}
-
-        # /api/servers/add → 添加自定义服务器
-        if path == "/api/servers/add":
-            try:
-                name = str(req_json.get("name", "")).strip()
-                host = str(req_json.get("host", "")).strip()
-                port = int(req_json.get("port", 11451))
-                stype = str(req_json.get("type", "graphql")).strip().lower()
-                region = str(req_json.get("region", "")).strip()
-                new_id = f"manual_{uuid.uuid4().hex[:8]}"
-                new_server = {"id": new_id, "name": name, "host": host,
-                              "port": port, "type": stype, "region": region,
-                              "is_manual": True}
-                validated = validate_server(new_server)
-                local_path = Path(MANUAL_SERVERS_FILE)
-                existing_list = []
-                if local_path.is_file():
-                    try:
-                        existing_list = json.loads(local_path.read_text(encoding="utf-8"))
-                        if not isinstance(existing_list, list):
-                            existing_list = []
-                    except Exception:
-                        existing_list = []
-                existing_list.append(validated)
-                local_path.write_text(json.dumps(existing_list, ensure_ascii=False, indent=2), encoding="utf-8")
-                ctx.refresh_config()
-                data = {"ok": True, "server": validated}
-                body, headers, status = make_json_response(data)
-            except Exception as e:
-                data = {"ok": False, "error": str(e)}
-                body, headers, status = make_json_response(data, status=400)
-            self._send(body, headers, status)
-            return
-
-        # /api/servers/delete → 删除自定义服务器
-        if path == "/api/servers/delete":
-            try:
-                sid = str(req_json.get("id", "")).strip()
-                local_path = Path(MANUAL_SERVERS_FILE)
-                if not local_path.is_file():
-                    raise RuntimeError("没有找到本地配置文件")
-                existing_list = json.loads(local_path.read_text(encoding="utf-8"))
-                if not isinstance(existing_list, list):
-                    existing_list = []
-                new_list = [item for item in existing_list if str(item.get("id")) != sid]
-                local_path.write_text(json.dumps(new_list, ensure_ascii=False, indent=2), encoding="utf-8")
-                ctx.refresh_config()
-                data = {"ok": True}
-                body, headers, status = make_json_response(data)
-            except Exception as e:
-                data = {"ok": False, "error": str(e)}
-                body, headers, status = make_json_response(data, status=400)
-            self._send(body, headers, status)
-            return
-
-        # /api/servers/reorder → 排序 & 恢复默认
-        if path == "/api/servers/reorder":
-            try:
-                order = req_json.get("order", [])
-                is_reset = req_json.get("reset", False)
-                local_path = Path(MANUAL_SERVERS_FILE)
-                if is_reset:
-                    if local_path.is_file():
-                        try:
-                            ex_list = json.loads(local_path.read_text(encoding="utf-8"))
-                            if isinstance(ex_list, list):
-                                local_path.write_text(json.dumps(ex_list, ensure_ascii=False, indent=2), encoding="utf-8")
-                        except Exception:
-                            pass
-                    ctx.refresh_config()
-                elif isinstance(order, list) and order:
-                    existing_map: dict[str, dict] = {}
-                    if local_path.is_file():
-                        try:
-                            ex_list = json.loads(local_path.read_text(encoding="utf-8"))
-                            if isinstance(ex_list, list):
-                                existing_map = {str(item.get("id")): item for item in ex_list}
-                        except Exception:
-                            pass
-                    reordered = [existing_map[sid] for sid in order if sid in existing_map]
-                    for sid, item in existing_map.items():
-                        if sid not in order:
-                            reordered.append(item)
-                    if reordered:
-                        local_path.write_text(json.dumps(reordered, ensure_ascii=False, indent=2), encoding="utf-8")
-                        ctx.refresh_config()
-                data = {"ok": True}
-                body, headers, status = make_json_response(data)
-            except Exception as e:
-                data = {"ok": False, "error": str(e)}
-                body, headers, status = make_json_response(data, status=400)
-            self._send(body, headers, status)
-            return
-
-        self.send_response(404)
-        self.end_headers()
-
-    # ── 内部工具 ──
-    def _send(self, body: bytes, headers: dict[str, str], status: int):
-        self.send_response(status)
-        for k, v in headers.items():
-            self.send_header(k, v)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as e:
+            err(f"[HTTP] _send 异常: {e}")
 
 # ============================================================================
-# SECTION 16 · 入口 & 启动
+# SECTION 16 · 入口
 # ============================================================================
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
@@ -1482,17 +1535,16 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
 
 def main() -> None:
-    # 1. 初始化配置
     ctx.refresh_config()
     info(f"[配置] 初始服务器数: {len(ctx.servers)}")
     info(f"[配置] 远程文件下载间隔: {REMOTE_DOWNLOAD_INTERVAL} 秒")
     info(f"[配置] 远程服务器列表本地路径: {LOCAL_SERVERS_FILE}")
     info(f"[配置] 远程标题映射本地路径: {LOCAL_CHINESE_DB_FILE}")
+    info(f"[配置] 全局 TTL: {CACHE_TTL} 秒")
+    info(f"[配置] 房间缓存 TTL: {ROOM_CACHE_TTL} 秒")
 
-    # 2. 启动后台远程文件下载线程
     start_remote_download_thread()
 
-    # 3. 启动 HTTP 服务
     port = int(os.getenv("PORT", "5000"))
     server_address = ("0.0.0.0", port)
     httpd = ThreadingHTTPServer(server_address, MonitorHandler)
@@ -1503,7 +1555,6 @@ def main() -> None:
         httpd.serve_forever()
     except KeyboardInterrupt:
         info("\n[服务] 正在关闭...")
-        # 关闭所有 scanner socket
         for scanner in ctx.scanners.values():
             scanner.close()
         SCAN_EXECUTOR.shutdown(wait=False)
