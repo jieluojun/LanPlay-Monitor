@@ -1,3 +1,3 @@
 # LanPlayMonitor APK
 
-LanPlay 服务器状态面板
+ldn_mitm 房间监控
