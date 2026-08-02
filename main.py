@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-独立 LAN-Play / ldn_mitm 房间监控网页（零第三方依赖版 · 最终稳定版）
-支持：图片上传 + 视频上传 + 抽象复用
-兼容 Python 3.13+ / Termux
+完整版：LAN-Play 监控 + 内置 WebView + 原生文件选择器
+兼容 Kivy / Buildozer (Android) 和桌面开发
 """
 from __future__ import annotations
 
 # ============================================================================
-# SECTION 0 · 标准库导入
+# 标准库导入（与原版一致）
 # ============================================================================
 import copy
 import json
@@ -30,7 +29,6 @@ from email.parser import BytesParser
 from email.policy import default as default_policy
 from pathlib import Path
 from typing import Any, Callable, Tuple
-
 import http.client
 import urllib.request
 import urllib.error
@@ -38,9 +36,18 @@ import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ============================================================================
-# SECTION 1 · 日志捕获器
+# Kivy 专用导入（新增）
 # ============================================================================
+from kivy.app import App
+from kivy.uix.webview import WebView
+from kivy.clock import Clock
+from plyer import filechooser
+from android.permissions import request_permissions, Permission
+from android import javascript_interface
 
+# ============================================================================
+# 日志捕获器（与原版相同）
+# ============================================================================
 class LogCapturer:
     def __init__(self, maxlen: int = 500):
         self.terminal = sys.stdout
@@ -49,7 +56,6 @@ class LogCapturer:
 
     def write(self, message: str):
         msg = message.strip()
-        # 过滤掉 traceback 噪音
         if msg.startswith("Traceback") or 'File "/' in msg:
             return
         if self.terminal:
@@ -82,11 +88,9 @@ def warn(*a, **k): print("[WARN]", *a, **k)
 def err(*a, **k):  print("[ERROR]", *a, **k)
 
 # ============================================================================
-# SECTION 2 · 网络连通性检测
+# 网络检测（与原版相同）
 # ============================================================================
-
 NETWORK_CHECK_URL = "https://www.baidu.com"
-
 _network_status_cache: dict[str, Any] = {
     "online": True,
     "last_check": 0.0,
@@ -97,7 +101,6 @@ _network_status_lock = threading.Lock()
 NETWORK_CHECK_INTERVAL = 5
 
 def _create_ssl_context() -> ssl.SSLContext:
-    """创建宽松的 SSL 上下文（用于访问 HTTPS 远程资源）"""
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -133,9 +136,8 @@ def get_network_status(force: bool = False) -> dict[str, Any]:
         return {"online": cached["online"], "last_success": cached["last_success"]}
 
 # ============================================================================
-# SECTION 3 · 常量 & 配置
+# 常量 & 配置（与原版相同）
 # ============================================================================
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 LOCAL_SERVERS_FILE = str(SCRIPT_DIR / "servers.json")
 MANUAL_SERVERS_FILE = str(SCRIPT_DIR / "servers_manual.json")
@@ -169,7 +171,6 @@ ROOM_CACHE: dict = {}
 ROOM_CACHE_LOCK = threading.Lock()
 ROOM_CACHE_TTL = 10.0
 
-# ---- 上传配置 ----
 UPLOAD_DIR = SCRIPT_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -177,8 +178,8 @@ ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 ALLOWED_VIDEO_EXTS = {".mp4", ".webm", ".ogg", ".mov", ".avi", ".mkv"}
 ALLOWED_EXTS = ALLOWED_IMAGE_EXTS | ALLOWED_VIDEO_EXTS
 
-MAX_IMAGE_SIZE = 10 * 1024 * 1024    # 10MB
-MAX_VIDEO_SIZE = 100 * 1024 * 1024  # 100MB
+MAX_IMAGE_SIZE = 10 * 1024 * 1024
+MAX_VIDEO_SIZE = 100 * 1024 * 1024
 
 MIME_TYPES: dict[str, str] = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
@@ -187,7 +188,6 @@ MIME_TYPES: dict[str, str] = {
     ".mov": "video/quicktime", ".avi": "video/x-msvideo", ".mkv": "video/x-matroska",
 }
 
-# ---- 下载状态 ----
 _download_status_lock = threading.Lock()
 _download_status: dict[str, Any] = {
     "chinese_db_last_success": 0.0, "chinese_db_last_error": "",
@@ -196,11 +196,9 @@ _download_status: dict[str, Any] = {
 }
 
 # ============================================================================
-# SECTION 4 · 远程文件下载（抽象为通用函数）
+# 远程下载（与原版相同）
 # ============================================================================
-
 def _download_remote_file(url: str, dest_path: str) -> bool:
-    """下载远程文件到本地（原子写入：先写 tmp 再 rename）"""
     tmp_path = f"{dest_path}.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp"
     try:
         req = urllib.request.Request(
@@ -208,7 +206,6 @@ def _download_remote_file(url: str, dest_path: str) -> bool:
         )
         with urllib.request.urlopen(req, timeout=10, context=_create_ssl_context()) as resp:
             data = resp.read()
-            # 验证是合法 JSON
             json.loads(data.decode("utf-8-sig"))
             with open(tmp_path, "wb") as f:
                 f.write(data)
@@ -228,15 +225,12 @@ def _update_download_status(**fields):
         _download_status.update(fields)
 
 def _download_and_report(db_url: str, servers_url: str) -> None:
-    """执行一次完整的远程下载（数据库 + 服务器列表）"""
-    # 1. 下载标题映射
     ok_db = _download_remote_file(db_url, LOCAL_CHINESE_DB_FILE)
     with _download_status_lock:
         _download_status["chinese_db_last_success"] = time.time() if ok_db else _download_status.get("chinese_db_last_success", 0)
         _download_status["chinese_db_last_error"] = "" if ok_db else "下载失败"
     info("[远程下载] ✅ 标题映射已更新" if ok_db else "[远程下载] ❌ 标题映射下载失败")
 
-    # 2. 下载服务器列表
     ok_srv = _download_remote_file(servers_url, LOCAL_SERVERS_FILE)
     with _download_status_lock:
         _download_status["servers_last_success"] = time.time() if ok_srv else _download_status.get("servers_last_success", 0)
@@ -245,7 +239,6 @@ def _download_and_report(db_url: str, servers_url: str) -> None:
     info("[远程下载] ✅ 服务器列表已更新" if ok_srv else "[远程下载] ❌ 服务器列表下载失败")
 
 def remote_download_worker():
-    """循环下载的后台 worker"""
     while True:
         try:
             _download_and_report(REMOTE_CHINESE_DB_URL, REMOTE_SERVERS_URL)
@@ -254,7 +247,6 @@ def remote_download_worker():
         time.sleep(REMOTE_DOWNLOAD_INTERVAL)
 
 def start_remote_download_thread():
-    """启动后台下载线程（先执行一次，再进入循环）"""
     def _first_then_loop():
         try:
             _download_and_report(REMOTE_CHINESE_DB_URL, REMOTE_SERVERS_URL)
@@ -266,9 +258,8 @@ def start_remote_download_thread():
     info(f"[远程下载] 后台下载线程已启动，间隔 {REMOTE_DOWNLOAD_INTERVAL} 秒")
 
 # ============================================================================
-# SECTION 5 · 标题映射加载
+# 标题映射加载（与原版相同）
 # ============================================================================
-
 def load_game_titles() -> dict[str, str]:
     merged = dict(BUILTIN_GAME_TITLES)
     local_path = Path(LOCAL_CHINESE_DB_FILE)
@@ -291,9 +282,8 @@ def load_game_titles() -> dict[str, str]:
     return merged
 
 # ============================================================================
-# SECTION 6 · TTL 缓存
+# TTL 缓存（与原版相同）
 # ============================================================================
-
 @dataclass
 class CacheItem:
     value: Any
@@ -318,7 +308,6 @@ class TTLCache:
         with self._lock:
             self._items[key] = CacheItem(copy.deepcopy(value), time.monotonic() + ttl)
             if len(self._items) > self.max_items:
-                # 淘汰最旧的一项
                 self._items.pop(next(iter(self._items)), None)
 
     def clear(self):
@@ -328,10 +317,8 @@ class TTLCache:
 cache = TTLCache(max_items=2048)
 
 # ============================================================================
-# SECTION 7 · 工具函数
+# 工具函数（与原版相同）
 # ============================================================================
-
-# 错误翻译表（数据驱动，加新错误只加一行）
 ERROR_TRANSLATIONS: list[Tuple[str, str]] = [
     ("404",            "HTTP 404 未找到"),
     ("timed out",      "连接超时"),
@@ -361,11 +348,9 @@ def int_or_zero(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
 
-# 主机名校验正则
 HOST_RE = re.compile(r"^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])$")
 ID_RE = re.compile(r"^[A-Za-z0-9_ -]{1,64}$")
 
-# 未知游戏图标（SVG → data URI）
 _QUESTION_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">'
     '<circle cx="24" cy="24" r="22" fill="#34495e"/>'
@@ -388,9 +373,8 @@ def get_game_info(content_id: str, titles_map: dict[str, str]) -> dict[str, str]
     return {"name": game_name, "icon": icon}
 
 # ============================================================================
-# SECTION 8 · HTTP 客户端（统一封装）
+# HTTP 客户端（与原版相同）
 # ============================================================================
-
 class HTTPResponse:
     def __init__(self, raw: http.client.HTTPResponse | None, body: bytes, url: str, error: str | None = None):
         self._raw = raw
@@ -460,9 +444,8 @@ class HTTPClient:
 http = HTTPClient()
 
 # ============================================================================
-# SECTION 9 · LDN UDP 扫描
+# LDN UDP 扫描（与原版相同）
 # ============================================================================
-
 GRAPHQL_QUERY = """
 query PublicRoomSnapshot {
   serverInfo { online idle }
@@ -602,7 +585,6 @@ def parse_ipv4_ldn_response(packet: bytes) -> dict[str, Any] | None:
     return parse_network_info(body, src_ip)
 
 class FragmentCollector:
-    """收集并重组 LDN 分片包"""
     def __init__(self):
         self.parts: dict[Tuple[bytes, int], dict[str, Any]] = {}
 
@@ -641,7 +623,6 @@ class FragmentCollector:
         return bytes(output)
 
 class ActiveRoomScanner:
-    """对一个服务器执行主动 UDP 扫描"""
     def __init__(self, server: dict[str, Any]):
         self.server = server
         self._sock: socket.socket | None = None
@@ -737,9 +718,8 @@ class ActiveRoomScanner:
                 return [], str(exc)
 
 # ============================================================================
-# SECTION 10 · 应用上下文
+# 应用上下文（与原版相同）
 # ============================================================================
-
 class AppContext:
     def __init__(self):
         self.lock = threading.RLock()
@@ -755,12 +735,10 @@ class AppContext:
             new_servers = _load_servers_merged()
             self.servers = new_servers
             self.servers_by_id = {s["id"]: s for s in new_servers}
-            # 清理无效扫描器
             for sid in list(self.scanners.keys()):
                 if sid not in self.servers_by_id:
                     self.scanners[sid].close()
                     del self.scanners[sid]
-            # 创建新扫描器
             for s in self.servers:
                 if s["id"] not in self.scanners:
                     self.scanners[s["id"]] = ActiveRoomScanner(s)
@@ -782,11 +760,9 @@ class AppContext:
 ctx = AppContext()
 
 # ============================================================================
-# SECTION 11 · 服务器配置管理（抽象复用）
+# 服务器配置管理（与原版相同）
 # ============================================================================
-
 def validate_server(raw: Any) -> dict[str, Any]:
-    """校验并规范化单条服务器配置"""
     if not isinstance(raw, dict):
         raise ValueError("服务器配置项必须是对象")
     sid = str(raw.get("id", "")).strip()
@@ -818,7 +794,6 @@ def validate_server(raw: Any) -> dict[str, Any]:
     return result
 
 def _read_json_file(file_path: str) -> Any:
-    """安全读取 JSON 文件，失败返回 None"""
     path = Path(file_path)
     if not path.is_file():
         return None
@@ -829,11 +804,9 @@ def _read_json_file(file_path: str) -> Any:
         return None
 
 def _write_json_file(file_path: str, data: Any) -> None:
-    """写入 JSON 文件（UTF-8，缩进 2）"""
     Path(file_path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def _load_servers_from_file(file_path: str) -> list[dict[str, Any]]:
-    """从文件加载服务器列表（自动校验）"""
     raw = _read_json_file(file_path)
     if not isinstance(raw, list):
         if raw is not None:
@@ -848,17 +821,11 @@ def _load_servers_from_file(file_path: str) -> list[dict[str, Any]]:
     return servers
 
 def _load_servers_merged() -> list[dict[str, Any]]:
-    """
-    合并多来源服务器，优先级：
-    远程(servers.json) > 内置兜底 > 环境变量 > 手动添加
-    ★ 修复：无论远程文件是否存在/是否为空，都必须保证返回可用列表
-    """
     merged: dict[str, dict[str, Any]] = {}
     builtin_ids: set[str] = set()
     remote_ids: set[str] = set()
     env_ids: set[str] = set()
 
-    # 1. 远程 / 本地缓存
     local_exists = Path(LOCAL_SERVERS_FILE).is_file()
     if local_exists:
         remote_list = _load_servers_from_file(LOCAL_SERVERS_FILE)
@@ -869,11 +836,9 @@ def _load_servers_merged() -> list[dict[str, Any]]:
                 remote_ids.add(srv["id"])
             info(f"[配置] 使用本地服务器列表，共 {len(remote_ids)} 台")
         else:
-            # 文件存在但为空/无效 → 降级到内置兜底
             info("[配置] 本地服务器列表为空，降级到内置兜底")
             local_exists = False
 
-    # ★ 关键修复：文件不存在 或 内容为空 都用内置兜底
     if not local_exists:
         info("[配置] 本地服务器列表不可用，使用内置兜底")
         for item in DEFAULT_SERVERS:
@@ -885,7 +850,6 @@ def _load_servers_merged() -> list[dict[str, Any]]:
             except Exception as exc:
                 warn(f"[配置警告] 内置服务器解析失败: {exc}")
 
-    # 2. 环境变量指定
     env_path_str = os.getenv("SERVERS_FILE", "").strip()
     if env_path_str and env_path_str != DEFAULT_SERVERS_FILE:
         env_path = Path(env_path_str).expanduser()
@@ -895,7 +859,6 @@ def _load_servers_merged() -> list[dict[str, Any]]:
                 merged[srv["id"]] = srv
                 env_ids.add(srv["id"])
 
-    # 3. 手动添加（不与以上冲突）
     seen_ids = builtin_ids | remote_ids | env_ids
     for mf in {MANUAL_SERVERS_FILE, SERVERS_FILE}:
         mp = Path(mf)
@@ -912,13 +875,11 @@ def _load_servers_merged() -> list[dict[str, Any]]:
     return result
 
 # ============================================================================
-# SECTION 12 · 房间扫描 & 规范化
+# 房间扫描 & 规范化（与原版相同）
 # ============================================================================
-
 SCAN_EXECUTOR = ThreadPoolExecutor(max_workers=min(MAX_WORKERS, 64), thread_name_prefix="scanner")
 
 def normalize_room(raw: Any, server: dict[str, Any], index: int) -> dict[str, Any]:
-    """将原始房间数据规范化为统一格式"""
     raw = raw if isinstance(raw, dict) else {}
     content_id = str(raw.get("contentId") or raw.get("content_id") or "").upper()
     g_info = get_game_info(content_id, ctx.game_titles)
@@ -952,7 +913,6 @@ def normalize_room(raw: Any, server: dict[str, Any], index: int) -> dict[str, An
     }
 
 def base_result(server: dict[str, Any]) -> dict[str, Any]:
-    """创建一个空的扫描结果模板"""
     return {
         "id": server["id"], "name": server["name"], "host": server["host"],
         "port": server["port"], "address": f"{server['host']}:{server['port']}",
@@ -965,7 +925,6 @@ def base_result(server: dict[str, Any]) -> dict[str, Any]:
     }
 
 def _scan_http(server: dict[str, Any], result: dict[str, Any]) -> None:
-    """执行 GraphQL 或 REST HTTP 扫描，填充 result（合并后的统一函数）"""
     is_graphql = server["type"] == "graphql"
     url = f"http://{server['host']}:{server['port']}/" + ("" if is_graphql else "info")
     started = time.monotonic()
@@ -1010,7 +969,6 @@ def _scan_http(server: dict[str, Any], result: dict[str, Any]) -> None:
         result["error"] = translate_error_message(str(exc))
 
 def scan_server(server: dict[str, Any], force: bool = False) -> Tuple[dict[str, Any], bool]:
-    """完整扫描单个服务器（HTTP + UDP），带缓存"""
     cache_key = f"scan:{server['id']}"
     if not force:
         cached = cache.get(cache_key)
@@ -1026,7 +984,6 @@ def scan_server(server: dict[str, Any], force: bool = False) -> Tuple[dict[str, 
     active_rooms = [normalize_room(r, server, i + 1) for i, r in enumerate(active_raw)]
     udp_has_rooms = len(active_rooms) > 0
 
-    # 合并 HTTP 和 UDP 的房间
     merged = {}
     for room in (*result.get("rooms", []), *active_rooms):
         rid = str(room.get("id") or f"{room.get('server_id')}:{room.get('host')}:{room.get('content_id')}")
@@ -1036,7 +993,6 @@ def scan_server(server: dict[str, Any], force: bool = False) -> Tuple[dict[str, 
     result["scanner_error"] = scan_err
     result["detection"] = "active-udp-scan+monitor-api"
 
-    # 判定最终状态
     if http_ok or udp_has_rooms:
         result["status"] = "online"
         http_on = int_or_zero(result.get("online"))
@@ -1053,7 +1009,6 @@ def scan_server(server: dict[str, Any], force: bool = False) -> Tuple[dict[str, 
         if not result.get("error"):
             result["error"] = "服务器不可达或未响应"
 
-    # 房间缓存 TTL
     now = time.time()
     sid = server["id"]
     with ROOM_CACHE_LOCK:
@@ -1065,7 +1020,6 @@ def scan_server(server: dict[str, Any], force: bool = False) -> Tuple[dict[str, 
         for k in expired:
             del ROOM_CACHE[k]
 
-    # 合并缓存中残留的房间
     final = {}
     for room in result.get("rooms", []):
         rid = room.get("id")
@@ -1082,11 +1036,9 @@ def scan_server(server: dict[str, Any], force: bool = False) -> Tuple[dict[str, 
     return result, False
 
 def scan_all(force: bool = False) -> Tuple[list[dict[str, Any]], bool]:
-    """并发扫描所有服务器"""
     ctx.refresh_config()
     servers = ctx.get_all_servers()
 
-    # ★ 修复：空列表时返回空结果，不崩溃
     if not servers:
         info("[扫描] 服务器列表为空，跳过扫描")
         return [], True
@@ -1112,9 +1064,8 @@ def scan_all(force: bool = False) -> Tuple[list[dict[str, Any]], bool]:
     return [results[s["id"]] for s in servers if s["id"] in results], all_cached
 
 # ============================================================================
-# SECTION 13 · HTTP 请求参数 & 响应辅助
+# HTTP 请求参数 & 响应辅助（与原版相同）
 # ============================================================================
-
 def parse_query(query_string: str) -> dict[str, str]:
     if not query_string:
         return {}
@@ -1136,9 +1087,8 @@ def make_json_response(data: dict, cache_hit: bool = False, status: int = 200) -
     return body, headers, status
 
 # ============================================================================
-# SECTION 14 · 前端页面模板
+# 前端页面模板（与原版相同）
 # ============================================================================
-
 def get_static_file(filename: str) -> str:
     fp = SCRIPT_DIR / filename
     return fp.read_text(encoding="utf-8") if fp.is_file() else ""
@@ -1160,15 +1110,9 @@ def build_html() -> str:
 <body>{html}<script>{js}</script></body></html>"""
 
 # ============================================================================
-# SECTION 15 · HTTP 请求处理器
+# HTTP 请求处理器（与原版相同，不做修改）
 # ============================================================================
-
-# ---- 服务器配置文件操作（抽象复用）----
 def _modify_manual_servers(modify_fn: Callable[[list[dict]], None]) -> bool:
-    """
-    通用：读取 → 修改 → 写回 servers_manual.json → 刷新上下文
-    modify_fn 直接修改传入的列表（in-place）
-    """
     local_path = Path(MANUAL_SERVERS_FILE)
     existing = _read_json_file(str(local_path)) or []
     if not isinstance(existing, list):
@@ -1179,7 +1123,6 @@ def _modify_manual_servers(modify_fn: Callable[[list[dict]], None]) -> bool:
     return True
 
 def _send_json(handler: BaseHTTPRequestHandler, data: dict, status: int = 200):
-    """JSON 响应快捷方法（统一 Content-Length 拼写）"""
     body, headers, st = make_json_response(data, status=status)
     try:
         handler.send_response(st)
@@ -1195,16 +1138,14 @@ def _send_json(handler: BaseHTTPRequestHandler, data: dict, status: int = 200):
 
 class MonitorHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
-        pass  # 静默访问日志
+        pass
 
-    # ===== GET 路由 =====
     def do_GET(self) -> None:
         try:
             parsed = urllib.parse.urlparse(self.path)
             path, query_str = parsed.path, parsed.query
             query = parse_query(query_str)
 
-            # 首页
             if path in {"", "/"}:
                 body = build_html().encode("utf-8")
                 self.send_response(200)
@@ -1214,15 +1155,12 @@ class MonitorHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
-            # 静态文件
             if path.startswith("/static/"):
                 return self._serve_static(path[8:])
 
-            # 上传文件访问
             if path.startswith("/uploads/"):
                 return self._serve_upload(path[9:])
 
-            # API: 服务器列表
             if path == "/api/servers":
                 try:
                     servers = ctx.get_all_servers()
@@ -1232,7 +1170,6 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     _send_json(self, {"ok": False, "error": str(e)}, 500)
                 return
 
-            # API: 快照
             if path == "/api/snapshot":
                 try:
                     force = wants_refresh(query)
@@ -1248,7 +1185,6 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     _send_json(self, {"ok": False, "error": str(e)}, 500)
                 return
 
-            # API: 网络状态
             if path == "/api/network-status":
                 try:
                     st = get_network_status(force=wants_refresh(query))
@@ -1257,7 +1193,6 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     _send_json(self, {"ok": False, "error": str(e)}, 500)
                 return
 
-            # API: 日志
             if path == "/api/logs":
                 try:
                     logs = log_capturer.get_logs_tail(200)
@@ -1292,25 +1227,21 @@ class MonitorHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-    # ===== POST 路由 =====
     def do_POST(self) -> None:
         try:
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
             content_length = int(self.headers.get("Content-Length", 0))
 
-            # 文件上传（图片 + 视频）
             if path == "/api/upload":
                 return self._handle_upload()
 
-            # JSON 接口通用解析
             body_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
             try:
                 req_json = json.loads(body_data.decode("utf-8"))
             except Exception:
                 req_json = {}
 
-            # 路由表（查表分发，加新接口只加一行）
             post_routes = {
                 "/api/servers/add":      self._api_add_server,
                 "/api/servers/delete":   self._api_delete_server,
@@ -1332,8 +1263,7 @@ class MonitorHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-    # ==================== 辅助方法 ====================
-
+    # ---- 辅助方法 ----
     def _serve_static(self, filename: str):
         if ".." in filename or filename.startswith("/"):
             self.send_response(403); self.end_headers(); return
@@ -1371,7 +1301,6 @@ class MonitorHandler(BaseHTTPRequestHandler):
             return
         self.send_response(404); self.end_headers()
 
-    # ---- 上传处理（核心修复：同时支持 image 和 file 字段）----
     def _handle_upload(self) -> None:
         try:
             content_length = int(self.headers.get("Content-Length", 0))
@@ -1382,22 +1311,19 @@ class MonitorHandler(BaseHTTPRequestHandler):
             if "multipart/form-data" not in content_type:
                 raise RuntimeError("只支持 multipart/form-data")
 
-            # 读取整个请求体
             body_bytes = self.rfile.read(content_length)
             if len(body_bytes) != content_length:
                 raise RuntimeError(f"数据不完整: 期望 {content_length}, 实际 {len(body_bytes)}")
 
-            # 构造伪 HTTP 头供 email.parser 解析 multipart
             fake_header = f"Content-Type: {content_type}\r\n\r\n".encode("utf-8")
             msg = BytesParser(policy=default_policy).parsebytes(fake_header + body_bytes)
 
-            # 查找上传的文件（同时支持 image 和 file 字段名）
             file_data, filename = None, None
             for part in msg.iter_parts():
                 if part.get_content_maintype() == "multipart":
                     continue
                 disp_name = part.get_param("name", header="Content-Disposition")
-                if disp_name in ("image", "file"):  # ★ 同时支持两种字段名
+                if disp_name in ("image", "file"):
                     filename = part.get_param("filename", header="Content-Disposition")
                     file_data = part.get_payload(decode=True)
                     break
@@ -1405,19 +1331,16 @@ class MonitorHandler(BaseHTTPRequestHandler):
             if not file_data or not filename:
                 raise RuntimeError("未找到上传文件字段（image/file）")
 
-            # 安全扩展名检查
             ext = Path(str(filename)).suffix.lower()
             if ext not in ALLOWED_EXTS:
                 raise RuntimeError(f"不支持的格式: {ext}")
 
-            # 大小限制
             file_size = len(file_data)
             if ext in ALLOWED_VIDEO_EXTS and file_size > MAX_VIDEO_SIZE:
                 raise RuntimeError(f"视频过大: {file_size/1024/1024:.1f}MB > {MAX_VIDEO_SIZE//1024//1024}MB")
             if ext in ALLOWED_IMAGE_EXTS and file_size > MAX_IMAGE_SIZE:
                 raise RuntimeError(f"图片过大: {file_size/1024/1024:.1f}MB > {MAX_IMAGE_SIZE//1024//1024}MB")
 
-            # 保存文件
             save_name = f"{uuid.uuid4().hex}{ext}"
             filepath = UPLOAD_DIR / save_name
             with open(filepath, "wb") as f:
@@ -1436,7 +1359,6 @@ class MonitorHandler(BaseHTTPRequestHandler):
             err(f"[上传] ❌ 错误: {e}")
             _send_json(self, {"ok": False, "error": str(e)}, 400)
 
-    # ---- 服务器增删改查（统一通过 _modify_manual_servers）----
     def _api_add_server(self, req_json: dict):
         try:
             name = str(req_json.get("name", "")).strip()
@@ -1460,7 +1382,6 @@ class MonitorHandler(BaseHTTPRequestHandler):
             sid = str(req_json.get("id", "")).strip()
             if not Path(MANUAL_SERVERS_FILE).is_file():
                 raise RuntimeError("没有找到本地配置文件")
-            # ★ 修复：lambda 内修改列表（in-place），_modify_manual_servers 不依赖返回值
             def _do_del(existing: list):
                 for i in range(len(existing) - 1, -1, -1):
                     if str(existing[i].get("id")) == sid:
@@ -1510,7 +1431,6 @@ class MonitorHandler(BaseHTTPRequestHandler):
             existing = _read_json_file(str(local_path)) or []
 
             if is_reset:
-                # 恢复默认排序 = 写回当前列表（触发刷新）
                 _write_json_file(str(local_path), existing)
             elif isinstance(order, list) and order:
                 existing_map = {str(it.get("id")): it for it in existing}
@@ -1526,39 +1446,67 @@ class MonitorHandler(BaseHTTPRequestHandler):
             _send_json(self, {"ok": False, "error": str(e)}, 400)
 
 # ============================================================================
-# SECTION 16 · 入口
+# Kivy 应用主类（新增）
 # ============================================================================
+class LanPlayApp(App):
+    def build(self):
+        # 请求存储权限（Android 6+）
+        request_permissions([
+            Permission.READ_EXTERNAL_STORAGE,
+            Permission.WRITE_EXTERNAL_STORAGE,
+            Permission.READ_MEDIA_IMAGES,
+            Permission.READ_MEDIA_VIDEO
+        ])
 
-class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
-    daemon_threads = True
+        self.webview = WebView()
+        # 注入 JavaScript 接口（对象名为 'android'）
+        self.webview.add_javascript_interface(self, 'android')
+        # 启动 HTTP 服务器线程
+        threading.Thread(target=self._run_server, daemon=True).start()
+        # 加载本地页面
+        Clock.schedule_once(lambda dt: self.webview.load_url('http://127.0.0.1:5000'), 0.5)
+        return self.webview
 
-def main() -> None:
+    def _run_server(self):
+        # 使用全局 httpd 对象（在启动 App 前创建）
+        global httpd
+        httpd.serve_forever()
+
+    @javascript_interface
+    def pickFile(self, callback_name: str):
+        """JavaScript 调用的方法：弹出系统文件选择器"""
+        self._js_callback = callback_name
+        filechooser.open_file(
+            title="选择图片或视频",
+            filters=[("Images/Videos", "*.png;*.jpg;*.jpeg;*.gif;*.mp4;*.mov;*.avi;*.mkv;*.webm")],
+            on_selection=self._on_file_selected
+        )
+
+    def _on_file_selected(self, selection):
+        if selection and len(selection) > 0:
+            file_path = selection[0]
+            # 转义路径中的单引号，防止 JS 注入
+            safe_path = file_path.replace("'", "\\'")
+            js_code = f"window['{self._js_callback}']('{safe_path}');"
+        else:
+            js_code = f"window['{self._js_callback}'](null);"
+        # 在主线程回调前端
+        Clock.schedule_once(lambda dt: self.webview.evaluate_javascript(js_code), 0)
+
+# ============================================================================
+# 程序入口
+# ============================================================================
+if __name__ == '__main__':
+    # 初始化上下文
     ctx.refresh_config()
     info(f"[配置] 初始服务器数: {len(ctx.servers)}")
-    info(f"[配置] 远程文件下载间隔: {REMOTE_DOWNLOAD_INTERVAL} 秒")
-    info(f"[配置] 远程服务器列表: {LOCAL_SERVERS_FILE}")
-    info(f"[配置] 远程标题映射: {LOCAL_CHINESE_DB_FILE}")
-    info(f"[配置] 全局 TTL: {CACHE_TTL}s | 房间缓存 TTL: {ROOM_CACHE_TTL}s")
-    info(f"[配置] 上传目录: {UPLOAD_DIR}")
-    info(f"[配置] 图片格式: {', '.join(sorted(ALLOWED_IMAGE_EXTS))}")
-    info(f"[配置] 视频格式: {', '.join(sorted(ALLOWED_VIDEO_EXTS))}")
-    info(f"[配置] 图片上限: {MAX_IMAGE_SIZE//1024//1024}MB | 视频上限: {MAX_VIDEO_SIZE//1024//1024}MB")
-
     start_remote_download_thread()
 
     port = int(os.getenv("PORT", "5000"))
+    global httpd
     httpd = ThreadingHTTPServer(("0.0.0.0", port), MonitorHandler)
     info(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 监控服务已启动，监听端口: {port}")
-    info(f"[访问地址] http://0.0.0.0:{port}/")
+    info(f"[访问地址] http://127.0.0.1:{port}/")
 
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        info("\n[服务] 正在关闭...")
-        for scanner in ctx.scanners.values():
-            scanner.close()
-        SCAN_EXECUTOR.shutdown(wait=False)
-        httpd.server_close()
-
-if __name__ == "__main__":
-    main()
+    # 启动 Kivy App（Android 或桌面）
+    LanPlayApp().run()
