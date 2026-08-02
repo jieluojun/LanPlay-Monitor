@@ -25,7 +25,7 @@ entrypoint = main.py
 requirements = python3,kivy,kivy-garden.webview,plyer
 
 android.accept_sdk_license = True
-android.allow_api_min = 21
+# android.allow_api_min = 21
 android.api = 33
 android.minapi = 21
 android.ndk = 25b
@@ -41,7 +41,7 @@ p4a.branch = develop
 p4a.gradle_dependencies = gradle:7.6.4, androidx.webkit:webkit:1.9.0
 p4a.gradle_options = -Dorg.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64
 
-android.permissions = INTERNET,READ_MEDIA_IMAGES,READ_MEDIA_AUDIO,READ_MEDIA_VIDEO,READ_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
+android.permissions = INTERNET, READ_MEDIA_IMAGES, READ_MEDIA_AUDIO, READ_MEDIA_VIDEO, READ_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
 
 exclude_patterns = **/test/*, **/tests/*
 android.aab = False
