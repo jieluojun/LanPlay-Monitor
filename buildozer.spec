@@ -9,19 +9,13 @@ version = 1.0.0
 
 # ===== WebView 配置 =====
 p4a.bootstrap = webview
-# p4a.bootstrap = sdl2
 p4a.port = 5000
-# 允许应用内 WebView 打开外部链接（浏览器）
-android.add_javascript_interface = True
-android.webview_allow_file_access = True
-android.webview_mixed_content_mode = 2
 # ========================
 
 icon.filename = icon.png
 fullscreen = 0
 orientation = portrait
 entrypoint = main.py
-# requirements = python3
 requirements = python3
 
 android.accept_sdk_license = True
