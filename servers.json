@@ -1,5 +1,14 @@
 [
     {
+      "id": "https://github.com/jieluojun/LanPlayMonitor/releases/latest/download/app-release.apk",
+      "name": "1",
+      "host": "0.0.0.0",
+      "port": 11451,
+      "type": "graphql",
+      "region": "软件更新地址（点击链接复制）",
+      "is_manual": true
+    },
+    {
       "id": "1",
       "name": "tekn0",
       "host": "tekn0.net",
