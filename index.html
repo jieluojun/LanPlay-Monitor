@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#0f1923" media="(prefers-color-scheme: dark)">
   <title>LAN-Play 房间监控</title>
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/goeasy-lite.min.js"></script>
 </head>
 <body>
 <div class="page">
@@ -17,6 +18,7 @@
       <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
       <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
       <button id="dpiToggleBtn" class="icon-btn" title="调节界面缩放 (DPI)">🔍</button>
+      <button id="openPublicChatBtn" class="icon-btn" title="公共聊天">💬</button>
       <button id="themeToggleBtn" class="theme-toggle" title="切换浅色/深色主题">🌙</button>
     </div>
     <div class="scan">
@@ -24,6 +26,27 @@
     </div>
   </section>
 
+  <!-- 公共聊天模态框 -->
+  <div id="publicChatModal" class="custom-modal">
+    <div class="custom-modal-box" style="width:min(500px,calc(100% - 32px));">
+      <div class="custom-modal-header">
+        <span>💬 公共聊天</span>
+        <button id="closePublicChatBtn" class="custom-modal-close">✕</button>
+      </div>
+      <div class="custom-modal-body">
+        <div id="publicChatMessages" style="height:300px;overflow-y:auto;background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px;display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);">
+          <div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>
+        </div>
+        <div class="chat-input-area" style="display:flex;gap:8px;align-items:center;">
+          <button id="publicChatImageBtn" class="image-upload-btn" title="选择图片">🖼️</button>
+          <input type="text" id="publicChatInput" placeholder="输入公共消息..." style="flex:1;padding:8px 14px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:14px;outline:none;">
+          <button id="publicChatSendBtn" style="padding:8px 20px;border:0;border-radius:20px;background:var(--cyan);color:#fff;font-weight:700;cursor:pointer;transition:var(--transition);">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 日志模态框 -->
   <div id="logModal" class="log-modal">
     <div class="log-box">
       <div class="log-header">
@@ -34,6 +57,7 @@
     </div>
   </div>
 
+  <!-- 添加服务器模态框 -->
   <div id="addServerModal" class="custom-modal">
     <div class="custom-modal-box">
       <div class="custom-modal-header">
@@ -67,6 +91,7 @@
     </div>
   </div>
 
+  <!-- 删除确认模态框 -->
   <div id="deleteConfirmModal" class="custom-modal">
     <div class="custom-modal-box" style="width:min(380px,calc(100% - 32px));">
       <div class="custom-modal-header">
@@ -83,6 +108,7 @@
     </div>
   </div>
 
+  <!-- 恢复默认排序模态框 -->
   <div id="resetOrderModal" class="custom-modal">
     <div class="custom-modal-box" style="width:min(380px,calc(100% - 32px));">
       <div class="custom-modal-header">
@@ -116,6 +142,7 @@
     </div>
   </div>
 
+  <!-- 统计概览 -->
   <div class="overview" id="overview">
     <div class="ov-card servers"><span>在线服务器</span><b id="ovServers">—</b></div>
     <div class="ov-card online"><span>总在线</span><b id="ovOnline">—</b></div>

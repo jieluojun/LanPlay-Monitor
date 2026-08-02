@@ -141,7 +141,7 @@ html.dark .ov-card.online b{color:#3dd9b8}html.dark .ov-card.idle b{color:#ffb34
 
 /* ===== 服务器卡片 ===== */
 .server-group{
-  position: relative; /* 修改：添加定位上下文，使地区标签相对于卡片定位 */
+  position: relative;
   background:var(--white);
   border-radius:var(--radius-md);
   filter: drop-shadow(0 6px 20px rgba(82,142,178,.06));
@@ -187,7 +187,7 @@ html.dark .server-group.dragging {
 
 .card-badges{
   position:absolute;
-  top:0; /* 修改：从 6px 改为 0，与地区标签顶部持平 */
+  top:0;
   right:8px;
   display:flex;
   align-items:center;
@@ -247,14 +247,13 @@ html.dark .card-region{background:transparent;color:var(--green)}
 
 /* ===== 服务器卡片头部 ===== */
 .server-head{
-  position: relative; /* 修改：添加定位上下文，使右上角按钮相对头部定位 */
+  position: relative;
   display:flex;
   align-items:stretch;
   gap:14px;
   padding:22px 22px 18px;
   cursor:pointer;
   user-select:none;
-  position:relative; /* 此行已存在，无需重复，保留即可 */
   -webkit-tap-highlight-color:transparent;
   touch-action:manipulation
 }
@@ -880,4 +879,89 @@ html.dark .dpi-reset-btn {
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
+
+/* ===== 聊天模块样式（新增） ===== */
+.chat-wrapper {
+    margin-top: 12px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+}
+.chat-messages {
+    max-height: 120px;
+    overflow-y: auto;
+    background: var(--card);
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.chat-msg {
+    padding: 4px 10px;
+    border-radius: 12px;
+    max-width: 80%;
+    word-break: break-word;
+    background: rgba(125,175,210,.08);
+    align-self: flex-start;
+}
+.chat-msg-mine {
+    background: var(--cyan);
+    color: #fff;
+    align-self: flex-end;
+}
+.chat-input-area {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+.chat-input {
+    flex: 1;
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    font-size: 13px;
+    outline: none;
+}
+.chat-input:focus {
+    border-color: var(--cyan);
+}
+.chat-send-btn {
+    padding: 6px 16px;
+    border: 0;
+    border-radius: 20px;
+    background: var(--cyan);
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.chat-send-btn:hover {
+    opacity: 0.85;
+}
+html.dark .chat-msg {
+    background: rgba(255,255,255,.06);
+}
+html.dark .chat-msg-mine {
+    background: var(--cyan);
+    color: #0f1923;
+}
+
+/* 图片上传按钮样式（新增） */
+.image-upload-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 12px;
+  transition: var(--transition);
+  color: var(--muted);
+}
+.image-upload-btn:hover {
+  background: var(--line);
+  color: var(--ink);
 }
