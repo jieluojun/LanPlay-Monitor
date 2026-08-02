@@ -22,7 +22,7 @@ fullscreen = 0
 orientation = portrait
 entrypoint = main.py
 # requirements = python3
-requirements = python3, plyer
+requirements = python3
 
 android.accept_sdk_license = True
 android.allow_api_min = 21
