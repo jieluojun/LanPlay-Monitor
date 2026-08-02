@@ -727,11 +727,77 @@
     }catch(e){showToast('❌ 上传失败：'+e.message,3000,false);return null;}
   }
 
-  // ---- 选择并发送媒体 ----
+  // ★★★ 新增：将媒体链接填入输入框（不自动发送）★★★
+  function fillChatInput(serverId, text) {
+    const card = document.querySelector(`.server-group[data-id="${serverId}"]`);
+    if (!card) return;
+    const input = card.querySelector('.chat-input');
+    if (!input) return;
+    input.value = text;
+    input.focus();
+    showToast('📎 文件已上传，点击发送即可发布', 1500, true);
+  }
+
+  function fillPublicInput(text) {
+    const input = document.getElementById('publicChatInput');
+    if (!input) return;
+    input.value = text;
+    input.focus();
+    showToast('📎 文件已上传，点击发送即可发布', 1500, true);
+  }
+
+  // ---- 选择并上传媒体，然后填充输入框 ----
   function pickAndSendMedia(serverId, isPublic) {
-    const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*,video/*'; inp.multiple=false;
-    inp.onchange=async e=>{const f=e.target.files[0];if(!f)return;const r=await uploadFile(f);if(!r)return;const prefix=r.type==='video'?'[视频]':'[图片]';const text=prefix+r.url;if(isPublic)sendPublicMessage(text,r.type==='video');else sendChatMessage(serverId,text,r.type==='video');};
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*,video/*'; inp.multiple=false;
+    inp.onchange=async e=>{
+      const f = e.target.files[0];
+      if (!f) return;
+      const r = await uploadFile(f);
+      if (!r) return;
+      const prefix = r.type==='video' ? '[视频]' : '[图片]';
+      const text = prefix + r.url;
+      if (isPublic) {
+        fillPublicInput(text);
+      } else {
+        fillChatInput(serverId, text);
+      }
+    };
     inp.click();
+  }
+
+  // ---- 服务器聊天发送（原有） ----
+  function sendChatMessage(serverId,text,isVideo){
+    if(!text.trim())return;
+    if(!state.username){ensureUsername(()=>{});showToast('⚠️ 请先设置用户名',1500,false);return;}
+    if(!goEasy||!state.goEasyReady){showToast('⚠️ 聊天服务未连接',2000,false);return;}
+    const channel=CHAT_PREFIX+serverId; const msgId=generateMsgId();
+    const payload=JSON.stringify({id:msgId,text:text.trim(),sender:state.username,time:Date.now(),isImage:true});
+    goEasy.pubsub.publish({channel,message:payload,qos:1,
+      onSuccess:()=>{if(!state.chatMessages[serverId])state.chatMessages[serverId]=[];const ex=state.chatMessages[serverId].some(m=>m.id===msgId);if(!ex){state.chatMessages[serverId].push({id:msgId,text:text.trim(),sender:state.username,isMine:true,time:Date.now(),isImage:true});saveChatMessages();}renderChatMessages(serverId);const card=document.querySelector(`.server-group[data-id="${serverId}"]`);if(card){const inp=card.querySelector('.chat-input');if(inp)inp.value='';}},
+      onFailed:e=>{console.error('发送失败',e);showToast('❌ 发送失败：'+(e.content||''),2500,false);}
+    });
+  }
+
+  // ---- 公共聊天渲染与发送（原有） ----
+  function renderPublicChat() {
+    const c=$('publicChatMessages'); if(!c) return;
+    if(!state.goEasyReady){c.innerHTML='<div style="color:var(--red);text-align:center;padding:20px;">⚠️ 聊天服务未连接</div>';return;}
+    const msgs=state.publicMessages||[];
+    if(!msgs.length){c.innerHTML='<div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>';return;}
+    c.innerHTML=msgs.map(msg=>{const cls=msg.isMine?'chat-msg-mine':'chat-msg-other';return `<div class="chat-msg ${cls}"><div class="msg-content"><strong>${esc(msg.sender||'匿名')}</strong>：${renderMessageContent(msg)}</div><div class="msg-time">${esc(formatMessageTime(msg.time))}</div></div>`;}).join('');
+    c.scrollTop=c.scrollHeight;
+  }
+
+  function sendPublicMessage(text,isVideo){
+    if(!text.trim())return;
+    if(!state.username){ensureUsername(()=>{});showToast('⚠️ 请先设置用户名',1500,false);return;}
+    if(!goEasy||!state.goEasyReady){showToast('⚠️ 聊天服务未连接',2000,false);return;}
+    const msgId=generateMsgId();
+    const payload=JSON.stringify({id:msgId,text:text.trim(),sender:state.username,time:Date.now(),isImage:true});
+    goEasy.pubsub.publish({channel:PUBLIC_CHANNEL,message:payload,qos:1,
+      onSuccess:()=>{if(!state.publicMessages)state.publicMessages=[];const ex=state.publicMessages.some(m=>m.id===msgId);if(!ex){state.publicMessages.push({id:msgId,text:text.trim(),sender:state.username,isMine:true,time:Date.now(),isImage:true});savePublicMessages();}renderPublicChat();const inp=$('publicChatInput');if(inp)inp.value='';},
+      onFailed:e=>{showToast('❌ 公共消息发送失败',2000,false);console.error(e);}
+    });
   }
 
   // ---- 渲染消息内容（含 chat-media 类供 Lightbox 捕获）----
@@ -760,41 +826,6 @@
       return `<div class="chat-msg ${cls}"><div class="msg-content"><strong>${esc(msg.sender||'匿名')}</strong>：${renderMessageContent(msg)}</div><div class="msg-time">${esc(formatMessageTime(msg.time))}</div></div>`;
     }).join('');
     container.scrollTop=container.scrollHeight;
-  }
-
-  // ---- 服务器聊天发送 ----
-  function sendChatMessage(serverId,text,isVideo){
-    if(!text.trim())return;
-    if(!state.username){ensureUsername(()=>{});showToast('⚠️ 请先设置用户名',1500,false);return;}
-    if(!goEasy||!state.goEasyReady){showToast('⚠️ 聊天服务未连接',2000,false);return;}
-    const channel=CHAT_PREFIX+serverId; const msgId=generateMsgId();
-    const payload=JSON.stringify({id:msgId,text:text.trim(),sender:state.username,time:Date.now(),isImage:true});
-    goEasy.pubsub.publish({channel,message:payload,qos:1,
-      onSuccess:()=>{if(!state.chatMessages[serverId])state.chatMessages[serverId]=[];const ex=state.chatMessages[serverId].some(m=>m.id===msgId);if(!ex){state.chatMessages[serverId].push({id:msgId,text:text.trim(),sender:state.username,isMine:true,time:Date.now(),isImage:true});saveChatMessages();}renderChatMessages(serverId);const card=document.querySelector(`.server-group[data-id="${serverId}"]`);if(card){const inp=card.querySelector('.chat-input');if(inp)inp.value='';}},
-      onFailed:e=>{console.error('发送失败',e);showToast('❌ 发送失败：'+(e.content||''),2500,false);}
-    });
-  }
-
-  // ---- 公共聊天渲染 ----
-  function renderPublicChat() {
-    const c=$('publicChatMessages'); if(!c) return;
-    if(!state.goEasyReady){c.innerHTML='<div style="color:var(--red);text-align:center;padding:20px;">⚠️ 聊天服务未连接</div>';return;}
-    const msgs=state.publicMessages||[];
-    if(!msgs.length){c.innerHTML='<div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>';return;}
-    c.innerHTML=msgs.map(msg=>{const cls=msg.isMine?'chat-msg-mine':'chat-msg-other';return `<div class="chat-msg ${cls}"><div class="msg-content"><strong>${esc(msg.sender||'匿名')}</strong>：${renderMessageContent(msg)}</div><div class="msg-time">${esc(formatMessageTime(msg.time))}</div></div>`;}).join('');
-    c.scrollTop=c.scrollHeight;
-  }
-
-  function sendPublicMessage(text,isVideo){
-    if(!text.trim())return;
-    if(!state.username){ensureUsername(()=>{});showToast('⚠️ 请先设置用户名',1500,false);return;}
-    if(!goEasy||!state.goEasyReady){showToast('⚠️ 聊天服务未连接',2000,false);return;}
-    const msgId=generateMsgId();
-    const payload=JSON.stringify({id:msgId,text:text.trim(),sender:state.username,time:Date.now(),isImage:true});
-    goEasy.pubsub.publish({channel:PUBLIC_CHANNEL,message:payload,qos:1,
-      onSuccess:()=>{if(!state.publicMessages)state.publicMessages=[];const ex=state.publicMessages.some(m=>m.id===msgId);if(!ex){state.publicMessages.push({id:msgId,text:text.trim(),sender:state.username,isMine:true,time:Date.now(),isImage:true});savePublicMessages();}renderPublicChat();const inp=$('publicChatInput');if(inp)inp.value='';},
-      onFailed:e=>{showToast('❌ 公共消息发送失败',2000,false);console.error(e);}
-    });
   }
 
   // ---- 初始化聊天卡片 ----
