@@ -1,8 +1,8 @@
 [
     {
-      "id": "6",
-      "name": "https://github.com/jieluojun/LanPlayMonitor/releases/latest/download/app-release.apk",
-      "host": "6.6.6.6",
+      "id": "0",
+      "name": "https://v6.gh-proxy.org/https://github.com/jieluojun/LanPlayMonitor/releases/latest/download/app-release.apk",
+      "host": "0.0.0.0",
       "port": 11451,
       "type": "graphql",
       "region": "软件更新地址（点击链接复制）"
