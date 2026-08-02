@@ -746,15 +746,43 @@
     showToast('📎 文件已上传，点击发送即可发布', 1500, true);
   }
 
-  // ---- 选择并上传媒体，然后填充输入框 ----
+  // ---- 选择并上传媒体，然后填充输入框（修改版：支持 Android 原生文件选择器） ----
   function pickAndSendMedia(serverId, isPublic) {
-    const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*,video/*'; inp.multiple=false;
-    inp.onchange=async e=>{
+    // 检测 Android 原生文件选择器（由 Kivy 注入）
+    if (window.android && typeof window.android.pickFile === 'function') {
+      // 定义回调
+      window.onFilePicked = function(filePath) {
+        if (filePath) {
+          // 根据扩展名判断文件类型
+          const ext = filePath.split('.').pop().toLowerCase();
+          const isVideo = ['mp4','mov','avi','mkv','webm','3gp','ogg'].includes(ext);
+          const prefix = isVideo ? '[视频]' : '[图片]';
+          const text = prefix + filePath; // 直接使用文件路径
+          if (isPublic) {
+            fillPublicInput(text);
+          } else {
+            fillChatInput(serverId, text);
+          }
+        } else {
+          showToast('未选择文件', 1500, false);
+        }
+      };
+      // 调用 Python 方法，传入回调函数名
+      window.android.pickFile('onFilePicked');
+      return;
+    }
+
+    // 原有 fallback（桌面浏览器或普通 WebView）
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*,video/*';
+    inp.multiple = false;
+    inp.onchange = async e => {
       const f = e.target.files[0];
       if (!f) return;
       const r = await uploadFile(f);
       if (!r) return;
-      const prefix = r.type==='video' ? '[视频]' : '[图片]';
+      const prefix = r.type === 'video' ? '[视频]' : '[图片]';
       const text = prefix + r.url;
       if (isPublic) {
         fillPublicInput(text);
