@@ -5,8 +5,7 @@
       "host": "0.0.0.0",
       "port": 11451,
       "type": "graphql",
-      "region": "软件更新地址（点击链接复制）",
-      "is_manual": true
+      "region": "软件更新地址（点击链接复制）"
     },
     {
       "id": "1",
