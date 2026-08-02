@@ -950,18 +950,4 @@ html.dark .chat-msg-mine {
     color: #0f1923;
 }
 
-/* 图片上传按钮样式（新增） */
-.image-upload-btn {
-  background: none;
-  border: none;
-  font-size: 22px;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 12px;
-  transition: var(--transition);
-  color: var(--muted);
-}
-.image-upload-btn:hover {
-  background: var(--line);
-  color: var(--ink);
-}
+/* （图片上传按钮样式已移除） */

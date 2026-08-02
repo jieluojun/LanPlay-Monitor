@@ -17,6 +17,7 @@
     rooms: [],
     game: 'all_servers',
     expanded: new Set(),
+    userToggled: {},          // 记录哪些卡片被用户手动切换过
     loading: false,
     firstLoad: true,
     firstExpand: true,
@@ -361,8 +362,7 @@
   // ============================================================
   // 筛选 & 渲染
   // ============================================================
-  function applyFilter(autoExpand) {
-    if(autoExpand===undefined) autoExpand=false;
+  function applyFilter() {
     const g = state.game;
     const isAll = (g==='all');
     const isAllServers = (g==='all_servers');
@@ -377,6 +377,7 @@
       el.style.display=(isAll||isAllServers||el.dataset.game===g)?'':'none';
     });
 
+    // 调整服务器卡片的显示（隐藏无相关房间的卡片）
     state.servers.forEach(s=>{
       const group = document.querySelector(`.server-group[data-id="${s.id}"]`);
       if(!group) return;
@@ -385,14 +386,15 @@
       const isOnline = s.status==='online'&&!s.error;
       if(isAllServers) {
         group.style.display='';
-        if(autoExpand&&!group.classList.contains('open')){group.classList.add('open');state.expanded.add(s.id);}
       } else if(isAll) {
         const hasAny=items.length>0;
         group.style.display=(hasAny&&isOnline)?'':'none';
-        if(autoExpand&&hasAny&&!group.classList.contains('open')){group.classList.add('open');state.expanded.add(s.id);}
       } else {
-        if(visible>0&&isOnline) { group.style.display=''; if(autoExpand&&!group.classList.contains('open')){group.classList.add('open');state.expanded.add(s.id);} }
-        else { group.style.display='none'; }
+        if(visible>0&&isOnline) {
+          group.style.display='';
+        } else {
+          group.style.display='none';
+        }
       }
     });
   }
@@ -408,15 +410,10 @@
         container.querySelectorAll('.filter-tab').forEach(x=>x.classList.remove('active'));
         b.classList.add('active');
         state.game=b.dataset.game;
-        if(state.game==='all_servers') {
-          state.servers.forEach(s=>{
-            const g=document.querySelector(`.server-group[data-id="${s.id}"]`);
-            if(!g) return;
-            if((s.room_count||0)>0){if(!g.classList.contains('open')){g.classList.add('open');state.expanded.add(s.id);}}
-            else{g.classList.remove('open');state.expanded.delete(s.id);}
-          });
-        }
-        applyFilter(state.game!=='all_servers');
+        // 切换筛选后，重新应用筛选，但不改变展开状态（展开由 renderServers 根据规则决定）
+        // 但用户可能希望自动展开有房间的卡片，所以我们调用 renderServers 会重新计算
+        renderServers();
+        applyFilter();
       });
       container.appendChild(b);
     }
@@ -462,7 +459,7 @@
   }
 
   // ============================================================
-  // 服务器卡片渲染
+  // 服务器卡片渲染（核心：展开逻辑）
   // ============================================================
   function getServerBadge(s) {
     if(s.is_builtin) return '<span class="badge badge-builtin">内置</span>';
@@ -501,9 +498,25 @@
       const addr = s.address||`${s.host}:${s.port}`;
       const badgeHtml = getServerBadge(s);
 
+      // 计算展开状态
+      let shouldOpen;
+      if (state.userToggled[s.id]) {
+        // 用户手动操作过，使用 expanded 记录的状态
+        shouldOpen = state.expanded.has(s.id);
+      } else {
+        // 未手动操作，根据房间有无自动决定
+        shouldOpen = rooms.length > 0;
+        // 同步更新 expanded 以保持一致性
+        if (shouldOpen) {
+          state.expanded.add(s.id);
+        } else {
+          state.expanded.delete(s.id);
+        }
+      }
+
       let group = existing.get(s.id);
       if(group) {
-        // 更新已有
+        // 更新已有卡片
         const dEl=group.querySelector('.server-status-dot'); if(dEl) dEl.className='server-status-dot '+dot;
         const nmEl=group.querySelector('.server-name'); if(nmEl){nmEl.textContent=s.name;nmEl.dataset.copytext=s.name;}
         const adEl=group.querySelector('.server-address'); if(adEl){adEl.textContent=addr;adEl.dataset.copytext=addr;}
@@ -511,22 +524,37 @@
         const bdEl=group.querySelector('.card-badges'); if(bdEl) bdEl.innerHTML=badgeHtml;
         const stBs=group.querySelectorAll('.stat-item b'); if(stBs.length>=3){stBs[0].textContent=String(s.online||0);stBs[1].textContent=String(s.idle||0);stBs[2].textContent=String(s.room_count||0);}
         const latEl=group.querySelector('.stat-item.latency'); if(latEl){const nb=latEl.querySelector('.latency-badge');const nl=latencyHTML(s);if(!nb||nb.outerHTML!==nl)latEl.innerHTML=`<span>延迟</span>${nl}`;}
-        const shouldOpen=state.expanded.has(s.id);
-        if(shouldOpen!==group.classList.contains('open')) group.classList.toggle('open',shouldOpen);
+        // 根据 shouldOpen 设置 open 类
+        group.classList.toggle('open', shouldOpen);
         // 更新 rooms
         const body=group.querySelector('.server-body'); if(body){body.querySelectorAll('.room-list,.server-error').forEach(el=>el.remove());const inner=body.querySelector('.body-inner');if(errMsg)inner.insertAdjacentHTML('afterbegin',errMsg);if(roomsHtml)inner.insertAdjacentHTML('beforeend',roomsHtml);}
         // 重新绑定 badge 事件
         const del=group.querySelector('.badge-delete'); if(del){del.style.cursor='pointer';del.onclick=e=>{e.stopPropagation();openDeleteConfirm(s.id,s.name);};}
         const edit=group.querySelector('.badge-edit'); if(edit){edit.style.cursor='pointer';edit.onclick=e=>{e.stopPropagation();openEditModal(s.id,s.name,group);};}
       } else {
-        // 新建
+        // 新建卡片
         const div=document.createElement('div');
-        div.className=`server-group ${state.expanded.has(s.id)?'open':''} ${s.is_builtin?'is-builtin':s.is_remote?'is-remote':s.is_manual?'is-manual':''}`;
+        div.className=`server-group ${shouldOpen?'open':''} ${s.is_builtin?'is-builtin':s.is_remote?'is-remote':s.is_manual?'is-manual':''}`;
         div.dataset.id=s.id;
         div.innerHTML=`${regionHtml}<div class="server-head"><div class="server-status-dot ${dot}"></div><div class="server-info"><span class="server-name" data-copytext="${esc(s.name)}">${esc(s.name)}</span><span class="server-address" data-copytext="${esc(addr)}">${esc(addr)}</span></div><div class="card-badges">${badgeHtml}</div><div class="server-stats"><div class="stat-item online"><span>在线</span><b>${s.online||0}</b></div><div class="stat-item idle"><span>空闲</span><b>${s.idle||0}</b></div><div class="stat-item rooms"><span>房间</span><b>${s.room_count||0}</b></div><div class="stat-item latency"><span>延迟</span>${latencyHTML(s)}</div></div></div><div class="server-body"><div class="body-inner">${errMsg}${roomsHtml}</div></div>`;
         const nmEl=div.querySelector('.server-name'); if(nmEl) nmEl.addEventListener('click',function(e){e.stopPropagation();copyServerName(this.dataset.copytext);});
         const adEl=div.querySelector('.server-address'); if(adEl) adEl.addEventListener('click',function(e){e.stopPropagation();copyServerAddress(this.dataset.copytext);});
-        div.querySelector('.server-head').addEventListener('click',()=>{const id=div.dataset.id;if(state.expanded.has(id)){state.expanded.delete(id);div.classList.remove('open');}else{state.expanded.add(id);div.classList.add('open');}});
+        // ★ 点击头部切换展开/收起 —— 核心改动：清除所有手动标记，只标记当前卡片
+        div.querySelector('.server-head').addEventListener('click',()=>{
+          const id = div.dataset.id;
+          // 清除所有卡片的手动标记
+          state.userToggled = {};
+          // 仅将当前卡片标记为手动操作
+          state.userToggled[id] = true;
+          // 切换展开状态
+          if (state.expanded.has(id)) {
+            state.expanded.delete(id);
+          } else {
+            state.expanded.add(id);
+          }
+          // 重新渲染以更新界面
+          renderServers();
+        });
         const del=div.querySelector('.badge-delete'); if(del){del.style.cursor='pointer';del.addEventListener('click',e=>{e.stopPropagation();openDeleteConfirm(s.id,s.name);});}
         const edit=div.querySelector('.badge-edit'); if(edit){edit.style.cursor='pointer';edit.addEventListener('click',e=>{e.stopPropagation();openEditModal(s.id,s.name,div);});}
         initDragAndDrop(div);
@@ -582,9 +610,9 @@
   // 核心渲染
   // ============================================================
   function render() {
-    state.servers.forEach(s=>{const has=state.rooms.some(r=>r.server_id===s.id);if(has)state.expanded.add(s.id);else state.expanded.delete(s.id);});
-    if(state.firstExpand){state.game='all_servers';state.firstExpand=false;}
-    renderFilters(); renderServers(); applyFilter(false);
+    renderFilters();
+    renderServers();
+    applyFilter();
   }
 
   // ============================================================
@@ -654,11 +682,8 @@
   });
 
   // ============================================================
+  // ===== 聊天系统（GoEasy · 纯文本）=====
   // ============================================================
-  // ===== 聊天系统（GoEasy + 图片/视频上传 + Lightbox）=====
-  // ============================================================
-  // ============================================================
-
   let goEasy = null;
   const CHAT_PREFIX = 'lanplay_chat_';
   const PUBLIC_CHANNEL = 'public_chat';
@@ -715,129 +740,34 @@
     if(pubBtn)pubBtn.disabled=!ready;
   }
 
-  // ---- 文件上传（图片/视频通用）----
-  async function uploadFile(file) {
-    const fd=new FormData(); fd.append('file',file);
-    try{
-      showToast('⏳ 上传中...',3000,false);
-      const r=await fetch('/api/upload',{method:'POST',body:fd});
-      const d=await r.json().catch(()=>({}));
-      if(d.ok&&d.url) return {url:d.url,type:d.file_type||(file.type.startsWith('video')?'video':'image')};
-      throw new Error(d.error||'上传失败');
-    }catch(e){showToast('❌ 上传失败：'+e.message,3000,false);return null;}
-  }
-
-  // ★★★ 新增：将媒体链接填入输入框（不自动发送）★★★
-  function fillChatInput(serverId, text) {
-    const card = document.querySelector(`.server-group[data-id="${serverId}"]`);
-    if (!card) return;
-    const input = card.querySelector('.chat-input');
-    if (!input) return;
-    input.value = text;
-    input.focus();
-    showToast('📎 文件已上传，点击发送即可发布', 1500, true);
-  }
-
-  function fillPublicInput(text) {
-    const input = document.getElementById('publicChatInput');
-    if (!input) return;
-    input.value = text;
-    input.focus();
-    showToast('📎 文件已上传，点击发送即可发布', 1500, true);
-  }
-
-  // ---- 选择并上传媒体，然后填充输入框（修改版：支持 Android 原生文件选择器） ----
-  function pickAndSendMedia(serverId, isPublic) {
-    // 检测 Android 原生文件选择器（由 Kivy 注入）
-    if (window.android && typeof window.android.pickFile === 'function') {
-      // 定义回调
-      window.onFilePicked = function(filePath) {
-        if (filePath) {
-          // 根据扩展名判断文件类型
-          const ext = filePath.split('.').pop().toLowerCase();
-          const isVideo = ['mp4','mov','avi','mkv','webm','3gp','ogg'].includes(ext);
-          const prefix = isVideo ? '[视频]' : '[图片]';
-          const text = prefix + filePath; // 直接使用文件路径
-          if (isPublic) {
-            fillPublicInput(text);
-          } else {
-            fillChatInput(serverId, text);
-          }
-        } else {
-          showToast('未选择文件', 1500, false);
-        }
-      };
-      // 调用 Python 方法，传入回调函数名
-      window.android.pickFile('onFilePicked');
-      return;
-    }
-
-    // 原有 fallback（桌面浏览器或普通 WebView）
-    const inp = document.createElement('input');
-    inp.type = 'file';
-    inp.accept = 'image/*,video/*';
-    inp.multiple = false;
-    inp.onchange = async e => {
-      const f = e.target.files[0];
-      if (!f) return;
-      const r = await uploadFile(f);
-      if (!r) return;
-      const prefix = r.type === 'video' ? '[视频]' : '[图片]';
-      const text = prefix + r.url;
-      if (isPublic) {
-        fillPublicInput(text);
-      } else {
-        fillChatInput(serverId, text);
-      }
-    };
-    inp.click();
-  }
-
-  // ---- 服务器聊天发送（原有） ----
-  function sendChatMessage(serverId,text,isVideo){
-    if(!text.trim())return;
+  // ---- 发送文本消息 ----
+  function sendChatMessage(serverId,text) {
+    if(!text.trim()) return;
     if(!state.username){ensureUsername(()=>{});showToast('⚠️ 请先设置用户名',1500,false);return;}
     if(!goEasy||!state.goEasyReady){showToast('⚠️ 聊天服务未连接',2000,false);return;}
     const channel=CHAT_PREFIX+serverId; const msgId=generateMsgId();
-    const payload=JSON.stringify({id:msgId,text:text.trim(),sender:state.username,time:Date.now(),isImage:true});
+    const payload=JSON.stringify({id:msgId,text:text.trim(),sender:state.username,time:Date.now()});
     goEasy.pubsub.publish({channel,message:payload,qos:1,
-      onSuccess:()=>{if(!state.chatMessages[serverId])state.chatMessages[serverId]=[];const ex=state.chatMessages[serverId].some(m=>m.id===msgId);if(!ex){state.chatMessages[serverId].push({id:msgId,text:text.trim(),sender:state.username,isMine:true,time:Date.now(),isImage:true});saveChatMessages();}renderChatMessages(serverId);const card=document.querySelector(`.server-group[data-id="${serverId}"]`);if(card){const inp=card.querySelector('.chat-input');if(inp)inp.value='';}},
+      onSuccess:()=>{if(!state.chatMessages[serverId])state.chatMessages[serverId]=[];const ex=state.chatMessages[serverId].some(m=>m.id===msgId);if(!ex){state.chatMessages[serverId].push({id:msgId,text:text.trim(),sender:state.username,isMine:true,time:Date.now()});saveChatMessages();}renderChatMessages(serverId);const card=document.querySelector(`.server-group[data-id="${serverId}"]`);if(card){const inp=card.querySelector('.chat-input');if(inp)inp.value='';}},
       onFailed:e=>{console.error('发送失败',e);showToast('❌ 发送失败：'+(e.content||''),2500,false);}
     });
   }
 
-  // ---- 公共聊天渲染与发送（原有） ----
-  function renderPublicChat() {
-    const c=$('publicChatMessages'); if(!c) return;
-    if(!state.goEasyReady){c.innerHTML='<div style="color:var(--red);text-align:center;padding:20px;">⚠️ 聊天服务未连接</div>';return;}
-    const msgs=state.publicMessages||[];
-    if(!msgs.length){c.innerHTML='<div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>';return;}
-    c.innerHTML=msgs.map(msg=>{const cls=msg.isMine?'chat-msg-mine':'chat-msg-other';return `<div class="chat-msg ${cls}"><div class="msg-content"><strong>${esc(msg.sender||'匿名')}</strong>：${renderMessageContent(msg)}</div><div class="msg-time">${esc(formatMessageTime(msg.time))}</div></div>`;}).join('');
-    c.scrollTop=c.scrollHeight;
-  }
-
-  function sendPublicMessage(text,isVideo){
-    if(!text.trim())return;
+  // ---- 公共聊天发送 ----
+  function sendPublicMessage(text) {
+    if(!text.trim()) return;
     if(!state.username){ensureUsername(()=>{});showToast('⚠️ 请先设置用户名',1500,false);return;}
     if(!goEasy||!state.goEasyReady){showToast('⚠️ 聊天服务未连接',2000,false);return;}
     const msgId=generateMsgId();
-    const payload=JSON.stringify({id:msgId,text:text.trim(),sender:state.username,time:Date.now(),isImage:true});
+    const payload=JSON.stringify({id:msgId,text:text.trim(),sender:state.username,time:Date.now()});
     goEasy.pubsub.publish({channel:PUBLIC_CHANNEL,message:payload,qos:1,
-      onSuccess:()=>{if(!state.publicMessages)state.publicMessages=[];const ex=state.publicMessages.some(m=>m.id===msgId);if(!ex){state.publicMessages.push({id:msgId,text:text.trim(),sender:state.username,isMine:true,time:Date.now(),isImage:true});savePublicMessages();}renderPublicChat();const inp=$('publicChatInput');if(inp)inp.value='';},
+      onSuccess:()=>{if(!state.publicMessages)state.publicMessages=[];const ex=state.publicMessages.some(m=>m.id===msgId);if(!ex){state.publicMessages.push({id:msgId,text:text.trim(),sender:state.username,isMine:true,time:Date.now()});savePublicMessages();}renderPublicChat();const inp=$('publicChatInput');if(inp)inp.value='';},
       onFailed:e=>{showToast('❌ 公共消息发送失败',2000,false);console.error(e);}
     });
   }
 
-  // ---- 渲染消息内容（含 chat-media 类供 Lightbox 捕获）----
+  // ---- 渲染消息内容（纯文本） ----
   function renderMessageContent(msg) {
-    if(msg.isImage&&msg.text.startsWith('[图片]')){
-      const url=msg.text.substring(4);
-      return `<img class="chat-media" data-media-type="image" data-media-url="${esc(url)}" src="${esc(url)}" alt="图片" style="max-width:200px;max-height:200px;border-radius:8px;display:block;margin-top:4px;cursor:pointer;">`;
-    }
-    if(msg.isImage&&msg.text.startsWith('[视频]')){
-      const url=msg.text.substring(4);
-      return `<video class="chat-media" data-media-type="video" data-media-url="${esc(url)}" src="${esc(url)}" preload="metadata" style="max-width:200px;max-height:200px;border-radius:8px;display:block;margin-top:4px;cursor:pointer;background:#000;"></video>`;
-    }
     return esc(msg.text);
   }
 
@@ -856,32 +786,43 @@
     container.scrollTop=container.scrollHeight;
   }
 
-  // ---- 初始化聊天卡片 ----
+  // ---- 公共聊天渲染 ----
+  function renderPublicChat() {
+    const c=$('publicChatMessages'); if(!c) return;
+    if(!state.goEasyReady){c.innerHTML='<div style="color:var(--red);text-align:center;padding:20px;">⚠️ 聊天服务未连接</div>';return;}
+    const msgs=state.publicMessages||[];
+    if(!msgs.length){c.innerHTML='<div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>';return;}
+    c.innerHTML=msgs.map(msg=>{
+      const cls=msg.isMine?'chat-msg-mine':'chat-msg-other';
+      return `<div class="chat-msg ${cls}"><div class="msg-content"><strong>${esc(msg.sender||'匿名')}</strong>：${renderMessageContent(msg)}</div><div class="msg-time">${esc(formatMessageTime(msg.time))}</div></div>`;
+    }).join('');
+    c.scrollTop=c.scrollHeight;
+  }
+
+  // ---- 初始化聊天卡片（无图片按钮） ----
   function initChatForCard(serverId,card) {
     let wrap=card.querySelector('.chat-wrapper');
     if(!wrap) {
       const bodyInner=card.querySelector('.server-body > .body-inner'); if(!bodyInner) return;
       wrap=document.createElement('div'); wrap.className='chat-wrapper';
       const ready=state.goEasyReady&&!!state.username;
-      wrap.innerHTML=`<div class="chat-messages"></div><div class="chat-input-area" style="display:flex;gap:6px;align-items:center;margin-top:8px;"><button class="image-upload-btn chat-image-btn" title="从相册选择图片或视频">🖼️</button><input type="text" class="chat-input" placeholder="${ready?'输入聊天内容...':(state.goEasyReady?'请先设置用户名':'聊天未连接')}" ${ready?'':'disabled'}><button class="chat-send-btn" ${ready?'':'disabled'}>发送</button></div>`;
+      wrap.innerHTML=`<div class="chat-messages"></div><div class="chat-input-area" style="display:flex;gap:6px;margin-top:8px;"><input type="text" class="chat-input" placeholder="${ready?'输入聊天内容...':(state.goEasyReady?'请先设置用户名':'聊天未连接')}" ${ready?'':'disabled'}><button class="chat-send-btn" ${ready?'':'disabled'}>发送</button></div>`;
       bodyInner.appendChild(wrap);
-      const inp=wrap.querySelector('.chat-input'),btn=wrap.querySelector('.chat-send-btn'),imgBtn=wrap.querySelector('.chat-image-btn');
-      const sendHandler=()=>{const t=inp.value.trim();if(t)sendChatMessage(serverId,t,false);};
+      const inp=wrap.querySelector('.chat-input'),btn=wrap.querySelector('.chat-send-btn');
+      const sendHandler=()=>{const t=inp.value.trim();if(t)sendChatMessage(serverId,t);};
       btn.addEventListener('click',sendHandler);
       inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendHandler();}});
-      imgBtn.addEventListener('click',()=>pickAndSendMedia(serverId,false));
     }
     renderChatMessages(serverId);
     if(state.goEasyReady&&!state.chatSubscribed[serverId])subscribeChannel(serverId);
   }
 
-  // ---- 公共聊天 UI ----
+  // ---- 公共聊天 UI 绑定 ----
   function bindPublicChatEvents() {
-    const openBtn=$('openPublicChatBtn'),modal=$('publicChatModal'),closeBtn=$('closePublicChatBtn'),sendBtn=$('publicChatSendBtn'),input=$('publicChatInput'),imgBtn=$('publicChatImageBtn');
+    const openBtn=$('openPublicChatBtn'),modal=$('publicChatModal'),closeBtn=$('closePublicChatBtn'),sendBtn=$('publicChatSendBtn'),input=$('publicChatInput');
     if(!openBtn||!modal||!closeBtn||!sendBtn||!input)return;
     openBtn.addEventListener('click',()=>{
       modal.classList.add('open');
-      // 编辑用户名按钮
       const header=modal.querySelector('.custom-modal-header');
       if(header&&!header.querySelector('.edit-username-btn')){
         const eb=document.createElement('button');eb.className='edit-username-btn';eb.textContent='✏️';eb.title='编辑用户名';
@@ -893,9 +834,8 @@
     });
     closeBtn.addEventListener('click',()=>modal.classList.remove('open'));
     modal.addEventListener('click',e=>{if(e.target===modal)modal.classList.remove('open');});
-    sendBtn.addEventListener('click',()=>{const t=input.value.trim();if(t)sendPublicMessage(t,false);});
+    sendBtn.addEventListener('click',()=>{const t=input.value.trim();if(t)sendPublicMessage(t);});
     input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendBtn.click();}});
-    if(imgBtn){imgBtn.textContent='🖼️';imgBtn.title='从相册选择图片或视频';imgBtn.addEventListener('click',()=>pickAndSendMedia(null,true));}
   }
 
   // ---- GoEasy 初始化 ----
@@ -922,7 +862,7 @@
     if(!goEasy||!state.goEasyReady)return;
     const ch=CHAT_PREFIX+serverId;
     goEasy.pubsub.subscribe({channel:ch,history:50,
-      onMessage:m=>{try{const d=JSON.parse(m.content);if(!state.chatMessages[serverId])state.chatMessages[serverId]=[];if(state.chatMessages[serverId].some(x=>x.id===d.id))return;state.chatMessages[serverId].push({id:d.id,text:d.text,sender:d.sender,isMine:(d.sender===state.username),time:d.time||Date.now(),isImage:!!d.isImage});saveChatMessages();renderChatMessages(serverId);}catch(e){}},
+      onMessage:m=>{try{const d=JSON.parse(m.content);if(!state.chatMessages[serverId])state.chatMessages[serverId]=[];if(state.chatMessages[serverId].some(x=>x.id===d.id))return;state.chatMessages[serverId].push({id:d.id,text:d.text,sender:d.sender,isMine:(d.sender===state.username),time:d.time||Date.now()});saveChatMessages();renderChatMessages(serverId);}catch(e){}},
       onSuccess:()=>{state.chatSubscribed[serverId]=true;console.log('订阅成功',ch);},
       onFailed:e=>{console.error('订阅失败',e);setTimeout(()=>state.goEasyReady&&subscribeChannel(serverId),5000);}
     });
@@ -930,73 +870,13 @@
   function subscribePublicChannel() {
     if(!goEasy||!state.goEasyReady)return;
     goEasy.pubsub.subscribe({channel:PUBLIC_CHANNEL,history:50,
-      onMessage:m=>{try{const d=JSON.parse(m.content);if(!state.publicMessages)state.publicMessages=[];if(state.publicMessages.some(x=>x.id===d.id))return;state.publicMessages.push({id:d.id,text:d.text,sender:d.sender||'匿名',isMine:(d.sender===state.username),time:d.time||Date.now(),isImage:!!d.isImage});savePublicMessages();renderPublicChat();}catch(e){}},
+      onMessage:m=>{try{const d=JSON.parse(m.content);if(!state.publicMessages)state.publicMessages=[];if(state.publicMessages.some(x=>x.id===d.id))return;state.publicMessages.push({id:d.id,text:d.text,sender:d.sender||'匿名',isMine:(d.sender===state.username),time:d.time||Date.now()});savePublicMessages();renderPublicChat();}catch(e){}},
       onSuccess:()=>{state.publicChatReady=true;console.log('公共频道订阅成功');},
       onFailed:e=>{console.error('公共订阅失败',e);setTimeout(()=>state.goEasyReady&&subscribePublicChannel(),5000);}
     });
   }
   function forceSubscribeAll(){if(!state.goEasyReady)return;state.chatSubscribed={};state.servers.forEach(s=>subscribeChannel(s.id));subscribePublicChannel();}
   function reconnectChat(){if(state.goEasyReady)forceSubscribeAll();else initGoEasy(0);}
-
-  // ============================================================
-  // Lightbox —— 点击图片/视频展开全屏（稳健版）
-  // ============================================================
-  (function initLightbox(){
-    // 1) 注入样式
-    const css=document.createElement('style');
-    css.textContent=`
-      .lb-overlay{position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;flex-direction:column;opacity:0;transition:opacity .2s;touch-action:pinch-zoom;}
-      .lb-overlay.lb-open{display:flex;opacity:1;}
-      .lb-overlay .lb-close{position:absolute;top:14px;right:18px;width:40px;height:40px;border:0;border-radius:50%;background:rgba(255,255,255,.15);color:#fff;font-size:22px;cursor:pointer;line-height:1;z-index:1;}
-      .lb-overlay .lb-close:hover{background:rgba(255,255,255,.3);}
-      .lb-overlay .lb-media{max-width:92vw;max-height:82vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5);object-fit:contain;}
-      .lb-overlay .lb-hint{color:rgba(255,255,255,.5);font-size:12px;margin-top:10px;user-select:none;}
-    `;
-    document.head.appendChild(css);
-
-    // 2) 创建 DOM（默认隐藏，不占交互）
-    const overlay=document.createElement('div');
-    overlay.className='lb-overlay';
-    overlay.innerHTML=`<button class="lb-close" type="button" aria-label="关闭">✕</button><div class="lb-body" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;"></div><div class="lb-hint">点击背景或按 Esc 关闭</div>`;
-    document.body.appendChild(overlay);
-    const lbBody=overlay.querySelector('.lb-body');
-    const lbClose=overlay.querySelector('.lb-close');
-
-    let activeMedia=null;
-
-    function openMedia(url,type){
-      lbBody.innerHTML='';
-      let el;
-      if(type==='video'){el=document.createElement('video');el.src=url;el.controls=true;el.autoplay=true;el.playsInline=true;}
-      else{el=document.createElement('img');el.src=url;el.alt='预览';}
-      el.className='lb-media';
-      lbBody.appendChild(el);
-      activeMedia=el;
-      overlay.classList.add('lb-open');
-      document.body.style.overflow='hidden';
-    }
-    function closeMedia(){
-      overlay.classList.remove('lb-open');
-      // 等过渡结束再清内容
-      setTimeout(()=>{lbBody.innerHTML='';activeMedia=null;},220);
-      document.body.style.overflow='';
-    }
-
-    // 3) 关闭：按钮 / 背景 / Esc
-    lbClose.addEventListener('click',e=>{e.stopPropagation();closeMedia();});
-    overlay.addEventListener('click',e=>{if(e.target===overlay)closeMedia();});
-    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('lb-open'))closeMedia();});
-
-    // 4) 事件委托：只响应 .chat-media，不影响其他任何点击
-    document.addEventListener('click',e=>{
-      const t=e.target.closest('.chat-media');
-      if(!t) return; // 不是媒体，直接放行
-      e.preventDefault(); e.stopPropagation();
-      const url=t.getAttribute('data-media-url');
-      const type=t.getAttribute('data-media-type')||'image';
-      if(url) openMedia(url,type);
-    },true); // 捕获阶段，确保在其他 handler 之前处理
-  })();
 
   // ============================================================
   // 启动
