@@ -96,7 +96,7 @@ html.dark .theme-toggle:hover,html.dark .icon-btn:hover{background:rgba(255,255,
   :root:not(.light) .theme-toggle:hover,:root:not(.light) .icon-btn:hover{background:rgba(255,255,255,.15)}
 }
 
-/* ===== 公共聊天状态灯（无新消息时隐藏，有新消息时绿色呼吸） ===== */
+/* ===== 公共聊天状态灯 ===== */
 #openPublicChatBtn {
   position: relative;
 }
@@ -166,7 +166,7 @@ html.dark .ov-card.online b{color:#3dd9b8}html.dark .ov-card.idle b{color:#ffb34
 
 .server-list{margin-top:18px;display:grid;gap:12px;contain:layout style}
 
-/* ===== 服务器卡片 ===== */
+/* ===== 服务器卡片（含滑动） ===== */
 .server-group{
   position: relative;
   background:var(--white);
@@ -177,6 +177,7 @@ html.dark .ov-card.online b{color:#3dd9b8}html.dark .ov-card.idle b{color:#ffb34
   contain:layout style paint;
   cursor:grab;
   transition: filter 0.25s ease;
+  touch-action:pan-y;
 }
 .server-group:active{cursor:grabbing}
 .server-group:hover {
@@ -212,16 +213,73 @@ html.dark .server-group.dragging {
   }
 }
 
-.card-badges{
-  position:absolute;
-  top:0;
-  right:8px;
-  display:flex;
-  align-items:center;
-  gap:4px;
-  z-index:2;
+/* 动作层（右侧按钮） - 默认隐藏，滑动后显示 */
+.server-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 160px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(100%);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.server-group.swipe-open .server-actions {
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateX(0);
 }
 
+.action-btn {
+  flex: 1;
+  border: 0;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  touch-action: manipulation;
+}
+.action-btn:active {
+  opacity: 0.8;
+}
+.action-edit {
+  background: #1a73c0;
+}
+.action-edit:hover {
+  background: #155a9b;
+}
+.action-delete {
+  background: var(--red);
+}
+.action-delete:hover {
+  background: #b0243a;
+}
+
+/* 卡片内容容器 */
+.server-card-inner {
+  position: relative;
+  background: var(--white);
+  border-radius: var(--radius-md);
+  transition: transform 0.3s cubic-bezier(.4,0,.2,1);
+  will-change: transform;
+  z-index: 1;
+  touch-action: pan-y;
+}
+.server-group.swipe-open .server-card-inner {
+  transform: translateX(-160px);
+}
+
+/* ===== 标签样式：地区标签（居中）和类型标签（右上） ===== */
 .card-region {
   position: absolute;
   top: 0;
@@ -245,36 +303,40 @@ html.dark .server-group.dragging {
   text-overflow: ellipsis;
   pointer-events: none;
 }
-html.dark .card-region{background:transparent;color:var(--green)}
-@media (prefers-color-scheme: dark){:root:not(.light) .card-region{background:transparent;color:var(--green)}}
 
-/* ===== 徽标（内置、远程、删除、编辑）与地区徽标视觉统一 ===== */
-.badge {
-  font-size: 10px;
-  padding: 0 8px;
-  border-radius: 4px;
-  font-weight: 700;
-  line-height: 1.5;
+/* 类型标签（右上角） */
+.server-type-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px 3px 8px;
+  border-radius: 0 0 0 6px;
   background: transparent;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
 }
-.badge-builtin {
+/* 不同颜色 */
+.server-type-badge.builtin {
   color: var(--orange);
 }
-.badge-remote {
+.server-type-badge.remote {
   color: #1a73c0;
 }
-.badge-delete {
-  color: var(--red);
-  cursor: pointer;
-}
-.badge-edit {
-  color: #1a73c0;
-  cursor: pointer;
+.server-type-badge.manual {
+  color: var(--cyan);
 }
 
 /* ===== 服务器卡片头部 ===== */
 .server-head{
-  position: relative;   /* 新增，为绝对定位子元素提供锚点 */
+  position: relative;
   display:flex;
   align-items:stretch;
   gap:14px;
@@ -306,7 +368,6 @@ html.dark .server-head:hover{background:rgba(255,255,255,.03)}
   padding: 0;
 }
 
-/* 服务器名字（双副本结构，短文本默认隐藏第二副本） */
 .server-name {
   font-size: 16px;
   font-weight: 800;
@@ -330,7 +391,6 @@ html.dark .server-head:hover{background:rgba(255,255,255,.03)}
   display: inline-block;
   white-space: nowrap;
 }
-/* 短文本：隐藏第二个副本，暂停动画 */
 .server-name.short-text .scroll-wrapper {
   animation: none !important;
 }
@@ -338,7 +398,6 @@ html.dark .server-head:hover{background:rgba(255,255,255,.03)}
   display: none;
 }
 
-/* 服务器地址（双副本结构） */
 .server-address {
   font-size: 12px;
   font-weight: 600;
@@ -387,10 +446,6 @@ html.dark .server-head:hover{background:rgba(255,255,255,.03)}
   display: inline-block;
 }
 
-html.dark .server-address{color:var(--muted)}
-html.dark .server-address:hover{color:var(--ink)}
-@media (prefers-color-scheme: dark){:root:not(.light) .server-address{color:var(--muted)}:root:not(.light) .server-address:hover{color:var(--ink)}}
-
 .server-stats{display:grid;grid-template-columns:repeat(4,1fr);width:280px;gap:8px;align-items:center;flex-shrink:0}
 .stat-item{display:flex;flex-direction:column;align-items:center;text-align:center;min-width:0}
 .stat-item span{display:block;font-size:10.5px;color:var(--muted);font-weight:600;margin-bottom:2px;line-height:1.3}
@@ -415,10 +470,10 @@ html.dark .latency-badge.slow{color:#ff5a6e}
   :root:not(.light) .latency-badge.slow{color:#ff5a6e}
 }
 
-/* ===== 新消息呼吸灯指示器（修改为绝对定位，右对齐） ===== */
+/* ===== 新消息呼吸灯指示器 ===== */
 .unread-indicator {
   position: absolute;
-  right: 14px;              /* 与右侧边缘的距离 */
+  right: 14px;
   top: 50%;
   transform: translateY(-50%);
   width: 12px;
@@ -428,12 +483,8 @@ html.dark .latency-badge.slow{color:#ff5a6e}
   box-shadow: 0 0 0 4px rgba(25,200,174,0.3);
   animation: breathe-green 1.5s ease-in-out infinite;
   flex-shrink: 0;
-  display: none;            /* 默认隐藏，由 JS 控制显示 */
-  pointer-events: none;     /* 避免干扰点击事件 */
-}
-@keyframes breathe-green {
-  0%, 100% { box-shadow: 0 0 0 4px rgba(25,200,174,0.3); }
-  50% { box-shadow: 0 0 0 8px rgba(25,200,174,0.1); }
+  display: none;
+  pointer-events: none;
 }
 
 .server-body{display:grid;grid-template-rows:0fr;overflow:hidden;transition:none}
@@ -474,7 +525,6 @@ html.dark .server-error{background:rgba(255,90,110,.08);color:#ff5a6e}
   background: #34495e;
 }
 
-/* 游戏名（双副本结构） */
 .game-name {
   font-size: 12.5px;
   font-weight: 700;
@@ -529,7 +579,6 @@ html.dark .game-name {
   }
 }
 
-/* ===== meta 信息行 ===== */
 .room-meta {
   display: flex;
   gap: 8px;
@@ -555,7 +604,6 @@ html.dark .game-name {
   font-weight: 800;
 }
 
-/* 主机名容器（双副本结构） */
 .room-host-meta {
   display: inline-flex;
   align-items: center;
@@ -594,13 +642,11 @@ html.dark .game-name {
   display: none;
 }
 
-/* 双副本滚动动画 */
 @keyframes marquee-dual {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
 
-/* 玩家列表 */
 .room-players{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
 .room-players .player{
   padding:3px 10px;border-radius:999px;background:var(--green-bg);color:#17776b;
@@ -929,7 +975,7 @@ html.dark .dpi-reset-btn {
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
 }
 
-/* ===== 聊天模块样式（新增） ===== */
+/* ===== 聊天模块样式 ===== */
 .chat-wrapper {
     margin-top: 12px;
     border-top: 1px solid var(--line);
@@ -998,7 +1044,6 @@ html.dark .chat-msg-mine {
     color: #0f1923;
 }
 
-/* 图片上传按钮样式（新增） */
 .image-upload-btn {
   background: none;
   border: none;
@@ -1012,4 +1057,33 @@ html.dark .chat-msg-mine {
 .image-upload-btn:hover {
   background: var(--line);
   color: var(--ink);
+}
+
+/* ===== 聊天链接 - 无背景，纯亮蓝色 ===== */
+.chat-link {
+    color: #1e90ff;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 2px;
+    text-decoration-color: #1e90ff;
+    cursor: pointer;
+    user-select: text;
+    transition: color 0.2s, transform 0.1s;
+    font-weight: 600;
+}
+.chat-link:hover {
+    color: #0077ea;
+    transform: scale(1.02);
+}
+
+html.dark .chat-link,
+@media (prefers-color-scheme: dark) {
+    :root:not(.light) .chat-link {
+        color: #4fc3f7;
+        text-decoration-color: #4fc3f7;
+    }
+    html.dark .chat-link:hover,
+    :root:not(.light) .chat-link:hover {
+        color: #81d4fa;
+    }
 }

@@ -8,7 +8,6 @@
   const PUBLIC_STORAGE_KEY = 'lanplay_public_messages';
   const USERNAME_KEY = 'lan_play_username';
   const UNREAD_STORAGE_KEY = 'lanplay_unread_status';
-  // 新增：公共聊天的未读状态存储键
   const PUBLIC_UNREAD_KEY = 'lanplay_public_unread';
 
   const state = {
@@ -696,6 +695,188 @@
     }
   }
 
+  // ===== 滑动交互（仅对自定义服务器启用） =====
+  const SWIPE_THRESHOLD = 40;
+  const ACTION_WIDTH = 160;
+
+  function initSwipe(card) {
+    const serverId = card.dataset.id;
+    const server = state.servers.find(s => s.id === serverId);
+    if (!server || !server.is_manual) {
+      const actions = card.querySelector('.server-actions');
+      if (actions) actions.style.display = 'none';
+      return;
+    }
+    if (card.dataset.swipeBound === 'true') return;
+    card.dataset.swipeBound = 'true';
+
+    let startX = 0;
+    let currentX = 0;
+    let isDragging = false;
+    let isSwiping = false;
+    let startTime = 0;
+    let offset = 0;
+
+    const inner = card.querySelector('.server-card-inner');
+    if (!inner) return;
+
+    function updateTransform(x) {
+      const clamped = Math.min(0, Math.max(-ACTION_WIDTH, x));
+      offset = Math.abs(clamped);
+      inner.style.transform = `translateX(${clamped}px)`;
+      if (offset >= ACTION_WIDTH - 10) {
+        card.classList.add('swipe-open');
+      } else {
+        card.classList.remove('swipe-open');
+      }
+    }
+
+    function onStart(e) {
+      const touch = e.touches ? e.touches[0] : e;
+      startX = touch.clientX;
+      currentX = startX;
+      startTime = Date.now();
+      isDragging = true;
+      isSwiping = false;
+      if (card.classList.contains('swipe-open')) {
+        offset = ACTION_WIDTH;
+        inner.style.transform = `translateX(${-ACTION_WIDTH}px)`;
+      } else {
+        offset = 0;
+        inner.style.transform = `translateX(0px)`;
+      }
+    }
+
+    function onMove(e) {
+      if (!isDragging) return;
+      const touch = e.touches ? e.touches[0] : e;
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - (e.changedTouches ? e.changedTouches[0].clientY : 0);
+      if (Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        isSwiping = true;
+        e.preventDefault();
+      }
+      if (!isSwiping) return;
+      const newOffset = offset - deltaX;
+      updateTransform(-newOffset);
+      currentX = touch.clientX;
+    }
+
+    function onEnd(e) {
+      if (!isDragging) return;
+      isDragging = false;
+      const dt = Date.now() - startTime;
+      const dx = Math.abs(currentX - startX);
+      if (dx < 10 && dt < 300) {
+        isSwiping = false;
+        if (card.classList.contains('swipe-open')) {
+          updateTransform(-ACTION_WIDTH);
+        } else {
+          updateTransform(0);
+        }
+        return;
+      }
+      if (isSwiping) {
+        if (offset > SWIPE_THRESHOLD) {
+          updateTransform(-ACTION_WIDTH);
+          card.classList.add('swipe-open');
+        } else {
+          updateTransform(0);
+          card.classList.remove('swipe-open');
+        }
+      }
+      isSwiping = false;
+    }
+
+    card.addEventListener('touchstart', onStart, { passive: true });
+    card.addEventListener('touchmove', onMove, { passive: false });
+    card.addEventListener('touchend', onEnd, { passive: true });
+
+    let mouseDown = false;
+    card.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      mouseDown = true;
+      onStart(e);
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!mouseDown) return;
+      onMove(e);
+    });
+    document.addEventListener('mouseup', (e) => {
+      if (!mouseDown) return;
+      mouseDown = false;
+      onEnd(e);
+    });
+
+    const head = card.querySelector('.server-head');
+    if (head) {
+      head.addEventListener('click', (e) => {
+        if (card.classList.contains('swipe-open')) {
+          e.stopPropagation();
+          card.classList.remove('swipe-open');
+          updateTransform(0);
+          return;
+        }
+        if (isSwiping) {
+          e.stopPropagation();
+          isSwiping = false;
+          return;
+        }
+      });
+    }
+
+    const editBtn = card.querySelector('.action-edit');
+    const deleteBtn = card.querySelector('.action-delete');
+    if (editBtn) {
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sid = card.dataset.id;
+        const server = state.servers.find(s => s.id === sid);
+        if (server) {
+          openEditModal(sid, server.name, card);
+        }
+        card.classList.remove('swipe-open');
+        updateTransform(0);
+      });
+    }
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sid = card.dataset.id;
+        const server = state.servers.find(s => s.id === sid);
+        if (server) {
+          openDeleteConfirm(sid, server.name, card);
+        }
+        card.classList.remove('swipe-open');
+        updateTransform(0);
+      });
+    }
+
+    card._resetSwipe = function() {
+      card.classList.remove('swipe-open');
+      updateTransform(0);
+    };
+  }
+
+  // ===== 获取类型标签 HTML =====
+  function getTypeBadge(server) {
+    let type = '';
+    let cls = '';
+    if (server.is_builtin) {
+      type = '内置';
+      cls = 'builtin';
+    } else if (server.is_remote) {
+      type = '远程';
+      cls = 'remote';
+    } else if (server.is_manual) {
+      type = '自定义';
+      cls = 'manual';
+    } else {
+      return '';
+    }
+    return `<span class="server-type-badge ${cls}">${type}</span>`;
+  }
+
   // ===== 筛选应用 =====
   function applyFilter(autoExpand) {
     if (autoExpand === undefined) autoExpand = false;
@@ -812,20 +993,6 @@
       }
     } catch (e) { /* ignore */ }
     return false;
-  }
-
-  // ===== 徽标 =====
-  function getServerBadge(s) {
-    if (s.is_builtin) return '<span class="badge badge-builtin">内置</span>';
-    if (s.is_remote) return '<span class="badge badge-remote">远程</span>';
-    if (s.is_manual) return '<span class="badge badge-delete">删除</span><span class="badge badge-edit">编辑</span>';
-    return '';
-  }
-  function getServerClass(s) {
-    if (s.is_builtin) return ' is-builtin';
-    if (s.is_remote) return ' is-remote';
-    if (s.is_manual) return ' is-manual';
-    return '';
   }
 
   // ===== 编辑模态框（含 ID 修改） =====
@@ -1214,6 +1381,20 @@
     fileInput.click();
   }
 
+  // ---- 链接识别（URL、域名、IPv4、IPv6）- 不追加协议头 ----
+  function linkifyText(text) {
+    if (!text) return '';
+    // 匹配：完整URL、域名（含子域名）、IPv4、IPv6（简写/完整）
+    const urlRegex = /(https?:\/\/[^\s]+|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?|\b(?:(?:[0-9]{1,3}\.){3}[0-9]{1,3}|(?:[0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}|::[0-9a-fA-F]{1,4}|[0-9a-fA-F]{1,4}::)\b)/g;
+    return text.replace(urlRegex, function(match) {
+      // 移除末尾常见标点（不影响中文）
+      const cleaned = match.replace(/[.,;:!?]+$/, '');
+      // 不再补协议，直接使用原始字符串（复制时不加 http://）
+      return `<span class="chat-link" data-url="${esc(cleaned)}">${esc(match)}</span>`;
+    });
+  }
+
+  // ---- 渲染消息内容 ----
   function renderMessageContent(msg) {
     if (msg.isImage && msg.text.startsWith('[图片]')) {
       const url = msg.text.substring(4);
@@ -1223,7 +1404,8 @@
       const url = msg.text.substring(4);
       return `<video src="${esc(url)}" controls preload="metadata" style="max-width:200px;max-height:200px;border-radius:8px;display:block;margin-top:4px;background:#000;"></video>`;
     }
-    return esc(msg.text);
+    // 普通文本：检测链接
+    return linkifyText(msg.text);
   }
 
   // ---- 初始化 GoEasy ----
@@ -1266,8 +1448,6 @@
             state.servers.forEach(s => renderChatMessages(s.id));
             renderPublicChat();
             updateChatUI();
-
-            // 初始化公共未读状态（刷新后恢复）
             restorePublicUnread();
           },
           onFailed: function (error) {
@@ -1391,7 +1571,6 @@
       saveChatMessages();
       renderChatMessages(serverId);
 
-      // ---- 新消息未读标记 ----
       if (!isMine && !state.expanded.has(serverId)) {
         state.unreadStatus[serverId] = true;
         saveUnreadStatus();
@@ -1572,7 +1751,6 @@
           savePublicMessages();
           renderPublicChat();
 
-          // ---- 公共新消息未读标记（仅当模态框未打开） ----
           if (!isMine && !state.publicModalOpen) {
             setPublicUnread(true);
           }
@@ -1583,7 +1761,7 @@
       onSuccess: function () {
         console.log('公共频道订阅成功');
         state.publicChatReady = true;
-        restorePublicUnread(); // 订阅成功后恢复未读状态
+        restorePublicUnread();
       },
       onFailed: function (error) {
         console.error('公共频道订阅失败', error);
@@ -1635,8 +1813,7 @@
         }
         renderPublicChat();
         document.getElementById('publicChatInput').value = '';
-        // 自己发送的消息不触发未读标记
-        setPublicUnread(false); // 确保未读被清除（因为已打开模态框）
+        setPublicUnread(false);
       },
       onFailed: function (error) {
         showToast('❌ 公共消息发送失败', 2000, false);
@@ -1686,7 +1863,6 @@
     openBtn.addEventListener('click', function() {
       state.publicModalOpen = true;
       modal.classList.add('open');
-      // 打开时清除未读状态
       setPublicUnread(false);
       renderPublicChat();
 
@@ -1783,13 +1959,14 @@
       const dot = statusDot(s.status);
       const rooms = roomsByServer[s.id] || [];
       const regionHtml = s.region ? `<span class="card-region" title="${esc(s.region)}">${esc(s.region)}</span>` : '';
+      const typeBadgeHtml = getTypeBadge(s);
       const errMsg = s.error ? `<div class="server-error">⚠️ ${esc(s.error)}</div>` : '';
       const newRoomsHtml = rooms.length ? `<div class="room-list">${rooms.map(r => roomCard(r)).join('')}</div>` : '';
       let group = existing.get(s.id);
       const address = s.address || `${s.host}:${s.port}`;
 
       if (group) {
-        // ---- 更新头部 ----
+        // 更新已有卡片
         const dotEl = group.querySelector('.server-status-dot');
         if (dotEl && dotEl.className !== 'server-status-dot ' + dot) dotEl.className = 'server-status-dot ' + dot;
 
@@ -1835,6 +2012,7 @@
           }
         }
 
+        // 更新地区标签
         const regionEl = group.querySelector('.card-region');
         if (regionEl) {
           if (!s.region) { regionEl.remove(); }
@@ -1843,28 +2021,26 @@
           group.querySelector('.server-head').insertAdjacentHTML('afterbegin', regionHtml);
         }
 
-        const badgeContainer = group.querySelector('.card-badges');
-        if (badgeContainer) {
-          const newBadge = getServerBadge(s);
-          if (badgeContainer.innerHTML !== newBadge) {
-            badgeContainer.innerHTML = newBadge;
-            const del = badgeContainer.querySelector('.badge-delete');
-            if (del) {
-              del.style.cursor = 'pointer';
-              del.addEventListener('click', (e) => {
-                e.stopPropagation();
-                openDeleteConfirm(s.id, s.name, group);
-              });
-            }
-            const edit = badgeContainer.querySelector('.badge-edit');
-            if (edit) {
-              edit.style.cursor = 'pointer';
-              edit.addEventListener('click', (e) => {
-                e.stopPropagation();
-                openEditModal(s.id, s.name, group);
-              });
+        // 更新类型标签
+        let typeEl = group.querySelector('.server-type-badge');
+        if (typeBadgeHtml) {
+          if (!typeEl) {
+            // 插入到 .server-head 的开头
+            const head = group.querySelector('.server-head');
+            if (head) head.insertAdjacentHTML('afterbegin', typeBadgeHtml);
+            typeEl = group.querySelector('.server-type-badge');
+          } else {
+            // 更新内容
+            const newType = s.is_builtin ? '内置' : s.is_remote ? '远程' : s.is_manual ? '自定义' : '';
+            if (newType) {
+              typeEl.textContent = newType;
+              typeEl.className = 'server-type-badge ' + (s.is_builtin ? 'builtin' : s.is_remote ? 'remote' : 'manual');
+            } else {
+              typeEl.remove();
             }
           }
+        } else {
+          if (typeEl) typeEl.remove();
         }
 
         const statBs = group.querySelectorAll('.stat-item b');
@@ -1913,21 +2089,53 @@
           initChatForCard(s.id, group);
         }
 
-        // 确保指示器存在
         ensureUnreadIndicator(group, s.id);
 
       } else {
         // ---- 新建卡片 ----
         const isOpen = state.expanded.has(s.id) ? 'open' : '';
-        const extraClass = getServerClass(s);
-        const badgeHtml = getServerBadge(s);
         const nameHtml = makeServerNameHtml(s.name, s.name);
         const addrHtml = makeServerAddressHtml(address, address);
         const indicatorStyle = state.unreadStatus[s.id] ? 'inline-block' : 'none';
+
+        const actionsHtml = s.is_manual ? `
+          <div class="server-actions">
+            <button class="action-btn action-edit">编辑</button>
+            <button class="action-btn action-delete">删除</button>
+          </div>` : '';
+
         const div = document.createElement('div');
-        div.className = `server-group ${isOpen}${extraClass}`;
+        div.className = `server-group ${isOpen}`;
         div.dataset.id = s.id;
-        div.innerHTML = `${regionHtml}<div class="server-head"><div class="server-status-dot ${dot}"></div><div class="server-info">${nameHtml}${addrHtml}<div class="server-detail"></div></div><div class="card-badges">${badgeHtml}</div><span class="unread-indicator" data-server-id="${s.id}" style="display: ${indicatorStyle};"></span><div class="server-stats"><div class="stat-item online"><span>在线</span><b>${s.online || 0}</b></div><div class="stat-item idle"><span>空闲</span><b>${s.idle || 0}</b></div><div class="stat-item rooms"><span>房间</span><b>${s.room_count || 0}</b></div><div class="stat-item latency"><span>延迟</span>${latencyHTML(s)}</div></div></div><div class="server-body"><div class="body-inner">${errMsg}${newRoomsHtml}</div></div>`;
+        div.innerHTML = `
+          ${actionsHtml}
+          <div class="server-card-inner">
+            <div class="server-head">
+              ${typeBadgeHtml}
+              ${regionHtml}
+              <div class="server-status-dot ${dot}"></div>
+              <div class="server-info">
+                ${nameHtml}
+                ${addrHtml}
+                <div class="server-detail"></div>
+              </div>
+              <span class="unread-indicator" data-server-id="${s.id}" style="display: ${indicatorStyle};"></span>
+              <div class="server-stats">
+                <div class="stat-item online"><span>在线</span><b>${s.online || 0}</b></div>
+                <div class="stat-item idle"><span>空闲</span><b>${s.idle || 0}</b></div>
+                <div class="stat-item rooms"><span>房间</span><b>${s.room_count || 0}</b></div>
+                <div class="stat-item latency"><span>延迟</span>${latencyHTML(s)}</div>
+              </div>
+            </div>
+            <div class="server-body">
+              <div class="body-inner">
+                ${errMsg}
+                ${newRoomsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+
         const nameEl = div.querySelector('.server-name');
         if (nameEl) {
           nameEl.addEventListener('click', function (e) {
@@ -1942,29 +2150,20 @@
             copyServerAddress(this.dataset.copytext, this);
           });
         }
-        initDragAndDrop(div, s);
-        existing.set(s.id, div);
 
-        const del = div.querySelector('.badge-delete');
-        if (del) {
-          del.style.cursor = 'pointer';
-          del.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openDeleteConfirm(s.id, s.name, div);
-          });
-        }
-        const edit = div.querySelector('.badge-edit');
-        if (edit) {
-          edit.style.cursor = 'pointer';
-          edit.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openEditModal(s.id, s.name, div);
-          });
+        initDragAndDrop(div, s);
+
+        if (s.is_manual) {
+          initSwipe(div);
+        } else {
+          const actions = div.querySelector('.server-actions');
+          if (actions) actions.style.display = 'none';
         }
 
         initChatForCard(s.id, div);
-        // 确保指示器已添加（虽然已经在 HTML 中，但为防万一）
         ensureUnreadIndicator(div, s.id);
+
+        existing.set(s.id, div);
       }
       order.push(existing.get(s.id));
     });
@@ -1994,6 +2193,18 @@
       const contentId = target.dataset.contentid;
       if (contentId && contentId !== UNKNOWN_ID) {
         copyWithMessage(contentId, '✅ 已复制游戏 ID: ' + contentId);
+      }
+    }
+  });
+
+  // ---- 聊天链接点击复制 ----
+  document.addEventListener('click', function(e) {
+    const link = e.target.closest('.chat-link');
+    if (link) {
+      e.stopPropagation();
+      const url = link.dataset.url;
+      if (url) {
+        copyWithMessage(url, '✅ 已复制：' + url);
       }
     }
   });
@@ -2073,7 +2284,7 @@
     renderFilters();
     renderServers();
     applyFilter(false);
-    syncUnreadWithExpanded(); // 清除已展开卡片的未读状态
+    syncUnreadWithExpanded();
   }
 
   // ===== 加载数据 =====
@@ -2205,8 +2416,6 @@
   loadPublicMessages();
   loadUnreadStatus();
   updateAllMessagesIsMine();
-  
-  // 恢复公共未读状态（即使在 GoEasy 未连接时也显示）
   restorePublicUnread();
 
   const addHost = document.getElementById('addHost');
@@ -2217,7 +2426,7 @@
   bindPublicChatEvents();
   startPolling();
 
-  // ===== 卡片点击委托（含未读清除） =====
+  // ===== 卡片点击委托 =====
   document.getElementById('serverList').addEventListener('click', function(e) {
     const head = e.target.closest('.server-head');
     if (!head) return;
@@ -2225,6 +2434,11 @@
     if (!group) return;
     const id = group.dataset.id;
     if (!id) return;
+
+    if (group.classList.contains('swipe-open')) {
+      if (group._resetSwipe) group._resetSwipe();
+      return;
+    }
 
     e.preventDefault();
     e.stopPropagation();
@@ -2239,7 +2453,6 @@
       return;
     }
 
-    // 即将展开，清除未读
     if (state.unreadStatus[id]) {
       delete state.unreadStatus[id];
       saveUnreadStatus();
