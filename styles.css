@@ -96,6 +96,33 @@ html.dark .theme-toggle:hover,html.dark .icon-btn:hover{background:rgba(255,255,
   :root:not(.light) .theme-toggle:hover,:root:not(.light) .icon-btn:hover{background:rgba(255,255,255,.15)}
 }
 
+/* ===== 公共聊天状态灯（无新消息时隐藏，有新消息时绿色呼吸） ===== */
+#openPublicChatBtn {
+  position: relative;
+}
+#openPublicChatBtn::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  transition: background 0.3s, box-shadow 0.3s;
+  pointer-events: none;
+}
+#openPublicChatBtn.has-new::after {
+  background: var(--cyan);
+  box-shadow: 0 0 8px rgba(25,200,174,0.6);
+  animation: breathe-green 1.5s ease-in-out infinite;
+}
+@keyframes breathe-green {
+  0%, 100% { box-shadow: 0 0 4px rgba(25,200,174,0.3); }
+  50% { box-shadow: 0 0 14px rgba(25,200,174,0.9); }
+}
+
 .dot{width:12px;height:12px;border-radius:50%;background:#19c8ae;box-shadow:0 0 0 6px rgba(25,200,174,.13);animation:pulse-dot 2s ease-in-out infinite;flex-shrink:0}
 .dot.online{background:#19c8ae;box-shadow:0 0 0 6px rgba(25,200,174,.15)}
 .dot.offline{background:#dc3048;box-shadow:0 0 0 6px rgba(220,48,72,.15);animation:none}
@@ -247,7 +274,7 @@ html.dark .card-region{background:transparent;color:var(--green)}
 
 /* ===== 服务器卡片头部 ===== */
 .server-head{
-  position: relative;
+  position: relative;   /* 新增，为绝对定位子元素提供锚点 */
   display:flex;
   align-items:stretch;
   gap:14px;
@@ -386,6 +413,27 @@ html.dark .latency-badge.slow{color:#ff5a6e}
 @media (prefers-color-scheme: dark){
   :root:not(.light) .latency-badge.fast{color:#3dd9b8}
   :root:not(.light) .latency-badge.slow{color:#ff5a6e}
+}
+
+/* ===== 新消息呼吸灯指示器（修改为绝对定位，右对齐） ===== */
+.unread-indicator {
+  position: absolute;
+  right: 14px;              /* 与右侧边缘的距离 */
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 0 4px rgba(25,200,174,0.3);
+  animation: breathe-green 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+  display: none;            /* 默认隐藏，由 JS 控制显示 */
+  pointer-events: none;     /* 避免干扰点击事件 */
+}
+@keyframes breathe-green {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(25,200,174,0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(25,200,174,0.1); }
 }
 
 .server-body{display:grid;grid-template-rows:0fr;overflow:hidden;transition:none}
@@ -950,4 +998,18 @@ html.dark .chat-msg-mine {
     color: #0f1923;
 }
 
-/* （图片上传按钮样式已移除） */
+/* 图片上传按钮样式（新增） */
+.image-upload-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 12px;
+  transition: var(--transition);
+  color: var(--muted);
+}
+.image-upload-btn:hover {
+  background: var(--line);
+  color: var(--ink);
+}

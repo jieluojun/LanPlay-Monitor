@@ -7,19 +7,19 @@
   <meta name="theme-color" content="#0f1923" media="(prefers-color-scheme: dark)">
   <title>LAN-Play 房间监控</title>
   <link rel="stylesheet" href="/static/styles.css">
-  <script src="/static/goeasy-lite.min.js"></script>
+  <script src="/static/goeasy.min.js"></script>
 </head>
 <body>
 <div class="page">
   <section class="hero glass">
     <div class="brand-area">
-      <button id="copyPluginBtn" class="icon-btn" title="点击复制最新版联机插件地址">🎮</button>
+      <button id="themeToggleBtn" class="theme-toggle" title="切换浅色/深色主题">🌙</button>
       <button id="openLogModalBtn" class="icon-btn" title="查看运行日志">💻</button>
       <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
       <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
       <button id="dpiToggleBtn" class="icon-btn" title="调节界面缩放 (DPI)">🔍</button>
+      <button id="copyPluginBtn" class="icon-btn" title="点击复制最新版联机插件地址">🎮</button>
       <button id="openPublicChatBtn" class="icon-btn" title="公共聊天">💬</button>
-      <button id="themeToggleBtn" class="theme-toggle" title="切换浅色/深色主题">🌙</button>
     </div>
     <div class="scan">
       <i id="netDot" class="dot" title="检测网络连接中..."></i>
@@ -67,7 +67,10 @@
       <div class="custom-modal-body">
         <form id="addServerForm" class="form-grid">
           <div class="form-row">
-            <input type="text" id="addName" placeholder="服务器名称 (例如: 我的服务器)" required>
+            <input type="text" id="addId" placeholder="服务器ID (可选，不填自动生成)" pattern="[A-Za-z0-9_ -]{1,64}" title="仅允许字母、数字、下划线、空格和连字符，长度1-64">
+          </div>
+          <div class="form-row">
+            <input type="text" id="addName" placeholder="服务器名称 (必填)" required>
           </div>
           <div class="form-row">
             <input type="text" id="addHost" placeholder="主机地址 (例如: example.com 或 IP)" required>
