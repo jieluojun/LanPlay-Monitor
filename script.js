@@ -2240,7 +2240,8 @@
           });
         }
 
-        const autoExpand = (btn.dataset.game !== 'all_servers');
+        // 修改：点击“全部”时，不自动展开任何卡片
+        const autoExpand = (btn.dataset.game !== 'all_servers' && btn.dataset.game !== 'all');
         applyFilter(autoExpand);
       });
       container.appendChild(btn);
