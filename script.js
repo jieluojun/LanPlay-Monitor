@@ -1255,8 +1255,10 @@
   const CHAT_PREFIX = 'lanplay_chat_';
   const PUBLIC_CHANNEL = 'public_chat';
   const PRESENCE_GROUP = 'lanplay_presence';
-  const PRESENCE_TTL_MS = 90 * 1000;
-  const PRESENCE_HEARTBEAT_MS = 25 * 1000;
+  const PRESENCE_TTL_MS = 60 * 1000;        // 60 秒无心跳 → 判定下线
+  const PRESENCE_HEARTBEAT_MS = 20 * 1000;  // 每 20 秒发一次心跳
+  const PRESENCE_STALE_MS = 45 * 1000;      // 45 秒前发出的 presence 消息视为过期重投，直接忽略
+  const PRESENCE_SWEEP_MS = 5 * 1000;       // 每 5 秒扫描清理一次过期成员
   const HISTORY_LIMIT = 30;
   let goEasyInitTimer = null;
   let presenceHeartbeatTimer = null;
@@ -2318,11 +2320,35 @@
 
   function subscribePublicChannel() { subscribePublicAndPresence(); }
 
+  const _subscribeAttemptAt = Object.create(null);
+  let _publicSubscribedAt = 0;
+
   function forceSubscribeAll() {
     if (!state.goEasyReady) return;
     state.chatSubscribed = {};
+    _publicSubscribedAt = 0;
     subscribeAllChannels();
     console.log('[IM] 强制重新订阅所有群');
+  }
+
+  // 增量补订阅：每秒轮询成功时调用。
+  // GoEasy 群订阅在连接期间持续有效，无需重复订阅；原实现每秒全量强制
+  // 重订阅会形成订阅风暴，触发服务端重投历史消息（含在线状态老心跳），
+  // 是“下线成员人数不变”的根源之一。这里只补订阅缺失的群，并做 10 秒退避。
+  function ensureImSubscriptions() {
+    if (!state.goEasyReady || !getIm()) return;
+    const now = Date.now();
+    (state.servers || []).forEach(function (s) {
+      const id = s.id;
+      if (state.chatSubscribed[id]) return;
+      if (now - (_subscribeAttemptAt[id] || 0) < 10000) return;
+      _subscribeAttemptAt[id] = now;
+      subscribeChannel(id);
+    });
+    if (!state.publicChatReady && (now - _publicSubscribedAt) > 10000) {
+      _publicSubscribedAt = now;
+      subscribePublicAndPresence();
+    }
   }
 
   function appendLocalChat(serverId, local) {
@@ -2595,12 +2621,18 @@
     if (!body || !body.__presence__) return;
     const id = body.id || senderId || '';
     if (!id) return;
-    const nickname = body.nickname || (senderData && senderData.nickname) || id;
     const action = body.action || 'join';
     if (action === 'leave') {
       if (_presenceMap[id]) { delete _presenceMap[id]; syncPresenceToState(); }
       return;
     }
+    // 关键修复：忽略“过期到达”的 presence 消息。
+    // GoEasy 在断线重连/重新订阅时会重投历史消息，老心跳会把已下线成员不断
+    // “救活”，导致在线人数只增不减、必须刷新浏览器才正常。
+    // 正常实时心跳的投递延迟只有毫秒级，超过 PRESENCE_STALE_MS 的一律按过期处理。
+    const ts = Number(body.ts) || 0;
+    if (ts > 0 && Date.now() - ts > PRESENCE_STALE_MS) return;
+    const nickname = body.nickname || (senderData && senderData.nickname) || id;
     const wasOnline = !!_presenceMap[id];
     _presenceMap[id] = { id: id, nickname: nickname, lastSeen: Date.now() };
     syncPresenceToState();
@@ -2663,7 +2695,7 @@
       if (!state.goEasyReady || document.hidden) return;
       sendPresenceAction('heartbeat');
     }, PRESENCE_HEARTBEAT_MS);
-    presenceExpireTimer = setInterval(() => { syncPresenceToState(); }, 10000);
+    presenceExpireTimer = setInterval(() => { syncPresenceToState(); }, PRESENCE_SWEEP_MS);
   }
   function stopImPresence() {
     if (presenceHeartbeatTimer) { clearInterval(presenceHeartbeatTimer); presenceHeartbeatTimer = null; }
@@ -3482,7 +3514,7 @@
       render();
 
       if (state.goEasyReady) {
-        forceSubscribeAll();
+        ensureImSubscriptions();
       }
 
       checkNetwork(true);
@@ -3651,6 +3683,17 @@
     if (refreshTimer) clearTimeout(refreshTimer);
     if (goEasyInitTimer) clearTimeout(goEasyInitTimer);
     try { stopImPresence(); sendPresenceAction('leave'); flushMarkAsRead(); } catch (e) {}
+  });
+
+  // 移动端/部分浏览器只有 pagehide 时机能可靠发出“离开”通知；
+  // 收到 leave 的客户端会立即移除该成员，无需等待 TTL 过期
+  window.addEventListener('pagehide', () => {
+    try { stopImPresence(); sendPresenceAction('leave'); } catch (e) {}
+  });
+
+  // 页面回前台时立刻补一次心跳，让自己快速回到他人的在线列表
+  window.addEventListener('pageshow', () => {
+    if (state.goEasyReady) { try { sendPresenceAction('heartbeat'); syncPresenceToState(); } catch (e) {} }
   });
 
 })();
