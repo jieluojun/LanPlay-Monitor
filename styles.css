@@ -612,9 +612,58 @@ html.dark .unread-indicator {
 /* 展开区内边距缩小，房间更贴近卡片边缘；顶部分割线与收起态边线一致 */
 .server-group.open .server-body > .body-inner{padding:0 10px 10px}
 
-.server-error{padding:14px 18px;border-radius:14px;background:#fff0f2;color:#a52639;font-size:13px;font-weight:600;margin-top:4px;display:flex;align-items:center;gap:8px}
-html.dark .server-error{background:rgba(255,90,110,.08);color:#ff5a6e}
-@media (prefers-color-scheme: dark){:root:not(.light) .server-error{background:rgba(255,90,110,.08);color:#ff5a6e}}
+/* 服务器错误角标：卡片顶部居中，无背景，红色文字 */
+.server-error-badge {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(70%, 280px);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: none;
+  pointer-events: none;
+  z-index: 4;
+  display: none;
+}
+.server-error-badge.show {
+  display: block;
+}
+html.dark .server-error-badge {
+  color: #ff5a6e;
+  background: transparent;
+  box-shadow: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .server-error-badge {
+    color: #ff5a6e;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+@media (max-width:600px) {
+  .server-error-badge {
+    top: 4px;
+    max-width: min(72%, 220px);
+    height: 16px;
+    line-height: 16px;
+    font-size: 10px;
+    padding: 0 2px;
+  }
+}
+/* 兼容旧版横幅错误（若残留则隐藏） */
+.server-error { display: none !important; }
 
 .room-list{display:grid;gap:10px;margin-top:6px;margin-bottom:0}
 .room-item{padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:0 4px 14px rgba(82,142,178,.05);transition:transform .15s ease,box-shadow .15s ease;contain:layout style paint;max-width:100%;overflow:hidden}

@@ -745,6 +745,35 @@
     applyUnreadToElement(indicator, getUnreadCount(serverId));
   }
 
+  // 服务器错误角标（卡片顶部居中，文案随错误变化）
+  function ensureErrorBadge(card, errorText) {
+    if (!card) return;
+    const host = card.querySelector('.server-card-inner') || card;
+    card.querySelectorAll('.server-error').forEach(el => el.remove());
+    let badge = host.querySelector('.server-error-badge');
+    if (!badge) badge = card.querySelector('.server-error-badge');
+    const text = (errorText || '').trim();
+    if (!text) {
+      if (badge) {
+        badge.classList.remove('show');
+        badge.textContent = '';
+        badge.removeAttribute('title');
+      }
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'server-error-badge';
+      host.appendChild(badge);
+    } else if (badge.parentElement !== host) {
+      host.appendChild(badge);
+    }
+    const label = text.length > 28 ? text.slice(0, 28) + '…' : text;
+    if (badge.textContent !== label) badge.textContent = label;
+    badge.title = text;
+    badge.classList.add('show');
+  }
+
   // ===== 滑动交互（仅对自定义服务器启用） =====
   const SWIPE_THRESHOLD = 40;
   const ACTION_WIDTH = 160;
@@ -976,10 +1005,8 @@
             const body = group.querySelector('.server-body > .body-inner');
             if (body) {
               const chat = body.querySelector('.chat-wrapper');
-              const err = body.querySelector('.server-error');
-              const anchor = err || chat;
-              if (anchor) {
-                if (anchor.nextSibling) body.insertBefore(m, anchor.nextSibling);
+              if (chat) {
+                if (chat.nextSibling) body.insertBefore(m, chat.nextSibling);
                 else body.appendChild(m);
               } else {
                 body.appendChild(m);
@@ -1831,16 +1858,6 @@
         bodyInner.prepend(wrapper);
       }
 
-      // 错误提示放到聊天下方：聊天 → 错误 → 房间
-      const errEl = bodyInner.querySelector('.server-error');
-      if (errEl) {
-        if (wrapper.nextSibling) {
-          bodyInner.insertBefore(errEl, wrapper.nextSibling);
-        } else {
-          bodyInner.appendChild(errEl);
-        }
-      }
-
       // 绑定滚动事件以保存位置
       const container = wrapper.querySelector('.chat-messages');
       if (container && !container.dataset.scrollBound) {
@@ -2252,15 +2269,20 @@
     }
 
     const html = state.onlineMembers.map(m => {
-      const name = esc(m.nickname || m.id || '匿名');
-      const idStr = esc(m.id || '');
-      const initial = (m.nickname || m.id || '?').charAt(0).toUpperCase();
+      const rawName = m.nickname || m.id || '匿名';
+      const rawId = m.id || '';
+      const name = esc(rawName);
+      const idStr = esc(rawId);
+      const initial = String(rawName || '?').charAt(0).toUpperCase();
       const isMe = (m.id === state.username) || (m.nickname === state.username);
+      // 昵称与 ID 相同时不显示副标题，避免重复
+      const showId = rawId && String(rawName) !== String(rawId);
+      const idHtml = showId ? `<div class="online-member-id">${idStr}</div>` : '';
       return `<div class="online-member-item" title="${idStr}">
         <div class="online-member-avatar">${esc(initial)}</div>
         <div class="online-member-info">
           <div class="online-member-name">${name}${isMe ? ' <span style="color:var(--cyan);font-size:11px;">(我)</span>' : ''}</div>
-          <div class="online-member-id">${idStr}</div>
+          ${idHtml}
         </div>
         <div class="online-member-dot" title="在线"></div>
       </div>`;
@@ -2518,7 +2540,7 @@
       const rooms = roomsByServer[s.id] || [];
       const regionHtml = s.region ? `<span class="card-region" title="${esc(s.region)}">${esc(s.region)}</span>` : '';
       const typeBadgeHtml = getTypeBadge(s);
-      const errMsg = s.error ? `<div class="server-error">⚠️ ${esc(s.error)}</div>` : '';
+      const errText = s.error ? String(s.error) : '';
       const newRoomsHtml = rooms.length ? `<div class="room-list">${rooms.map(r => roomCard(r)).join('')}</div>` : '';
       let group = existing.get(s.id);
       const address = s.address || `${s.host}:${s.port}`;
@@ -2607,37 +2629,27 @@
         const isOpen = group.classList.contains('open');
         if (shouldOpen !== isOpen) group.classList.toggle('open', shouldOpen);
 
-        // 始终更新错误/房间列表；不碰聊天 DOM，避免输入法被收起
+        // 错误角标：卡片顶部居中，文案随错误变化
+        ensureErrorBadge(group, errText);
+
+        // 始终更新房间列表；不碰聊天 DOM，避免输入法被收起
         const body = group.querySelector('.server-body');
         if (body) {
           const bodyInner = body.querySelector('.body-inner');
           if (bodyInner) {
             const chatWrapper = bodyInner.querySelector('.chat-wrapper');
-            // 只移除错误与房间列表，绝不移除聊天区
+            // 清理旧版横幅错误 + 房间列表，绝不移除聊天区
             bodyInner.querySelectorAll('.server-error, .room-list, .no-rooms-empty, .no-rooms-match, .no-rooms').forEach(el => {
               if (!chatWrapper || !chatWrapper.contains(el)) el.remove();
             });
 
-            // 顺序：聊天 → 错误 → 房间列表
-            if (errMsg) {
-              const temp = document.createElement('div');
-              temp.innerHTML = errMsg;
-              const errNode = temp.firstElementChild;
-              if (chatWrapper) {
-                if (chatWrapper.nextSibling) bodyInner.insertBefore(errNode, chatWrapper.nextSibling);
-                else bodyInner.appendChild(errNode);
-              } else {
-                bodyInner.appendChild(errNode);
-              }
-            }
+            // 顺序：聊天 → 房间列表
             if (newRoomsHtml) {
               const temp = document.createElement('div');
               temp.innerHTML = newRoomsHtml;
               const roomList = temp.firstElementChild;
-              const errNow = bodyInner.querySelector('.server-error');
-              const anchor = errNow || chatWrapper;
-              if (anchor) {
-                if (anchor.nextSibling) bodyInner.insertBefore(roomList, anchor.nextSibling);
+              if (chatWrapper) {
+                if (chatWrapper.nextSibling) bodyInner.insertBefore(roomList, chatWrapper.nextSibling);
                 else bodyInner.appendChild(roomList);
               } else {
                 bodyInner.appendChild(roomList);
@@ -2694,11 +2706,11 @@
             <div class="server-body">
               <div class="body-inner">
                 ${newRoomsHtml}
-                ${errMsg}
               </div>
             </div>
           </div>
         `;
+        ensureErrorBadge(div, errText);
 
         const nameEl = div.querySelector('.server-name');
         if (nameEl) {
