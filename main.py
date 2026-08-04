@@ -1669,11 +1669,12 @@ def main() -> None:
         SCAN_EXECUTOR.shutdown(wait=False)
         httpd.server_close()
 
+if __name__ == "__main__":
+
     try:
         import android_filechooser
         android_filechooser.install_async()
     except Exception as e:
         print("[文件选择] 初始化跳过:", e)
 
-if __name__ == "__main__":
     main()
