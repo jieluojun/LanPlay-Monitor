@@ -3,7 +3,7 @@ title = LanPlayMonitor
 package.name = monitor
 package.domain = com.lanplay
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,ttf,json,html,css,js
+source.include_exts = py, png, jpg, kv, atlas, ttf, json, html, css, js
 source.include_patterns = image/*
 version = 1.0.0
 
@@ -14,7 +14,7 @@ orientation = portrait
 entrypoint = main.py
 
 # ★ 改动 1：加入 pyjnius（Python 调用 Java 桥 FileChooserHelper 所必需）
-requirements = python3,pyjnius
+requirements = python3, pyjnius
 
 android.accept_sdk_license = True
 android.allow_api_min = 21
@@ -27,7 +27,7 @@ android.ndk_api = 21
 # ★ 改动 2：加入自定义 Java 源码目录（内含
 #   org/kivy/android/FileChooserHelper.java，为 WebView 补上文件选择功能）
 android.add_src = ./android-src
-android.permissions = INTERNET
+android.permissions = INTERNET, RECORD_AUDIO
 
 # 强制使用特定架构
 android.archs = arm64-v8a
