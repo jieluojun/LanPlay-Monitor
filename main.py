@@ -69,6 +69,12 @@ log_capturer = LogCapturer()
 sys.stdout = log_capturer
 sys.stderr = log_capturer
 
+try:
+    import android_filechooser
+    android_filechooser.install_async()
+except Exception as e:
+    print("[文件选择] 初始化跳过:", e)
+
 info = lambda *a, **k: print("[INFO]", *a, **k)
 warn = lambda *a, **k: print("[WARN]", *a, **k)
 err = lambda *a, **k: print("[ERROR]", *a, **k)
@@ -1670,11 +1676,4 @@ def main() -> None:
         httpd.server_close()
 
 if __name__ == "__main__":
-
-    try:
-        import android_filechooser
-        android_filechooser.install_async()
-    except Exception as e:
-        print("[文件选择] 初始化跳过:", e)
-
     main()
