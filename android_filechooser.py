@@ -1,69 +1,67 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Android WebView 文件选择支持（配合 FileChooserHelper.java 使用）
-
-背景：buildozer / python-for-android 的 `webview` bootstrap 只给 WebView
-设置了 WebViewClient，没有实现 WebChromeClient.onShowFileChooser，
-导致页面里的 <input type="file"> 点击后系统相册/视频选择器不会弹出。
-
-本模块在 App 启动时通过 pyjnius 调用 org.kivy.android.FileChooserHelper.install()
-为 WebView 补上该能力。非 Android 环境（桌面/服务器调试）自动跳过，零副作用。
-
-部署要求（见 README）：
-  1. buildozer.spec: requirements 中包含 pyjnius
-  2. buildozer.spec: android.add_src 指向包含
-     org/kivy/android/FileChooserHelper.java 的源码目录（如 ./android-src）
+Android WebView 文件选择/录音支持 v5（主线程同步安装，解决 JNI ClassLoader 跨线程问题）
+配合 android-src/org/kivy/android/FileChooserHelper.java 使用。
 """
 from __future__ import annotations
 
 import os
-import threading
-import time
 
-_installed = False
-_lock = threading.Lock()
+_STATUS_LOGS: list[str] = []
 
 
-def install_async(max_wait_s: float = 90.0) -> None:
-    """后台安装 WebChromeClient；仅 Android 生效，可重复调用（幂等）。"""
-    global _installed
-    if not os.environ.get("ANDROID_APP_PATH"):
-        return  # 桌面/服务器环境，直接跳过
-    with _lock:
-        if _installed:
-            return
-        _installed = True
-    t = threading.Thread(
-        target=_install_worker,
-        args=(max_wait_s,),
-        daemon=True,
-        name="filechooser-installer",
-    )
-    t.start()
+def _log(msg: str) -> None:
+    full_msg = f"[文件选择] {msg}"
+    print(full_msg)
+    _STATUS_LOGS.append(full_msg)
 
 
-def _install_worker(max_wait_s: float) -> None:
+def get_status_logs() -> list[str]:
+    """供 main.py 的 /api/logs 在最底部常驻展示"""
+    if not _STATUS_LOGS:
+        return ["[文件选择] 状态: 未执行 android_filechooser.install()"]
+    return list(_STATUS_LOGS)
+
+
+def install() -> bool:
+    """必须在 main.py 主线程启动时同步调用（切勿在 Python 子线程里调 autoclass，否则 Android JNI 会报 ClassNotFoundException）"""
+    _STATUS_LOGS.clear()
+    app_path = os.environ.get("ANDROID_APP_PATH")
+    _log(f"install() 被调用, ANDROID_APP_PATH={app_path!r}")
+
+    if not app_path:
+        _log("非 Android 真机环境（桌面调试），跳过原生挂载")
+        return False
+
     try:
         from jnius import autoclass
-        Helper = autoclass("org.kivy.android.FileChooserHelper")
+        _log("pyjnius 导入成功")
     except Exception as exc:
-        print(f"[文件选择] 加载 FileChooserHelper 失败: {exc}")
-        print("[文件选择] 请确认 buildozer.spec 的 requirements 含 pyjnius，"
-              "且 android.add_src 已包含 FileChooserHelper.java")
-        return
+        _log(f"❌ pyjnius 导入失败: {exc!r}")
+        _log("请检查 buildozer.spec 的 requirements 是否包含 pyjnius")
+        return False
 
-    deadline = time.time() + max_wait_s
-    attempt = 0
-    while time.time() < deadline:
-        attempt += 1
-        try:
-            # install() 返回 False 表示 WebView 还没创建好（启动解包阶段），轮询等待
-            if Helper.install():
-                print("[文件选择] ✅ WebView 文件选择（相册/视频）已启用")
-                return
-        except Exception as exc:
-            print(f"[文件选择] 安装失败: {exc}")
-            return
-        time.sleep(1.0)
-    print("[文件选择] ⚠️ 等待 WebView 创建超时，文件选择未启用")
+    try:
+        Helper = autoclass("org.kivy.android.FileChooserHelper")
+        _log("FileChooserHelper 类加载成功")
+    except Exception as exc:
+        _log(f"❌ FileChooserHelper 类加载失败: {exc!r}")
+        _log("原因：Java 类未找到。请确认 android-src/org/kivy/android/FileChooserHelper.java 已 git add 提交，且 spec 中有 android.add_src = ./android-src")
+        return False
+
+    try:
+        ok = bool(Helper.install())
+        if ok:
+            _log("✅ WebChromeClient 已成功挂载到 WebView！（相册/视频选择 + 麦克风录音已启用）")
+            return True
+        else:
+            _log("⚠️ Helper.install() 返回 false（PythonActivity 或 WebView 未就绪）")
+            return False
+    except Exception as exc:
+        _log(f"❌ Helper.install() 启动失败: {exc!r}")
+        return False
+
+
+# 兼容函数名
+install_async = install
