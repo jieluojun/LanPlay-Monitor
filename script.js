@@ -9,6 +9,7 @@
   const USERNAME_KEY = 'lan_play_username';
   const UNREAD_STORAGE_KEY = 'lanplay_unread_status';
   const PUBLIC_UNREAD_KEY = 'lanplay_public_unread';
+  const AUTO_EXPAND_KEY = 'lan_play_auto_expand';
 
   const state = {
     servers: [],
@@ -32,7 +33,18 @@
     publicModalOpen: false,
     frozenCardId: null,
     unreadStatus: {},
+    autoExpand: true,
+    onlineMembers: [],
+    onlineCount: 0,
+    presenceReady: false,
   };
+
+  const savedAuto = localStorage.getItem(AUTO_EXPAND_KEY);
+  if (savedAuto !== null) {
+    state.autoExpand = savedAuto === 'true';
+  } else {
+    localStorage.setItem(AUTO_EXPAND_KEY, 'true');
+  }
 
   const $ = id => document.getElementById(id);
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -46,6 +58,23 @@
     '</svg>'
   );
   const UNKNOWN_ID = 'FFFFFFFFFFFFFFFF';
+
+  // ---------- 滚动位置存储（聊天用） ----------
+  const CHAT_SCROLL_PREFIX = 'lanplay_chat_scroll_';
+  const PUBLIC_SCROLL_KEY = 'lanplay_public_scroll';
+
+  function saveChatScroll(serverId, scrollTop) {
+    try { localStorage.setItem(CHAT_SCROLL_PREFIX + serverId, String(scrollTop)); } catch(e) {}
+  }
+  function getChatScroll(serverId) {
+    try { const v = localStorage.getItem(CHAT_SCROLL_PREFIX + serverId); return v !== null ? parseInt(v, 10) : null; } catch(e) { return null; }
+  }
+  function savePublicScroll(scrollTop) {
+    try { localStorage.setItem(PUBLIC_SCROLL_KEY, String(scrollTop)); } catch(e) {}
+  }
+  function getPublicScroll() {
+    try { const v = localStorage.getItem(PUBLIC_SCROLL_KEY); return v !== null ? parseInt(v, 10) : null; } catch(e) { return null; }
+  }
 
   // ---------- Toast ----------
   let _globalToast = null;
@@ -543,26 +572,47 @@
     }
   }
 
-  // ===== 双副本 HTML =====
+  // QQ 风格：两条消息间隔超过 5 分钟则插入时间分割线
+  const CHAT_TIME_GAP_MS = 5 * 60 * 1000;
+
+  function shouldShowTimeDivider(prevTs, currTs) {
+    if (prevTs == null || currTs == null) return true;
+    const a = Number(prevTs);
+    const b = Number(currTs);
+    if (!a || !b || isNaN(a) || isNaN(b)) return true;
+    return Math.abs(b - a) >= CHAT_TIME_GAP_MS;
+  }
+
+  function buildChatMessagesHtml(messages) {
+    if (!messages || !messages.length) return '';
+    let html = '';
+    let prevTime = null;
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      const t = msg.time || 0;
+      if (shouldShowTimeDivider(prevTime, t)) {
+        html += `<div class="chat-time-divider"><span>${esc(formatMessageTime(t))}</span></div>`;
+      }
+      prevTime = t;
+      const cls = msg.isMine ? 'chat-msg-mine' : 'chat-msg-other';
+      const sender = msg.sender || '匿名';
+      const contentHtml = renderMessageContent(msg);
+      html += `<div class="chat-msg ${cls}">
+        <div class="msg-content"><strong>${esc(sender)}</strong>：${contentHtml}</div>
+      </div>`;
+    }
+    return html;
+  }
+
+  // ===== 双副本 HTML（改为省略号） =====
   function makeServerNameHtml(name, copyText) {
     const escaped = esc(name);
-    const shortClass = name.length > 20 ? '' : 'short-text';
-    return `<span class="server-name ${shortClass}" data-copytext="${esc(copyText)}" title="点击复制服务器名称">
-      <span class="scroll-wrapper">
-        <span class="server-name-text">${escaped}</span>
-        <span class="server-name-text">${escaped}</span>
-      </span>
-    </span>`;
+    return `<span class="server-name ellipsis" data-copytext="${esc(copyText)}" title="点击复制服务器名称">${escaped}</span>`;
   }
+
   function makeServerAddressHtml(address, copyText) {
     const escaped = esc(address);
-    const shortClass = address.length > 20 ? '' : 'short-text';
-    return `<span class="server-address ${shortClass}" data-copytext="${esc(copyText)}" title="点击复制服务器地址: ${esc(copyText)}">
-      <span class="scroll-wrapper">
-        <span class="server-address-text">${escaped}</span>
-        <span class="server-address-text">${escaped}</span>
-      </span>
-    </span>`;
+    return `<span class="server-address ellipsis" data-copytext="${esc(copyText)}" title="点击复制服务器地址: ${esc(copyText)}">${escaped}</span>`;
   }
 
   // ===== roomCard =====
@@ -588,19 +638,10 @@
     const copyClass = canCopy ? 'copy-game-id' : 'no-copy';
     const gameTitle = canCopy ? `点击复制游戏 ID: ${contentId}` : gameVal;
 
-    const isLongGame = gameDisplay.length > 20;
-    const shortClassGame = isLongGame ? '' : 'short-text';
-    let gameNameHtml = `<span class="game-name ${copyClass} ${shortClassGame}" data-contentid="${esc(contentId)}" data-isunknown="${canCopy ? 'true' : 'false'}" title="${esc(gameTitle)}">
-      <span class="scroll-wrapper">
-        <span class="game-name-text">${esc(gameDisplay)}</span>
-        <span class="game-name-text">${esc(gameDisplay)}</span>
-      </span>
-    </span>`;
+    let gameNameHtml = `<span class="game-name ${copyClass} ellipsis" data-contentid="${esc(contentId)}" data-isunknown="${canCopy ? 'true' : 'false'}" title="${esc(gameTitle)}">${esc(gameDisplay)}</span>`;
 
     const hostName = room.host || '未知房间';
-    const isLongHost = hostName.length > 20;
-    const shortClassHost = isLongHost ? '' : 'short-text';
-    let hostHtml = `<span class="room-host-meta"><span class="host-icon-fixed">🏠</span><span class="host-name ${shortClassHost}"><span class="scroll-wrapper"><span class="host-name-text">${esc(hostName)}</span><span class="host-name-text">${esc(hostName)}</span></span></span></span>`;
+    let hostHtml = `<span class="room-host-meta"><span class="host-icon-fixed">🏠</span><span class="host-name ellipsis">${esc(hostName)}</span></span>`;
 
     const roomId = esc(room.id || '');
     return `<div class="room-item" data-game="${esc(gameVal)}" data-room-id="${roomId}">
@@ -621,29 +662,29 @@
     </div>`;
   }
 
-  // ===== 溢出检测 =====
-  function checkOverflow() {
-    const selectors = [
-      '.server-name.short-text',
-      '.server-address.short-text',
-      '.game-name.short-text',
-      '.host-name.short-text'
-    ];
-    document.querySelectorAll(selectors.join(',')).forEach(el => {
-      if (el.scrollWidth > el.clientWidth) {
-        el.classList.remove('short-text');
-      }
-    });
+  // ===== 新消息数字角标相关函数 =====
+  function normalizeUnreadCount(v) {
+    if (v === true) return 1; // 兼容旧布尔值
+    const n = parseInt(v, 10);
+    return isNaN(n) || n < 0 ? 0 : n;
   }
 
-  // ===== 新消息指示器相关函数 =====
+  function getUnreadCount(serverId) {
+    return normalizeUnreadCount(state.unreadStatus[serverId]);
+  }
+
   function loadUnreadStatus() {
     try {
       const data = localStorage.getItem(UNREAD_STORAGE_KEY);
       if (data) {
         const parsed = JSON.parse(data);
         if (typeof parsed === 'object' && parsed !== null) {
-          state.unreadStatus = parsed;
+          const normalized = {};
+          Object.keys(parsed).forEach(k => {
+            const n = normalizeUnreadCount(parsed[k]);
+            if (n > 0) normalized[k] = n;
+          });
+          state.unreadStatus = normalized;
           return;
         }
       }
@@ -657,18 +698,28 @@
     } catch (e) { /* ignore */ }
   }
 
+  function applyUnreadToElement(el, count) {
+    if (!el) return;
+    if (count > 0) {
+      el.textContent = count > 99 ? '99+' : String(count);
+      el.style.display = 'inline-block';
+    } else {
+      el.textContent = '';
+      el.style.display = 'none';
+    }
+  }
+
   function updateUnreadIndicators() {
     document.querySelectorAll('.unread-indicator').forEach(el => {
       const sid = el.dataset.serverId;
-      const show = state.unreadStatus[sid] ? true : false;
-      el.style.display = show ? 'inline-block' : 'none';
+      applyUnreadToElement(el, getUnreadCount(sid));
     });
   }
 
   function syncUnreadWithExpanded() {
     let changed = false;
     state.expanded.forEach(id => {
-      if (state.unreadStatus[id]) {
+      if (getUnreadCount(id) > 0) {
         delete state.unreadStatus[id];
         changed = true;
       }
@@ -690,9 +741,7 @@
         stats.parentNode.insertBefore(indicator, stats);
       }
     }
-    if (indicator) {
-      indicator.style.display = state.unreadStatus[serverId] ? 'inline-block' : 'none';
-    }
+    applyUnreadToElement(indicator, getUnreadCount(serverId));
   }
 
   // ===== 滑动交互（仅对自定义服务器启用） =====
@@ -880,6 +929,15 @@
   // ===== 筛选应用 =====
   function applyFilter(autoExpand) {
     if (autoExpand === undefined) autoExpand = false;
+    // 正在卡片内聊天时，不允许筛选逻辑把其它卡片自动展开
+    let chattingNow = false;
+    if (state.autoExpand) {
+      for (let i = 0; i < state.servers.length; i++) {
+        if (isServerChatActive(state.servers[i].id)) { chattingNow = true; break; }
+      }
+    }
+    const effectiveAutoExpand = autoExpand && state.autoExpand && !chattingNow;
+
     const g = state.game;
     const isAll = (g === 'all');
     const isAllServers = (g === 'all_servers');
@@ -899,22 +957,40 @@
       const isOnline = s.status === 'online' && !s.error;
       if (isAllServers) {
         group.style.display = '';
-        if (autoExpand && !group.classList.contains('open')) { group.classList.add('open'); state.expanded.add(s.id); }
+        if (effectiveAutoExpand && !group.classList.contains('open')) { group.classList.add('open'); state.expanded.add(s.id); }
         group.querySelectorAll('.no-rooms,.no-rooms-empty,.no-rooms-match').forEach(el => el.remove());
-        if (items.length === 0 && isOnline) {
+        // 以数据源判断是否有房间，避免 DOM 尚未刷出房间列表时误显示“暂无公开房间”
+        const serverRoomCount = state.rooms.filter(r => r.server_id === s.id).length;
+        if (serverRoomCount === 0 && items.length === 0 && isOnline) {
           let m = group.querySelector('.no-rooms-empty');
-          if (!m) { m = document.createElement('div'); m.className = 'no-rooms-empty no-rooms'; m.textContent = '📭 该服务器暂无公开房间'; const body = group.querySelector('.server-body > .body-inner'); if (body) body.appendChild(m); }
+          if (!m) {
+            m = document.createElement('div');
+            m.className = 'no-rooms-empty no-rooms';
+            m.textContent = '📭 该服务器暂无公开房间';
+            const body = group.querySelector('.server-body > .body-inner');
+            if (body) {
+              const chat = body.querySelector('.chat-wrapper');
+              const err = body.querySelector('.server-error');
+              const anchor = err || chat;
+              if (anchor) {
+                if (anchor.nextSibling) body.insertBefore(m, anchor.nextSibling);
+                else body.appendChild(m);
+              } else {
+                body.appendChild(m);
+              }
+            }
+          }
           m.style.display = '';
         }
       } else if (isAll) {
         const hasAny = items.length > 0;
         group.style.display = (hasAny && isOnline) ? '' : 'none';
-        if (autoExpand && hasAny && !group.classList.contains('open')) { group.classList.add('open'); state.expanded.add(s.id); }
+        if (effectiveAutoExpand && hasAny && !group.classList.contains('open')) { group.classList.add('open'); state.expanded.add(s.id); }
         group.querySelectorAll('.no-rooms,.no-rooms-empty,.no-rooms-match').forEach(el => el.remove());
       } else {
         if (visible > 0 && isOnline) {
           group.style.display = '';
-          if (autoExpand && !group.classList.contains('open')) { group.classList.add('open'); state.expanded.add(s.id); }
+          if (effectiveAutoExpand && !group.classList.contains('open')) { group.classList.add('open'); state.expanded.add(s.id); }
           group.querySelectorAll('.no-rooms,.no-rooms-empty').forEach(el => el.style.display = 'none');
         } else {
           group.style.display = 'none';
@@ -929,7 +1005,7 @@
       gm.style.display = '';
     } else if (gm) gm.style.display = 'none';
 
-    checkOverflow();
+    // 不再需要 checkOverflow
   }
 
   // ===== 拖拽排序 =====
@@ -1134,7 +1210,10 @@
   let goEasy = null;
   const CHAT_PREFIX = 'lanplay_chat_';
   const PUBLIC_CHANNEL = 'public_chat';
+  // 使用公共聊天频道做在线状态，所有已连上聊天的用户都会出现在列表中
+  const PRESENCE_CHANNEL = 'public_chat';
   let goEasyInitTimer = null;
+  let presenceRefreshTimer = null;
 
   let usernameModalInstance = null;
 
@@ -1191,14 +1270,14 @@
         msgs.forEach(msg => {
           msg.isMine = (msg.sender === currentUser);
         });
-        renderChatMessages(serverId);
+        renderChatMessages(serverId, false);
       }
     });
     if (state.publicMessages) {
       state.publicMessages.forEach(msg => {
         msg.isMine = (msg.sender === currentUser);
       });
-      renderPublicChat();
+      renderPublicChat(false);
     }
     saveChatMessages();
     savePublicMessages();
@@ -1384,12 +1463,9 @@
   // ---- 链接识别（URL、域名、IPv4、IPv6）- 不追加协议头 ----
   function linkifyText(text) {
     if (!text) return '';
-    // 匹配：完整URL、域名（含子域名）、IPv4、IPv6（简写/完整）
     const urlRegex = /(https?:\/\/[^\s]+|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?|\b(?:(?:[0-9]{1,3}\.){3}[0-9]{1,3}|(?:[0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}|::[0-9a-fA-F]{1,4}|[0-9a-fA-F]{1,4}::)\b)/g;
     return text.replace(urlRegex, function(match) {
-      // 移除末尾常见标点（不影响中文）
       const cleaned = match.replace(/[.,;:!?]+$/, '');
-      // 不再补协议，直接使用原始字符串（复制时不加 http://）
       return `<span class="chat-link" data-url="${esc(cleaned)}">${esc(match)}</span>`;
     });
   }
@@ -1404,7 +1480,6 @@
       const url = msg.text.substring(4);
       return `<video src="${esc(url)}" controls preload="metadata" style="max-width:200px;max-height:200px;border-radius:8px;display:block;margin-top:4px;background:#000;"></video>`;
     }
-    // 普通文本：检测链接
     return linkifyText(msg.text);
   }
 
@@ -1437,22 +1512,27 @@
           modules: ['pubsub'],
           forceTLS: true
         });
+        const userId = state.username || 'anonymous_' + generateMsgId();
+        const nick = state.username || '匿名用户';
         goEasy.connect({
-          id: state.username || 'anonymous_' + generateMsgId(),
+          id: userId,
+          data: { nickname: nick, avatar: '' },
           onSuccess: function () {
             console.log('GoEasy 连接成功，用户ID:', goEasy.id);
             state.goEasyReady = true;
             showToast('✅ 聊天服务已连接', 1500, true);
+            // 必须先 subscribe(presence:enable) 成功，再挂 Presence 监听
             subscribePublicChannel();
             forceSubscribeAll();
-            state.servers.forEach(s => renderChatMessages(s.id));
-            renderPublicChat();
+            state.servers.forEach(s => renderChatMessages(s.id, false));
+            renderPublicChat(false);
             updateChatUI();
             restorePublicUnread();
           },
           onFailed: function (error) {
             console.error('GoEasy 连接失败', error);
             state.goEasyReady = false;
+            state.presenceReady = false;
             if (retryCount < 3) {
               console.warn(`GoEasy 连接失败，${retryCount+1}秒后重试...`);
               setTimeout(() => {
@@ -1468,6 +1548,7 @@
               document.querySelectorAll('.server-group .chat-send-btn').forEach(btn => btn.disabled = true);
               const pubContainer = document.getElementById('publicChatMessages');
               if (pubContainer) pubContainer.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px;">⚠️ 聊天服务未连接</div>';
+              updateOnlineMembersUI();
             }
           }
         });
@@ -1484,30 +1565,38 @@
   }
 
   // ---- 公共未读状态管理 ----
-  function getPublicUnread() {
-    return localStorage.getItem(PUBLIC_UNREAD_KEY) === 'true';
+  function getPublicUnreadCount() {
+    const raw = localStorage.getItem(PUBLIC_UNREAD_KEY);
+    // 兼容旧布尔值存储
+    if (raw === 'true') return 1;
+    if (raw === 'false' || raw == null || raw === '') return 0;
+    const n = parseInt(raw, 10);
+    return isNaN(n) || n < 0 ? 0 : n;
+  }
+
+  function updatePublicUnreadBadge() {
+    const badge = document.getElementById('publicUnreadBadge');
+    if (!badge) return;
+    const count = getPublicUnreadCount();
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.classList.toggle('zero', count === 0);
   }
 
   function setPublicUnread(value) {
-    localStorage.setItem(PUBLIC_UNREAD_KEY, value ? 'true' : 'false');
-    const btn = document.getElementById('openPublicChatBtn');
-    if (btn) {
-      if (value) {
-        btn.classList.add('has-new');
-      } else {
-        btn.classList.remove('has-new');
-      }
+    // value: true 表示 +1；false 表示清零；number 表示直接设置
+    if (value === false || value === 0) {
+      localStorage.setItem(PUBLIC_UNREAD_KEY, '0');
+    } else if (value === true) {
+      const next = getPublicUnreadCount() + 1;
+      localStorage.setItem(PUBLIC_UNREAD_KEY, String(next));
+    } else if (typeof value === 'number') {
+      localStorage.setItem(PUBLIC_UNREAD_KEY, String(Math.max(0, value | 0)));
     }
+    updatePublicUnreadBadge();
   }
 
   function restorePublicUnread() {
-    if (getPublicUnread()) {
-      const btn = document.getElementById('openPublicChatBtn');
-      if (btn) btn.classList.add('has-new');
-    } else {
-      const btn = document.getElementById('openPublicChatBtn');
-      if (btn) btn.classList.remove('has-new');
-    }
+    updatePublicUnreadBadge();
   }
 
   // ---- 订阅服务器频道 ----
@@ -1546,6 +1635,7 @@
     if (!state.goEasyReady) return;
     state.chatSubscribed = {};
     subscribeAllChannels();
+    // subscribePublicChannel 成功回调里会 initPresence / queryHereNow
     subscribePublicChannel();
     console.log('[聊天] 强制重新订阅所有频道');
   }
@@ -1569,10 +1659,10 @@
         isImage: msg.isImage || false,
       });
       saveChatMessages();
-      renderChatMessages(serverId);
+      renderChatMessages(serverId, true);
 
       if (!isMine && !state.expanded.has(serverId)) {
-        state.unreadStatus[serverId] = true;
+        state.unreadStatus[serverId] = getUnreadCount(serverId) + 1;
         saveUnreadStatus();
         updateUnreadIndicators();
       }
@@ -1620,7 +1710,7 @@
           });
           saveChatMessages();
         }
-        renderChatMessages(serverId);
+        renderChatMessages(serverId, true);
         const card = document.querySelector(`.server-group[data-id="${serverId}"]`);
         if (card) {
           const input = card.querySelector('.chat-input');
@@ -1634,32 +1724,71 @@
     });
   }
 
-  // ---- 渲染消息列表 ----
-  function renderChatMessages(serverId) {
+  // ---- 渲染消息列表（支持滚动位置恢复） ----
+  function getChatMessagesSignature(messages) {
+    if (!messages || !messages.length) return 'empty';
+    // 用条数 + 首尾 id/time 做轻量签名，避免无变化时重绘
+    const first = messages[0];
+    const last = messages[messages.length - 1];
+    return messages.length + '|' + (first && first.id) + '|' + (last && last.id) + '|' + (last && last.time);
+  }
+
+  function renderChatMessages(serverId, forceScroll = false) {
     const card = document.querySelector(`.server-group[data-id="${serverId}"]`);
     if (!card) return;
     const container = card.querySelector('.chat-messages');
     if (!container) return;
+
+    // 输入框正在输入时，除非强制滚到底（新消息），否则不要动 DOM，避免收起键盘
+    const inputEl = card.querySelector('.chat-input');
+    const inputFocused = inputEl && document.activeElement === inputEl;
+
     if (!state.goEasyReady) {
-      container.innerHTML = '<div style="color:var(--red);text-align:center;padding:8px;">⚠️ 聊天服务未连接</div>';
+      if (container.dataset.sig !== 'disconnected') {
+        container.innerHTML = '<div style="color:var(--red);text-align:center;padding:8px;">⚠️ 聊天服务未连接</div>';
+        container.dataset.sig = 'disconnected';
+      }
       return;
     }
+
     const messages = state.chatMessages[serverId] || [];
+    const sig = getChatMessagesSignature(messages);
+
+    // 消息未变化且非强制滚动：保持现状，避免跳到第一条 / 丢焦点
+    if (container.dataset.sig === sig && !forceScroll) {
+      return;
+    }
+
+    // 重绘前记住当前位置
+    const prevScroll = container.scrollTop;
+    const prevHeight = container.scrollHeight;
+    const wasNearBottom = (prevScroll + container.clientHeight) >= (prevHeight - 40);
+
     if (messages.length === 0) {
       container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:8px;font-size:12px;">暂无消息</div>';
-      return;
+    } else {
+      container.innerHTML = buildChatMessagesHtml(messages);
     }
-    container.innerHTML = messages.map(msg => {
-      const cls = msg.isMine ? 'chat-msg-mine' : 'chat-msg-other';
-      const sender = msg.sender || '匿名';
-      const timeStr = formatMessageTime(msg.time);
-      const contentHtml = renderMessageContent(msg);
-      return `<div class="chat-msg ${cls}">
-        <div class="msg-content"><strong>${esc(sender)}</strong>：${contentHtml}</div>
-        <div class="msg-time">${esc(timeStr)}</div>
-      </div>`;
-    }).join('');
-    container.scrollTop = container.scrollHeight;
+    container.dataset.sig = sig;
+
+    // 滚动：新消息强制到底；否则尽量保持原位置 / 贴底
+    if (forceScroll || wasNearBottom) {
+      container.scrollTop = container.scrollHeight;
+      saveChatScroll(serverId, container.scrollTop);
+    } else {
+      const saved = getChatScroll(serverId);
+      if (saved !== null) {
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        container.scrollTop = Math.min(saved, maxScroll);
+      } else {
+        container.scrollTop = prevScroll;
+      }
+    }
+
+    // 若因重绘导致失焦，尝试恢复（仅在本次确实有输入焦点时）
+    if (inputFocused && inputEl && document.activeElement !== inputEl) {
+      try { inputEl.focus({ preventScroll: true }); } catch (e) { try { inputEl.focus(); } catch (_) {} }
+    }
   }
 
   // ===== 初始化聊天卡片 =====
@@ -1667,6 +1796,8 @@
     let wrapper = cardElement.querySelector('.chat-wrapper');
     const bodyInner = cardElement.querySelector('.server-body > .body-inner');
     if (!bodyInner) return;
+
+    const isNew = !wrapper;
 
     if (!wrapper) {
       wrapper = document.createElement('div');
@@ -1687,39 +1818,53 @@
       } else {
         bodyInner.prepend(wrapper);
       }
-    } else {
-      const roomList = bodyInner.querySelector('.room-list');
-      if (roomList && wrapper.nextSibling !== roomList) {
-        bodyInner.insertBefore(wrapper, roomList);
-      } else if (!roomList && wrapper !== bodyInner.firstChild) {
-        bodyInner.prepend(wrapper);
-      }
-    }
 
-    const input = wrapper.querySelector('.chat-input');
-    const sendBtn = wrapper.querySelector('.chat-send-btn');
-    const imageBtn = wrapper.querySelector('.chat-image-btn');
-    if (input && sendBtn) {
+      // 错误提示放到聊天下方：聊天 → 错误 → 房间
+      const errEl = bodyInner.querySelector('.server-error');
+      if (errEl) {
+        if (wrapper.nextSibling) {
+          bodyInner.insertBefore(errEl, wrapper.nextSibling);
+        } else {
+          bodyInner.appendChild(errEl);
+        }
+      }
+
+      // 绑定滚动事件以保存位置
+      const container = wrapper.querySelector('.chat-messages');
+      if (container && !container.dataset.scrollBound) {
+        container.addEventListener('scroll', function() {
+          saveChatScroll(serverId, this.scrollTop);
+        });
+        container.dataset.scrollBound = 'true';
+      }
+
+      const input = wrapper.querySelector('.chat-input');
+      const sendBtn = wrapper.querySelector('.chat-send-btn');
+      const imageBtn = wrapper.querySelector('.chat-image-btn');
       const sendHandler = function() {
         const text = input.value.trim();
         if (text) sendChatMessage(serverId, text, false);
       };
-      if (!wrapper.dataset.bound) {
-        sendBtn.addEventListener('click', sendHandler);
-        input.addEventListener('keydown', function(e) {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            sendHandler();
-          }
-        });
-        imageBtn.addEventListener('click', function() {
-          sendMessageWithMedia(serverId, input, sendChatMessage, false);
-        });
-        wrapper.dataset.bound = 'true';
-      }
+      sendBtn.addEventListener('click', sendHandler);
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sendHandler();
+        }
+      });
+      imageBtn.addEventListener('click', function() {
+        sendMessageWithMedia(serverId, input, sendChatMessage, false);
+      });
+      wrapper.dataset.bound = 'true';
     }
 
-    renderChatMessages(serverId);
+    // 仅在新创建或消息可能变化时渲染；输入中由 renderChatMessages 内部保护
+    if (isNew) {
+      renderChatMessages(serverId, true); // 首次打开滚到底
+    } else {
+      renderChatMessages(serverId, false);
+    }
+
     if (state.goEasyReady && !state.chatSubscribed[serverId]) {
       subscribeChannel(serverId);
     }
@@ -1731,6 +1876,8 @@
     goEasy.pubsub.subscribe({
       channel: PUBLIC_CHANNEL,
       history: 50,
+      // 官方要求：订阅时开启 presence，该订阅才会被计入在线成员
+      presence: { enable: true },
       onMessage: function (message) {
         try {
           const msg = JSON.parse(message.content);
@@ -1749,7 +1896,7 @@
             isImage: msg.isImage || false,
           });
           savePublicMessages();
-          renderPublicChat();
+          renderPublicChat(true);
 
           if (!isMine && !state.publicModalOpen) {
             setPublicUnread(true);
@@ -1762,6 +1909,12 @@
         console.log('公共频道订阅成功');
         state.publicChatReady = true;
         restorePublicUnread();
+        // 公共频道订阅成功后再拉在线列表（自己已在该 channel 上）
+        if (!state.presenceReady) {
+          initPresence();
+        } else {
+          queryHereNow();
+        }
       },
       onFailed: function (error) {
         console.error('公共频道订阅失败', error);
@@ -1770,6 +1923,384 @@
             subscribePublicChannel();
           }
         }, 5000);
+      }
+    });
+  }
+
+  // ---- 在线成员 Presence ----
+  function initPresence() {
+    if (!goEasy || !state.goEasyReady) return;
+    // 确保已用 presence:enable 订阅 channel 之后再监听
+    subscribePresence();
+    queryHereNow();
+    startPresencePolling();
+  }
+
+  function startPresencePolling() {
+    if (presenceRefreshTimer) clearInterval(presenceRefreshTimer);
+    // 后台每 5 秒刷新；弹窗打开时在 bind 里会加速
+    presenceRefreshTimer = setInterval(() => {
+      if (!state.goEasyReady || document.hidden) return;
+      queryHereNow();
+    }, 5000);
+  }
+
+  function normalizeMember(m) {
+    if (!m) return { id: 'unknown', nickname: '未知用户', avatar: '' };
+    // 兼容新版 {id, data:{nickname}} 与旧版 {id, data:"字符串"} / {userId, userData}
+    let id = m.id || m.userId || 'unknown';
+    let nickname = id;
+    let avatar = '';
+    const rawData = m.data !== undefined ? m.data : m.userData;
+    if (rawData && typeof rawData === 'object') {
+      nickname = rawData.nickname || rawData.name || id;
+      avatar = rawData.avatar || '';
+    } else if (typeof rawData === 'string' && rawData) {
+      try {
+        const parsed = JSON.parse(rawData);
+        nickname = parsed.nickname || parsed.name || id;
+        avatar = parsed.avatar || '';
+      } catch (_) {
+        nickname = rawData;
+      }
+    }
+    return { id: String(id), nickname: String(nickname), avatar: String(avatar || '') };
+  }
+
+  let _presenceHereNowTimer = null;
+  function scheduleHereNowRefresh(delay) {
+    if (_presenceHereNowTimer) clearTimeout(_presenceHereNowTimer);
+    _presenceHereNowTimer = setTimeout(function () {
+      _presenceHereNowTimer = null;
+      queryHereNow();
+    }, typeof delay === 'number' ? delay : 400);
+  }
+
+  // 上线 Toast：同一用户短时间内只提示一次
+  const _onlineToastAt = Object.create(null);
+  function notifyMemberOnline(member) {
+    if (!member) return;
+    const norm = normalizeMember(member);
+    const id = norm.id || '';
+    const name = norm.nickname || id || '未知成员';
+    // 不提示自己
+    if (id && state.username && (id === state.username || name === state.username)) return;
+    const now = Date.now();
+    if (_onlineToastAt[id] && now - _onlineToastAt[id] < 8000) return;
+    _onlineToastAt[id] = now;
+    showToast('🟢 成员 ' + name + ' 已上线', 2000, true);
+  }
+
+  function notifyPresenceJoin(presenceEvent) {
+    if (!presenceEvent) return;
+    const action = presenceEvent.action;
+    if (action === 'join' || action === 'online' || action === 'back') {
+      if (presenceEvent.member) {
+        notifyMemberOnline(presenceEvent.member);
+        return;
+      }
+    }
+    // 旧版 events 数组
+    if (Array.isArray(presenceEvent.events)) {
+      presenceEvent.events.forEach(function (ev) {
+        const a = ev.action;
+        if (a === 'join' || a === 'online' || a === 'back') {
+          notifyMemberOnline({
+            id: ev.userId || (ev.member && ev.member.id),
+            data: ev.userData || (ev.member && ev.member.data)
+          });
+        }
+      });
+    }
+  }
+
+  function applyPresencePayload(payload, opts) {
+    if (!payload) return false;
+    opts = opts || {};
+    let listUpdated = false;
+
+    // 新版: { action, member, amount, members }
+    // 文档拼写 memebers 也兼容
+    // 旧版: { events:[], clientAmount, ... } 或 hereNow content
+    if (typeof payload.amount === 'number') {
+      state.onlineCount = payload.amount;
+    } else if (typeof payload.clientAmount === 'number') {
+      state.onlineCount = payload.clientAmount;
+    } else if (typeof payload.userAmount === 'number') {
+      state.onlineCount = payload.userAmount;
+    }
+
+    const listSource = Array.isArray(payload.members) ? payload.members
+      : Array.isArray(payload.memebers) ? payload.memebers
+      : Array.isArray(payload.users) ? payload.users
+      : null;
+
+    if (listSource) {
+      // 全量成员列表（hereNow / presence 事件自带 members）——始终覆盖并同步人数
+      state.onlineMembers = listSource.map(normalizeMember);
+      if (typeof payload.amount === 'number') {
+        state.onlineCount = payload.amount;
+      } else if (typeof payload.clientAmount === 'number') {
+        state.onlineCount = payload.clientAmount;
+      } else {
+        state.onlineCount = state.onlineMembers.length;
+      }
+      listUpdated = true;
+    } else if (Array.isArray(payload.events)) {
+      payload.events.forEach(function (ev) {
+        const action = ev.action;
+        const member = {
+          id: ev.userId || (ev.member && ev.member.id),
+          data: ev.userData || (ev.member && ev.member.data)
+        };
+        const mid = member.id;
+        if (!mid) return;
+        if (action === 'join' || action === 'online' || action === 'back') {
+          const norm = normalizeMember(member);
+          const idx = state.onlineMembers.findIndex(m => m.id === mid);
+          if (idx >= 0) state.onlineMembers[idx] = norm;
+          else state.onlineMembers.unshift(norm);
+          listUpdated = true;
+        } else if (action === 'leave' || action === 'offline' || action === 'timeout') {
+          const before = state.onlineMembers.length;
+          state.onlineMembers = state.onlineMembers.filter(m => m.id !== mid);
+          if (state.onlineMembers.length !== before) listUpdated = true;
+        }
+      });
+      if (typeof payload.clientAmount === 'number') {
+        state.onlineCount = payload.clientAmount;
+      } else if (listUpdated) {
+        state.onlineCount = state.onlineMembers.length;
+      }
+    } else if (payload.member && payload.action) {
+      const mid = payload.member.id;
+      const action = payload.action;
+      if (action === 'join' || action === 'set' || action === 'online' || action === 'back') {
+        const norm = normalizeMember(payload.member);
+        const idx = state.onlineMembers.findIndex(m => m.id === mid);
+        if (idx >= 0) state.onlineMembers[idx] = norm;
+        else state.onlineMembers.unshift(norm);
+        listUpdated = true;
+      } else if (action === 'leave' || action === 'offline' || action === 'timeout') {
+        const before = state.onlineMembers.length;
+        state.onlineMembers = state.onlineMembers.filter(m => m.id !== mid);
+        if (state.onlineMembers.length !== before) listUpdated = true;
+      }
+      if (typeof payload.amount === 'number') state.onlineCount = payload.amount;
+      else if (listUpdated) state.onlineCount = state.onlineMembers.length;
+    }
+
+    // 去重
+    const seen = new Set();
+    state.onlineMembers = state.onlineMembers.filter(m => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+
+    // 人数与列表不一致时，标记需要全量刷新
+    const needFullRefresh = !opts.fromHereNow && (
+      !listUpdated ||
+      (typeof state.onlineCount === 'number' && state.onlineCount !== state.onlineMembers.length)
+    );
+
+    updateOnlineMembersUI();
+    return needFullRefresh;
+  }
+
+  function subscribePresence() {
+    if (!goEasy || !state.goEasyReady) return;
+    try {
+      goEasy.pubsub.subscribePresence({
+        channel: PRESENCE_CHANNEL,
+        membersLimit: 100,
+        onPresence: function (presenceEvent) {
+          try {
+            console.log('[Presence] 事件:', presenceEvent);
+            notifyPresenceJoin(presenceEvent);
+            const needRefresh = applyPresencePayload(presenceEvent, { fromHereNow: false });
+            // 有上下线变化或列表不完整时，立刻用 hereNow 拉全量，保证实时准确
+            if (needRefresh || (presenceEvent && presenceEvent.action)) {
+              scheduleHereNowRefresh(300);
+            }
+          } catch (e) {
+            console.warn('Presence 事件处理异常', e);
+            scheduleHereNowRefresh(500);
+          }
+        },
+        onSuccess: function () {
+          console.log('[Presence] 订阅成功 channel=', PRESENCE_CHANNEL);
+          state.presenceReady = true;
+          queryHereNow();
+        },
+        onFailed: function (error) {
+          console.error('[Presence] 订阅失败', error);
+          state.presenceReady = false;
+          queryHereNow();
+          setTimeout(() => {
+            if (state.goEasyReady) subscribePresence();
+          }, 8000);
+        }
+      });
+    } catch (e) {
+      console.error('[Presence] subscribePresence 异常', e);
+      queryHereNow();
+    }
+  }
+
+  function queryHereNow() {
+    if (!goEasy || !state.goEasyReady) return;
+    try {
+      goEasy.pubsub.hereNow({
+        channel: PRESENCE_CHANNEL,
+        limit: 100,
+        onSuccess: function (response) {
+          try {
+            console.log('[Presence] hereNow 响应:', response);
+            const content = (response && response.content) ? response.content : response;
+            if (content && content.channels && content.channels[PRESENCE_CHANNEL]) {
+              applyPresencePayload(content.channels[PRESENCE_CHANNEL], { fromHereNow: true });
+            } else {
+              applyPresencePayload(content, { fromHereNow: true });
+            }
+          } catch (e) {
+            console.warn('[Presence] hereNow 解析失败', e, response);
+          }
+        },
+        onFailed: function (error) {
+          console.warn('[Presence] hereNow 失败', error);
+          tryLegacyHereNow();
+        }
+      });
+    } catch (e) {
+      console.warn('[Presence] hereNow 调用异常', e);
+      tryLegacyHereNow();
+    }
+  }
+
+  function tryLegacyHereNow() {
+    if (!goEasy) return;
+    try {
+      // 兼容极旧 SDK：goEasy.hereNow(opts, callback)
+      if (typeof goEasy.hereNow === 'function') {
+        goEasy.hereNow({
+          channels: [PRESENCE_CHANNEL],
+          includeUsers: true,
+          distinct: true
+        }, function (response) {
+          console.log('[Presence] legacy hereNow:', response);
+          try {
+            const content = (response && response.content) ? response.content : response;
+            if (content && content.channels && content.channels[PRESENCE_CHANNEL]) {
+              applyPresencePayload(content.channels[PRESENCE_CHANNEL]);
+            } else if (content && content.channels) {
+              const first = Object.values(content.channels)[0];
+              if (first) applyPresencePayload(first);
+            } else {
+              applyPresencePayload(content);
+            }
+          } catch (err) {
+            console.warn('[Presence] legacy 解析失败', err);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('[Presence] legacy hereNow 不可用', e);
+    }
+  }
+
+  function updateOnlineMembersUI() {
+    const badge = document.getElementById('onlineCountBadge');
+    const titleCount = document.getElementById('onlineMembersTitleCount');
+    const list = document.getElementById('onlineMembersList');
+
+    // 数字严格跟随当前成员列表长度，彻底避免 amount 旧值卡住角标
+    const listLen = (state.onlineMembers && state.onlineMembers.length) || 0;
+    const count = listLen;
+    state.onlineCount = count;
+
+    const label = count > 99 ? '99+' : String(count);
+    if (badge) {
+      if (badge.textContent !== label) {
+        badge.textContent = label;
+      }
+      badge.classList.toggle('zero', count === 0);
+    }
+    if (titleCount) {
+      const t = '(' + count + ')';
+      if (titleCount.textContent !== t) {
+        titleCount.textContent = t;
+      }
+    }
+    if (!list) return;
+
+    if (!listLen) {
+      list.innerHTML = '<div class="online-members-empty">暂无在线成员</div>';
+      return;
+    }
+
+    const html = state.onlineMembers.map(m => {
+      const name = esc(m.nickname || m.id || '匿名');
+      const idStr = esc(m.id || '');
+      const initial = (m.nickname || m.id || '?').charAt(0).toUpperCase();
+      const isMe = (m.id === state.username) || (m.nickname === state.username);
+      return `<div class="online-member-item" title="${idStr}">
+        <div class="online-member-avatar">${esc(initial)}</div>
+        <div class="online-member-info">
+          <div class="online-member-name">${name}${isMe ? ' <span style="color:var(--cyan);font-size:11px;">(我)</span>' : ''}</div>
+          <div class="online-member-id">${idStr}</div>
+        </div>
+        <div class="online-member-dot" title="在线"></div>
+      </div>`;
+    }).join('');
+    list.innerHTML = html;
+  }
+
+  function bindOnlineMembersEvents() {
+    const btn = document.getElementById('onlineMembersBtn');
+    const modal = document.getElementById('onlineMembersModal');
+    const closeBtn = document.getElementById('closeOnlineMembersBtn');
+    if (!btn || !modal) return;
+
+    let modalPollTimer = null;
+    function startModalPoll() {
+      if (modalPollTimer) clearInterval(modalPollTimer);
+      modalPollTimer = setInterval(() => {
+        if (state.goEasyReady && modal.classList.contains('open')) {
+          queryHereNow();
+        }
+      }, 2000);
+    }
+    function stopModalPoll() {
+      if (modalPollTimer) {
+        clearInterval(modalPollTimer);
+        modalPollTimer = null;
+      }
+    }
+
+    btn.addEventListener('click', () => {
+      modal.classList.add('open');
+      if (state.goEasyReady) queryHereNow();
+      updateOnlineMembersUI();
+      startModalPoll();
+    });
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        modal.classList.remove('open');
+        stopModalPoll();
+      });
+    }
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('open');
+        stopModalPoll();
+      }
+    });
+
+    // 页面重新可见时立即刷新在线状态
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && state.goEasyReady) {
+        queryHereNow();
       }
     });
   }
@@ -1811,7 +2342,7 @@
           });
           savePublicMessages();
         }
-        renderPublicChat();
+        renderPublicChat(true);
         document.getElementById('publicChatInput').value = '';
         setPublicUnread(false);
       },
@@ -1822,29 +2353,35 @@
     });
   }
 
-  function renderPublicChat() {
+  // ---- 渲染公共聊天（支持滚动位置恢复） ----
+  function renderPublicChat(forceScroll = false) {
     const container = document.getElementById('publicChatMessages');
     if (!container) return;
     const msgs = state.publicMessages || [];
+
     if (!state.goEasyReady) {
       container.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px;">⚠️ 聊天服务未连接</div>';
       return;
     }
+
     if (msgs.length === 0) {
       container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>';
-      return;
+    } else {
+      container.innerHTML = buildChatMessagesHtml(msgs);
     }
-    container.innerHTML = msgs.map(msg => {
-      const cls = msg.isMine ? 'chat-msg-mine' : 'chat-msg-other';
-      const sender = msg.sender || '匿名';
-      const timeStr = formatMessageTime(msg.time);
-      const contentHtml = renderMessageContent(msg);
-      return `<div class="chat-msg ${cls}">
-        <div class="msg-content"><strong>${esc(sender)}</strong>：${contentHtml}</div>
-        <div class="msg-time">${esc(timeStr)}</div>
-      </div>`;
-    }).join('');
-    container.scrollTop = container.scrollHeight;
+
+    if (forceScroll) {
+      container.scrollTop = container.scrollHeight;
+      savePublicScroll(container.scrollTop);
+    } else {
+      const saved = getPublicScroll();
+      if (saved !== null) {
+        const maxScroll = container.scrollHeight - container.clientHeight;
+        container.scrollTop = Math.min(saved, maxScroll);
+      } else {
+        container.scrollTop = 0;
+      }
+    }
   }
 
   function bindPublicChatEvents() {
@@ -1855,6 +2392,15 @@
     const input = document.getElementById('publicChatInput');
     const imageBtn = document.getElementById('publicChatImageBtn');
 
+    // 绑定滚动事件保存位置
+    const pubContainer = document.getElementById('publicChatMessages');
+    if (pubContainer && !pubContainer.dataset.scrollBound) {
+      pubContainer.addEventListener('scroll', function() {
+        savePublicScroll(this.scrollTop);
+      });
+      pubContainer.dataset.scrollBound = 'true';
+    }
+
     if (!openBtn || !modal || !closeBtn || !sendBtn || !input) {
       console.warn('公共聊天 DOM 元素未找到，请检查 index.html');
       return;
@@ -1864,7 +2410,7 @@
       state.publicModalOpen = true;
       modal.classList.add('open');
       setPublicUnread(false);
-      renderPublicChat();
+      renderPublicChat(false);
 
       const header = modal.querySelector('.custom-modal-header');
       if (header) {
@@ -1884,7 +2430,7 @@
           editBtn.addEventListener('click', function(e) {
             e.stopPropagation();
             showUsernamePrompt(() => {
-              renderPublicChat();
+              renderPublicChat(false);
               updateChatUI();
             });
           });
@@ -1966,23 +2512,14 @@
       const address = s.address || `${s.host}:${s.port}`;
 
       if (group) {
-        // 更新已有卡片
         const dotEl = group.querySelector('.server-status-dot');
         if (dotEl && dotEl.className !== 'server-status-dot ' + dot) dotEl.className = 'server-status-dot ' + dot;
 
         let nameEl = group.querySelector('.server-name');
         if (nameEl) {
-          const texts = nameEl.querySelectorAll('.server-name-text');
-          if (texts.length === 2) {
-            texts[0].textContent = s.name;
-            texts[1].textContent = s.name;
-          } else {
-            const newHtml = makeServerNameHtml(s.name, s.name);
-            nameEl.outerHTML = newHtml;
-            nameEl = group.querySelector('.server-name');
-          }
+          nameEl.textContent = s.name;
           nameEl.dataset.copytext = s.name;
-          nameEl.classList.toggle('short-text', s.name.length <= 20);
+          nameEl.classList.remove('short-text'); // 不需要 short-text
         } else {
           const info = group.querySelector('.server-info');
           if (info) {
@@ -1993,17 +2530,9 @@
 
         let addrEl = group.querySelector('.server-address');
         if (addrEl) {
-          const texts = addrEl.querySelectorAll('.server-address-text');
-          if (texts.length === 2) {
-            texts[0].textContent = address;
-            texts[1].textContent = address;
-          } else {
-            const newHtml = makeServerAddressHtml(address, address);
-            addrEl.outerHTML = newHtml;
-            addrEl = group.querySelector('.server-address');
-          }
+          addrEl.textContent = address;
           addrEl.dataset.copytext = address;
-          addrEl.classList.toggle('short-text', address.length <= 20);
+          addrEl.classList.remove('short-text');
         } else {
           const info = group.querySelector('.server-info');
           if (info) {
@@ -2012,25 +2541,31 @@
           }
         }
 
-        // 更新地区标签
+        const infoEl = group.querySelector('.server-info');
         const regionEl = group.querySelector('.card-region');
         if (regionEl) {
           if (!s.region) { regionEl.remove(); }
           else if (regionEl.textContent !== s.region) { regionEl.textContent = s.region; regionEl.title = s.region; }
-        } else if (s.region) {
-          group.querySelector('.server-head').insertAdjacentHTML('afterbegin', regionHtml);
+        } else if (s.region && infoEl) {
+          // 插在地址后面
+          const addr = infoEl.querySelector('.server-address');
+          if (addr && addr.nextSibling) infoEl.insertBefore(createElementFromHTML(regionHtml), addr.nextSibling);
+          else if (addr) infoEl.appendChild(createElementFromHTML(regionHtml));
+          else infoEl.insertAdjacentHTML('beforeend', regionHtml);
         }
 
-        // 更新类型标签
         let typeEl = group.querySelector('.server-type-badge');
         if (typeBadgeHtml) {
-          if (!typeEl) {
-            // 插入到 .server-head 的开头
-            const head = group.querySelector('.server-head');
-            if (head) head.insertAdjacentHTML('afterbegin', typeBadgeHtml);
+          if (!typeEl && infoEl) {
+            // 放在地区之后 / 地址之后
+            const regionNow = infoEl.querySelector('.card-region');
+            const addr = infoEl.querySelector('.server-address');
+            const anchor = regionNow || addr;
+            if (anchor && anchor.nextSibling) infoEl.insertBefore(createElementFromHTML(typeBadgeHtml), anchor.nextSibling);
+            else if (anchor) infoEl.appendChild(createElementFromHTML(typeBadgeHtml));
+            else infoEl.insertAdjacentHTML('beforeend', typeBadgeHtml);
             typeEl = group.querySelector('.server-type-badge');
-          } else {
-            // 更新内容
+          } else if (typeEl) {
             const newType = s.is_builtin ? '内置' : s.is_remote ? '远程' : s.is_manual ? '自定义' : '';
             if (newType) {
               typeEl.textContent = newType;
@@ -2060,43 +2595,60 @@
         const isOpen = group.classList.contains('open');
         if (shouldOpen !== isOpen) group.classList.toggle('open', shouldOpen);
 
-        if (s.id !== state.frozenCardId) {
-          const body = group.querySelector('.server-body');
-          if (body) {
-            let errEl = body.querySelector('.server-error');
-            let roomListEl = body.querySelector('.room-list');
-            if (errEl) errEl.remove();
-            if (roomListEl) roomListEl.remove();
+        // 始终更新错误/房间列表；不碰聊天 DOM，避免输入法被收起
+        const body = group.querySelector('.server-body');
+        if (body) {
+          const bodyInner = body.querySelector('.body-inner');
+          if (bodyInner) {
+            const chatWrapper = bodyInner.querySelector('.chat-wrapper');
+            // 只移除错误与房间列表，绝不移除聊天区
+            bodyInner.querySelectorAll('.server-error, .room-list, .no-rooms-empty, .no-rooms-match, .no-rooms').forEach(el => {
+              if (!chatWrapper || !chatWrapper.contains(el)) el.remove();
+            });
 
+            // 顺序：聊天 → 错误 → 房间列表
             if (errMsg) {
               const temp = document.createElement('div');
               temp.innerHTML = errMsg;
-              body.querySelector('.body-inner').prepend(temp.firstElementChild);
+              const errNode = temp.firstElementChild;
+              if (chatWrapper) {
+                if (chatWrapper.nextSibling) bodyInner.insertBefore(errNode, chatWrapper.nextSibling);
+                else bodyInner.appendChild(errNode);
+              } else {
+                bodyInner.appendChild(errNode);
+              }
             }
             if (newRoomsHtml) {
               const temp = document.createElement('div');
               temp.innerHTML = newRoomsHtml;
               const roomList = temp.firstElementChild;
-              const chatWrapper = body.querySelector('.chat-wrapper');
-              const bodyInner = body.querySelector('.body-inner');
-              if (chatWrapper && bodyInner) {
-                bodyInner.insertBefore(roomList, chatWrapper.nextSibling);
-              } else if (bodyInner) {
+              const errNow = bodyInner.querySelector('.server-error');
+              const anchor = errNow || chatWrapper;
+              if (anchor) {
+                if (anchor.nextSibling) bodyInner.insertBefore(roomList, anchor.nextSibling);
+                else bodyInner.appendChild(roomList);
+              } else {
                 bodyInner.appendChild(roomList);
               }
             }
           }
+        }
+        // 聊天区已存在时不要反复 init；仅确保消息增量更新
+        if (!group.querySelector('.chat-wrapper')) {
           initChatForCard(s.id, group);
+        } else {
+          renderChatMessages(s.id, false);
         }
 
         ensureUnreadIndicator(group, s.id);
 
       } else {
-        // ---- 新建卡片 ----
         const isOpen = state.expanded.has(s.id) ? 'open' : '';
         const nameHtml = makeServerNameHtml(s.name, s.name);
         const addrHtml = makeServerAddressHtml(address, address);
-        const indicatorStyle = state.unreadStatus[s.id] ? 'inline-block' : 'none';
+        const unreadCount = getUnreadCount(s.id);
+        const indicatorStyle = unreadCount > 0 ? 'inline-block' : 'none';
+        const indicatorText = unreadCount > 99 ? '99+' : (unreadCount > 0 ? String(unreadCount) : '');
 
         const actionsHtml = s.is_manual ? `
           <div class="server-actions">
@@ -2111,15 +2663,15 @@
           ${actionsHtml}
           <div class="server-card-inner">
             <div class="server-head">
-              ${typeBadgeHtml}
-              ${regionHtml}
               <div class="server-status-dot ${dot}"></div>
               <div class="server-info">
                 ${nameHtml}
                 ${addrHtml}
+                ${regionHtml}
+                ${typeBadgeHtml}
                 <div class="server-detail"></div>
               </div>
-              <span class="unread-indicator" data-server-id="${s.id}" style="display: ${indicatorStyle};"></span>
+              <span class="unread-indicator" data-server-id="${s.id}" style="display: ${indicatorStyle};">${indicatorText}</span>
               <div class="server-stats">
                 <div class="stat-item online"><span>在线</span><b>${s.online || 0}</b></div>
                 <div class="stat-item idle"><span>空闲</span><b>${s.idle || 0}</b></div>
@@ -2129,8 +2681,8 @@
             </div>
             <div class="server-body">
               <div class="body-inner">
-                ${errMsg}
                 ${newRoomsHtml}
+                ${errMsg}
               </div>
             </div>
           </div>
@@ -2182,7 +2734,7 @@
       if (changed) { const frag = document.createDocumentFragment(); order.forEach(el => frag.appendChild(el)); list.appendChild(frag); }
     }
 
-    checkOverflow();
+    // 不再需要 checkOverflow
   }
 
   // ===== 全局事件：复制游戏 ID =====
@@ -2224,24 +2776,14 @@
         btn.classList.add('active');
         state.game = btn.dataset.game;
 
-        if (state.game === 'all_servers') {
-          state.servers.forEach(s => {
-            const g = document.querySelector(`.server-group[data-id="${s.id}"]`);
-            if (!g) return;
-            if ((s.room_count || 0) > 0) {
-              if (!g.classList.contains('open')) {
-                g.classList.add('open');
-                state.expanded.add(s.id);
-              }
-            } else {
-              g.classList.remove('open');
-              state.expanded.delete(s.id);
-            }
-          });
+        let autoExpand = true;
+        if (btn.dataset.game === 'all') {
+          autoExpand = false;
+        } else if (btn.dataset.game === 'all_servers') {
+          autoExpand = true;
+        } else {
+          autoExpand = true;
         }
-
-        // 修改：点击“全部”时，不自动展开任何卡片
-        const autoExpand = (btn.dataset.game !== 'all_servers' && btn.dataset.game !== 'all');
         applyFilter(autoExpand);
       });
       container.appendChild(btn);
@@ -2267,19 +2809,47 @@
     });
   }
 
+  // 正在该服务器卡片内聊天（输入框聚焦）时，自动展开逻辑不得收起该卡片
+  function isServerChatActive(serverId) {
+    const group = document.querySelector(`.server-group[data-id="${serverId}"]`);
+    if (!group) return false;
+    const active = document.activeElement;
+    if (!active || !group.contains(active)) return false;
+    // 输入框、发送按钮、图片按钮等聊天区内的交互都算“正在聊天”
+    return !!(
+      active.classList.contains('chat-input') ||
+      active.classList.contains('chat-send-btn') ||
+      active.classList.contains('chat-image-btn') ||
+      active.classList.contains('image-upload-btn') ||
+      active.closest('.chat-wrapper')
+    );
+  }
+
   // ===== 核心渲染 =====
   function render() {
-    state.servers.forEach(s => {
-      if (state.frozenCardId === s.id) {
-        return;
+    if (state.autoExpand) {
+      // 若正在某个卡片内聊天：只保留该卡片展开，禁止其它卡片被自动展开
+      let chattingId = null;
+      for (let i = 0; i < state.servers.length; i++) {
+        if (isServerChatActive(state.servers[i].id)) {
+          chattingId = state.servers[i].id;
+          break;
+        }
       }
-      const hasRooms = state.rooms.some(r => r.server_id === s.id);
-      if (hasRooms) {
-        state.expanded.add(s.id);
+
+      if (chattingId) {
+        state.servers.forEach(s => {
+          if (s.id === chattingId) state.expanded.add(s.id);
+          else state.expanded.delete(s.id);
+        });
       } else {
-        state.expanded.delete(s.id);
+        state.servers.forEach(s => {
+          const hasRooms = state.rooms.some(r => r.server_id === s.id);
+          if (hasRooms) state.expanded.add(s.id);
+          else state.expanded.delete(s.id);
+        });
       }
-    });
+    }
 
     if (state.firstExpand) { state.game = 'all_servers'; state.firstExpand = false; }
     renderFilters();
@@ -2405,7 +2975,7 @@
 
   // ===== 窗口resize =====
   window.addEventListener('resize', () => {
-    checkOverflow();
+    // 不再需要 checkOverflow
   });
 
   // ===== 启动 =====
@@ -2425,7 +2995,22 @@
 
   initGoEasy();
   bindPublicChatEvents();
+  bindOnlineMembersEvents();
+  updateOnlineMembersUI();
   startPolling();
+
+  // ===== 自动展开按钮控制 =====
+  const toggleAutoBtn = document.getElementById('toggleAutoExpandBtn');
+  if (toggleAutoBtn) {
+    toggleAutoBtn.textContent = state.autoExpand ? '📂' : '📁';
+    toggleAutoBtn.addEventListener('click', function() {
+      state.autoExpand = !state.autoExpand;
+      localStorage.setItem(AUTO_EXPAND_KEY, String(state.autoExpand));
+      this.textContent = state.autoExpand ? '📂' : '📁';
+      render();
+      showToast(state.autoExpand ? '✅ 自动展开已开启' : '⛔ 自动展开已关闭', 1200, true);
+    });
+  }
 
   // ===== 卡片点击委托 =====
   document.getElementById('serverList').addEventListener('click', function(e) {
@@ -2493,6 +3078,7 @@
     if (logInterval) clearInterval(logInterval);
     if (refreshTimer) clearTimeout(refreshTimer);
     if (goEasyInitTimer) clearTimeout(goEasyInitTimer);
+    if (presenceRefreshTimer) clearInterval(presenceRefreshTimer);
   });
 
 })();

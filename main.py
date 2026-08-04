@@ -134,10 +134,10 @@ MANUAL_SERVERS_FILE = str(SCRIPT_DIR / "servers_manual.json")
 SERVERS_FILE = os.getenv("SERVERS_FILE", "").strip() or MANUAL_SERVERS_FILE
 DEFAULT_SERVERS_FILE = MANUAL_SERVERS_FILE
 
-REMOTE_DOWNLOAD_INTERVAL = 30
+REMOTE_DOWNLOAD_INTERVAL = 60
 APP_NAME = "lan-play-monitor"
-CACHE_TTL = max(1.0, float(os.getenv("CACHE_TTL", "6.0")))
-REQUEST_TIMEOUT = max(1.0, float(os.getenv("REQUEST_TIMEOUT", "3.0")))
+CACHE_TTL = max(1, float(os.getenv("CACHE_TTL", "1")))
+REQUEST_TIMEOUT = max(1, float(os.getenv("REQUEST_TIMEOUT", "1")))
 MAX_WORKERS = 32
 
 REMOTE_CHINESE_DB_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/chinese_db.json"
@@ -329,6 +329,53 @@ class TTLCache:
 
 
 cache = TTLCache(max_items=2048)
+
+# 房间保活：连续扫描中至少出现一次则保留；连续 ROOM_KEEPALIVE_MISSES 次未扫到再移除
+ROOM_KEEPALIVE_MISSES = 5
+_room_keepalive: dict[str, dict[str, dict[str, Any]]] = {}
+_room_keepalive_lock = threading.Lock()
+
+
+def apply_room_keepalive(server_id: str, current_rooms: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """合并本轮扫描结果与保活缓存。
+
+    - 本轮扫到：重置 miss 计数并更新房间数据
+    - 本轮未扫到：miss + 1
+    - miss >= ROOM_KEEPALIVE_MISSES：从卡片移除
+    """
+    seen: dict[str, dict[str, Any]] = {}
+    for room in current_rooms:
+        rid = str(
+            room.get("id")
+            or f"{room.get('server_id')}:{room.get('host')}:{room.get('content_id')}"
+        )
+        seen[rid] = room
+
+    with _room_keepalive_lock:
+        bucket = _room_keepalive.setdefault(server_id, {})
+
+        # 更新本轮出现的房间
+        for rid, room in seen.items():
+            bucket[rid] = {"room": copy.deepcopy(room), "misses": 0}
+
+        # 未出现的房间累加 miss，超限剔除
+        for rid in list(bucket.keys()):
+            if rid in seen:
+                continue
+            entry = bucket[rid]
+            entry["misses"] = int(entry.get("misses") or 0) + 1
+            if entry["misses"] >= ROOM_KEEPALIVE_MISSES:
+                del bucket[rid]
+
+        # 输出仍保活的房间
+        kept = [copy.deepcopy(v["room"]) for v in bucket.values()]
+
+        # 服务器已无任何保活房间时清理空桶
+        if not bucket:
+            _room_keepalive.pop(server_id, None)
+
+    return kept
+
 
 # ============================================================================
 # SECTION 7 · 工具函数
@@ -1114,7 +1161,8 @@ def scan_server(server: dict[str, Any], force: bool = False) -> tuple[dict[str, 
     for room in (*result.get("rooms", []), *active_rooms):
         rid = str(room.get("id") or f"{room.get('server_id')}:{room.get('host')}:{room.get('content_id')}")
         merged[rid] = room
-    result["rooms"] = list(merged.values())
+    # 房间保活：5 次扫描内出现过则保留，连续 5 次未扫到再消失
+    result["rooms"] = apply_room_keepalive(server["id"], list(merged.values()))
     result["room_count"] = len(result["rooms"])
     result["scanner_error"] = scanner_error
     result["detection"] = "active-udp-scan+monitor-api"
@@ -1292,6 +1340,10 @@ class MonitorHandler(BaseHTTPRequestHandler):
                         self.send_response(200)
                         self.send_header("Content-Type", content_type)
                         self.send_header("Content-Length", str(len(body)))
+                        # JS/CSS 禁止缓存，确保在线成员等前端逻辑能及时生效
+                        if filename in ("script.js", "styles.css", "index.html"):
+                            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+                            self.send_header("Pragma", "no-cache")
                         self.end_headers()
                         self.wfile.write(body)
                         return

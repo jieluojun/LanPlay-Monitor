@@ -66,8 +66,22 @@ button{font:inherit}
 html.dark .glass{border-color:rgba(255,255,255,.05)}
 @media (prefers-color-scheme: dark){:root:not(.light) .glass{border-color:rgba(255,255,255,.05)}}
 
-.hero{margin-top:0;min-height:68px;border-radius:var(--radius-lg);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;position:sticky;top:12px;z-index:100}
-.brand-area{display:flex;align-items:center;gap:8px;min-width:0;flex-shrink:0}
+.hero{margin-top:0;min-height:68px;border-radius:var(--radius-lg);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:12px;z-index:100}
+.brand-area{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  flex:1 1 auto;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-x;
+}
+.brand-area::-webkit-scrollbar{display:none}
+.brand-area > *{flex-shrink:0}
 .brand{display:flex;align-items:center;gap:12px;min-width:0;cursor:pointer}
 .logo{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(145deg,#fff970,#ffd626);box-shadow:inset 0 0 0 2px rgba(255,255,255,.7),0 4px 12px rgba(255,200,40,.25);font-size:16px;animation:pulse 3s ease-in-out infinite;flex-shrink:0}
 .plugin-toast{
@@ -96,31 +110,132 @@ html.dark .theme-toggle:hover,html.dark .icon-btn:hover{background:rgba(255,255,
   :root:not(.light) .theme-toggle:hover,:root:not(.light) .icon-btn:hover{background:rgba(255,255,255,.15)}
 }
 
-/* ===== 公共聊天状态灯 ===== */
-#openPublicChatBtn {
+/* ===== 公共聊天数字角标（与在线成员一致） ===== */
+.public-chat-btn {
   position: relative;
+  overflow: hidden;
 }
-#openPublicChatBtn::after {
-  content: '';
+.public-chat-btn .public-chat-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+#publicUnreadBadge.zero {
+  display: none;
+}
+
+/* ===== 在线成员按钮 ===== */
+.online-members-btn {
+  position: relative;
+  overflow: hidden; /* 角标限制在图标内 */
+}
+.online-members-btn .online-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.online-count-badge {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: transparent;
-  box-shadow: none;
-  transition: background 0.3s, box-shadow 0.3s;
-  pointer-events: none;
-}
-#openPublicChatBtn.has-new::after {
+  top: 1px;
+  right: 1px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
   background: var(--cyan);
-  box-shadow: 0 0 8px rgba(25,200,174,0.6);
-  animation: breathe-green 1.5s ease-in-out infinite;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: none;
+  pointer-events: none;
+  z-index: 2;
+  transition: transform .2s ease, opacity .2s ease;
 }
-@keyframes breathe-green {
-  0%, 100% { box-shadow: 0 0 4px rgba(25,200,174,0.3); }
-  50% { box-shadow: 0 0 14px rgba(25,200,174,0.9); }
+.online-count-badge.zero {
+  opacity: 0.55;
+  background: var(--muted);
+  box-shadow: none;
+}
+html.dark .online-count-badge {
+  color: #0f1923;
+}
+html.dark .online-count-badge.zero {
+  color: #fff;
+  background: rgba(255,255,255,.25);
+}
+
+/* ===== 在线成员列表 ===== */
+.online-members-list {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.online-member-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(125,175,210,.06);
+  transition: background .2s;
+}
+.online-member-item:hover {
+  background: rgba(125,175,210,.12);
+}
+.online-member-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--cyan), #14a891);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.online-member-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.online-member-name {
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.online-member-id {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.online-member-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(25,200,174,.15);
+  flex-shrink: 0;
+}
+.online-members-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 28px 12px;
+}
+html.dark .online-member-item {
+  background: rgba(255,255,255,.04);
+}
+html.dark .online-member-item:hover {
+  background: rgba(255,255,255,.08);
 }
 
 .dot{width:12px;height:12px;border-radius:50%;background:#19c8ae;box-shadow:0 0 0 6px rgba(25,200,174,.13);animation:pulse-dot 2s ease-in-out infinite;flex-shrink:0}
@@ -368,10 +483,40 @@ html.dark .server-head:hover{background:rgba(255,255,255,.03)}
   padding: 0;
 }
 
+/* ========== 新增省略号通用类 ========== */
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.server-name,
+.server-address,
+.game-name,
+.host-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+/* 移除旧的双副本滚动相关样式 */
+.scroll-wrapper,
+.server-name .scroll-wrapper,
+.server-address .scroll-wrapper,
+.game-name .scroll-wrapper,
+.host-name .scroll-wrapper {
+  display: none !important;
+}
+
+/* ===== 原有服务器名称和地址样式（继承 ellipsis） ===== */
 .server-name {
   font-size: 16px;
   font-weight: 800;
-  display: inline-block;
   cursor: pointer;
   user-select: text;
   padding: 0;
@@ -379,23 +524,12 @@ html.dark .server-head:hover{background:rgba(255,255,255,.03)}
   border-radius: 0;
   transition: var(--transition);
   line-height: 1.4;
-  max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
 }
-.server-name .scroll-wrapper {
-  display: inline-block;
-  animation: marquee-dual 10s linear infinite;
-}
-.server-name .server-name-text {
-  display: inline-block;
-  white-space: nowrap;
-}
-.server-name.short-text .scroll-wrapper {
-  animation: none !important;
-}
-.server-name.short-text .server-name-text:last-child {
-  display: none;
+.server-name:hover {
+  background: rgba(125,175,210,.08);
+  border-radius: 6px;
+  padding: 0 8px;
+  margin: 0 -8px;
 }
 
 .server-address {
@@ -407,43 +541,21 @@ html.dark .server-head:hover{background:rgba(255,255,255,.03)}
   cursor: pointer;
   user-select: text;
   border-radius: 6px;
-  display: inline-block;
-  width: auto;
-  max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
   transition: var(--transition);
   line-height: 1.4;
 }
-.server-address .scroll-wrapper {
-  display: inline-block;
-  animation: marquee-dual 10s linear infinite;
-}
-.server-address .server-address-text {
-  display: inline-block;
-  white-space: nowrap;
-}
-.server-address.short-text .scroll-wrapper {
-  animation: none !important;
-}
-.server-address.short-text .server-address-text:last-child {
-  display: none;
-}
-
 .server-address:hover {
   background: rgba(125,175,210,.08);
   color: var(--ink);
   border-radius: 6px;
   padding: 0 8px;
   margin: 0 -8px;
-  display: inline-block;
 }
 .server-address:active {
   background: rgba(25,200,174,.15);
   border-radius: 6px;
   padding: 0 8px;
   margin: 0 -8px;
-  display: inline-block;
 }
 
 .server-stats{display:grid;grid-template-columns:repeat(4,1fr);width:280px;gap:8px;align-items:center;flex-shrink:0}
@@ -470,33 +582,43 @@ html.dark .latency-badge.slow{color:#ff5a6e}
   :root:not(.light) .latency-badge.slow{color:#ff5a6e}
 }
 
-/* ===== 新消息呼吸灯指示器 ===== */
+/* ===== 服务器卡片新消息数字角标（位置同原呼吸灯） ===== */
 .unread-indicator {
   position: absolute;
-  right: 14px;
+  right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
   background: var(--cyan);
-  box-shadow: 0 0 0 4px rgba(25,200,174,0.3);
-  animation: breathe-green 1.5s ease-in-out infinite;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: none;
   flex-shrink: 0;
   display: none;
   pointer-events: none;
+  z-index: 2;
+}
+html.dark .unread-indicator {
+  color: #0f1923;
 }
 
 .server-body{display:grid;grid-template-rows:0fr;overflow:hidden;transition:none}
 .server-body > .body-inner{overflow:hidden;min-height:0}
 .server-group.open .server-body{grid-template-rows:1fr}
-.server-group.open .server-body > .body-inner{padding:0 22px 20px}
+/* 展开区内边距缩小，房间更贴近卡片边缘；顶部分割线与收起态边线一致 */
+.server-group.open .server-body > .body-inner{padding:0 10px 10px}
 
 .server-error{padding:14px 18px;border-radius:14px;background:#fff0f2;color:#a52639;font-size:13px;font-weight:600;margin-top:4px;display:flex;align-items:center;gap:8px}
 html.dark .server-error{background:rgba(255,90,110,.08);color:#ff5a6e}
 @media (prefers-color-scheme: dark){:root:not(.light) .server-error{background:rgba(255,90,110,.08);color:#ff5a6e}}
 
-.room-list{display:grid;gap:10px;margin-top:8px}
+.room-list{display:grid;gap:10px;margin-top:6px;margin-bottom:0}
 .room-item{padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:0 4px 14px rgba(82,142,178,.05);transition:transform .15s ease,box-shadow .15s ease;contain:layout style paint;max-width:100%;overflow:hidden}
 .room-item:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(82,142,178,.09)}
 
@@ -532,28 +654,8 @@ html.dark .server-error{background:rgba(255,90,110,.08);color:#ff5a6e}
   border-radius: 999px;
   background: #e9f5fb;
   color: #326887;
-  white-space: nowrap;
-  overflow: hidden;
-  flex: 0 1 auto;
-  max-width: 100%;
-  min-width: 0;
-  display: inline-block;
+  /* 继承 ellipsis 特性，已用 .ellipsis 类 */
 }
-.game-name .scroll-wrapper {
-  display: inline-block;
-  animation: marquee-dual 10s linear infinite;
-}
-.game-name .game-name-text {
-  display: inline-block;
-  white-space: nowrap;
-}
-.game-name.short-text .scroll-wrapper {
-  animation: none !important;
-}
-.game-name.short-text .game-name-text:last-child {
-  display: none;
-}
-
 .game-name.copy-game-id {
   cursor: pointer;
   border: 1px dashed var(--red);
@@ -627,26 +729,13 @@ html.dark .game-name {
   flex: 0 1 auto;
   min-width: 0;
 }
-.host-name .scroll-wrapper {
-  display: inline-block;
-  animation: marquee-dual 10s linear infinite;
-}
-.host-name .host-name-text {
-  display: inline-block;
-  white-space: nowrap;
-}
-.host-name.short-text .scroll-wrapper {
-  animation: none !important;
-}
-.host-name.short-text .host-name-text:last-child {
-  display: none;
-}
 
+/* 移除旧的滚动动画 */
 @keyframes marquee-dual {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  /* 已废弃 */
 }
 
+/* 其他原有样式保持不变... */
 .room-players{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
 .room-players .player{
   padding:3px 10px;border-radius:999px;background:var(--green-bg);color:#17776b;
@@ -910,21 +999,21 @@ html.dark .dpi-reset-btn {
 @media (max-width:900px){
   .page{width:calc(100% - 20px);padding-top:14px}
   .hero{border-radius:20px;padding:10px 14px;gap:10px}
-  .brand-area{min-width:auto;flex-shrink:0}
+  .brand-area{min-width:0;flex:1 1 auto}
   .scan{font-size:12px;flex-shrink:0}
   .ov-card{padding:14px 6px}
   .ov-card b{font-size:20px}
   .server-head{padding:14px 16px;gap:10px}
   .server-stats{width:250px;gap:6px;align-items:center}
   .server-info{align-self:stretch;padding:0}
-  .server-name{font-size:14.5px;padding:0;margin:0;max-width:100%;overflow:hidden;white-space:nowrap}
-  .server-address{font-size:11.5px;padding:0;margin:0;max-width:100%;overflow:hidden;white-space:nowrap}
+  .server-name{font-size:14.5px}
+  .server-address{font-size:11.5px}
   .stat-item b{height:auto;line-height:1.3}
 }
 @media (max-width:600px){
   .page{width:calc(100% - 14px);padding:10px 0 16px}
   .hero{border-radius:16px;padding:8px 10px;gap:6px;position:sticky;top:6px}
-  .brand-area{flex-shrink:0}
+  .brand-area{min-width:0;flex:1 1 auto;gap:6px}
   .brand strong{font-size:15px}
   .brand small{display:none}
   .logo{width:34px;height:34px;border-radius:10px;font-size:16px}
@@ -939,14 +1028,15 @@ html.dark .dpi-reset-btn {
   .server-head{padding:12px 14px;gap:8px;flex-wrap:nowrap}
   .server-status-dot{width:10px;height:10px;align-self:center;display:block;flex-shrink:0}
   .server-info{align-self:stretch;padding:0}
-  .server-name{font-size:13.5px;padding:0;margin:0;max-width:100%;overflow:hidden;white-space:nowrap}
-  .server-address{font-size:11px;padding:0;margin:0;max-width:100%;overflow:hidden;white-space:nowrap}
+  .server-name{font-size:13.5px}
+  .server-address{font-size:11px}
   .server-stats{width:210px;gap:4px;align-items:center}
   .server-stats .stat-item span{font-size:9.5px}
   .server-stats .stat-item b{font-size:15px;height:auto;line-height:1.3}
   .stat-item.latency b{font-size:12px;height:auto;line-height:1.3}
-  .server-group.open .server-body{padding:0 14px 14px}
-  .room-list{gap:8px}
+  .server-group.open .server-body{padding:0}
+  .server-group.open .server-body > .body-inner{padding:0 8px 8px}
+  .room-list{gap:8px;margin-top:6px}
   .room-item{padding:14px;border-radius:14px}
   .room-game-left .game-name{font-size:11px;padding:3px 10px;flex:0 1 auto;max-width:100%}
   .room-host-meta{max-width:100px;flex-shrink:1}
@@ -964,8 +1054,8 @@ html.dark .dpi-reset-btn {
   .scan .refresh{padding:6px 10px;font-size:11px}
   .server-stats{grid-template-columns:repeat(3,1fr);width:150px;align-items:center}
   .server-stats .stat-item.idle{display:none}
-  .server-name{font-size:12.5px;padding:0;margin:0;max-width:100%;overflow:hidden;white-space:nowrap}
-  .server-address{font-size:10px;padding:0;margin:0;max-width:100%;overflow:hidden;white-space:nowrap}
+  .server-name{font-size:12.5px}
+  .server-address{font-size:10px}
   .room-game-left .game-name{font-size:10.5px;padding:2px 8px}
   .room-host-meta{max-width:80px;flex-shrink:1}
   .room-meta{font-size:11px;gap:4px;flex-wrap:nowrap}
@@ -977,9 +1067,10 @@ html.dark .dpi-reset-btn {
 
 /* ===== 聊天模块样式 ===== */
 .chat-wrapper {
-    margin-top: 12px;
+    margin-top: 0;
     border-top: 1px solid var(--line);
-    padding-top: 12px;
+    padding-top: 8px;
+    padding-bottom: 4px;
 }
 .chat-messages {
     max-height: 120px;
@@ -1004,6 +1095,31 @@ html.dark .dpi-reset-btn {
     background: var(--cyan);
     color: #fff;
     align-self: flex-end;
+}
+/* QQ 风格时间分割线 */
+.chat-time-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    align-self: stretch;
+    margin: 8px 0 4px;
+    pointer-events: none;
+    user-select: none;
+}
+.chat-time-divider span {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    background: transparent;
+    padding: 2px 10px;
+    border-radius: 999px;
+    letter-spacing: 0.2px;
+    opacity: 0.9;
+}
+html.dark .chat-time-divider span {
+    color: var(--muted);
+    opacity: 0.85;
 }
 .chat-input-area {
     display: flex;
