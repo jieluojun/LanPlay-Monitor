@@ -14,7 +14,7 @@ orientation = portrait
 entrypoint = main.py
 
 # ★ 改动 1：加入 pyjnius（Python 调用 Java 桥 FileChooserHelper 所必需）
-requirements = python3, pyjnius
+requirements = python3,pyjnius
 
 android.accept_sdk_license = True
 android.allow_api_min = 21
