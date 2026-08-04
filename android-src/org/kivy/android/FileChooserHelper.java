@@ -15,20 +15,9 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 
 /**
- * 为 p4a webview bootstrap 的 WebView 安装 WebChromeClient，补齐两类原生能力：
- *   1. <input type="file">：唤起系统相册/视频/音频选择器（onShowFileChooser）
- *   2. getUserMedia 录音：授权 WebView 的麦克风采集请求（onPermissionRequest）
- *      —— WebView 默认直接拒绝所有采集请求，这就是 JS 里
- *      getUserMedia 秒拒、Toast 提示"麦克风不可用"的原因。
- *
- * 为什么放在 org.kivy.android 包下：
- *   PythonActivity.mWebView 是 protected 静态字段，只有同包类能直接访问；
- *   PythonActivity 自带 ActivityResultListener 注册机制，用来接收选择结果，
- *   无需修改 python-for-android 源码、无需维护 fork。
- *
- * 调用方式（Python/pyjnius）：
- *   autoclass("org.kivy.android.FileChooserHelper").install()
- *   返回 true = 成功；false = WebView 尚未创建，稍后重试。
+ * 为 p4a webview bootstrap 的 WebView 安装 WebChromeClient：
+ *   1. <input type="file">：用 Intent.createChooser 唤起系统相册/视频/文件选择器
+ *   2. getUserMedia 麦克风：自动批准 WebView 麦克风请求，并向 Android 系统申请 RECORD_AUDIO 权限
  */
 public class FileChooserHelper {
 
@@ -43,10 +32,11 @@ public class FileChooserHelper {
         final PythonActivity activity = PythonActivity.mActivity;
         final WebView webView = PythonActivity.mWebView;
         if (activity == null || webView == null) {
-            // App 还在解包/启动阶段，WebView 尚未创建，让调用方稍后重试
+            Log.w(TAG, "activity or webView is null, cannot install FileChooserHelper");
             return false;
         }
         if (mInstalled) {
+            Log.i(TAG, "FileChooserHelper already installed");
             return true;
         }
         mInstalled = true;
@@ -54,131 +44,144 @@ public class FileChooserHelper {
         activity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                webView.setWebChromeClient(new WebChromeClient() {
+                try {
+                    webView.setWebChromeClient(new WebChromeClient() {
 
-                    // ---------- 1. 文件选择（相册/视频/音频文件） ----------
-                    @Override
-                    public boolean onShowFileChooser(WebView view,
-                            ValueCallback<Uri[]> filePathCallback,
-                            WebChromeClient.FileChooserParams params) {
-                        // 若上一次的回调还挂着（用户没选完），先释放掉，
-                        // 否则 WebView 内部状态会卡住，之后点按钮全部无反应
-                        if (mUploadMessage != null) {
-                            mUploadMessage.onReceiveValue(null);
-                            mUploadMessage = null;
-                        }
-                        mUploadMessage = filePathCallback;
-
-                        Intent intent;
-                        try {
-                            // createIntent() 自动带上 accept="image/*,video/*" 的 MIME 过滤
-                            intent = params.createIntent();
-                            if (params.getMode()
-                                    == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
-                                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                            }
-                        } catch (Exception e) {
-                            // 兜底：手动构造"图片+视频"选择 Intent
-                            intent = new Intent(Intent.ACTION_GET_CONTENT);
-                            intent.addCategory(Intent.CATEGORY_OPENABLE);
-                            intent.setType("*/*");
-                            intent.putExtra(Intent.EXTRA_MIME_TYPES,
-                                    new String[]{"image/*", "video/*"});
-                            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                        }
-                        try {
-                            activity.startActivityForResult(intent, FILECHOOSER_RESULTCODE);
-                        } catch (ActivityNotFoundException e) {
-                            Log.e(TAG, "设备上没有可用的文件选择器", e);
-                            mUploadMessage = null;
-                            return false;
-                        }
-                        return true;
-                    }
-
-                    // ---------- 2. getUserMedia 麦克风（实时录音） ----------
-                    // WebView 默认实现是"一律拒绝"，必须显式 grant
-                    @Override
-                    public void onPermissionRequest(final PermissionRequest request) {
-                        try {
-                            String[] requested = request.getResources();
-                            java.util.ArrayList<String> allow = new java.util.ArrayList<>();
-                            for (String r : requested) {
-                                if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)
-                                        || PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) {
-                                    allow.add(r);
-                                }
-                            }
-                            if (allow.isEmpty()) {
-                                request.deny();
-                                return;
-                            }
-                            request.grant(allow.toArray(new String[0]));
-                            Log.i(TAG, "WebView capture permission granted: " + allow);
-                        } catch (Exception e) {
-                            Log.e(TAG, "onPermissionRequest 处理失败", e);
-                            try { request.deny(); } catch (Exception ignored) {}
-                        }
-                    }
-
-                    // 方便在 logcat 里看 JS 报错：adb logcat | grep WebViewConsole
-                    @Override
-                    public boolean onConsoleMessage(android.webkit.ConsoleMessage msg) {
-                        Log.i("WebViewConsole", msg.message()
-                                + " @" + msg.sourceId() + ":" + msg.lineNumber());
-                        return false;
-                    }
-                });
-
-                // 接收系统选择器返回的结果（PythonActivity 自带的 Listener 机制，
-                // 在其 onActivityResult 中统一分发）
-                activity.registerActivityResultListener(
-                        new PythonActivity.ActivityResultListener() {
-                            @Override
-                            public void onActivityResult(int requestCode, int resultCode,
-                                    Intent data) {
-                                if (requestCode != FILECHOOSER_RESULTCODE
-                                        || mUploadMessage == null) {
-                                    return;
-                                }
-                                Uri[] results = null;
-                                if (resultCode == Activity.RESULT_OK && data != null) {
-                                    ClipData clip = data.getClipData();
-                                    if (clip != null && clip.getItemCount() > 0) {
-                                        // 多选（input multiple）
-                                        int n = clip.getItemCount();
-                                        results = new Uri[n];
-                                        for (int i = 0; i < n; i++) {
-                                            results[i] = clip.getItemAt(i).getUri();
-                                        }
-                                    } else if (data.getData() != null) {
-                                        // 单选
-                                        results = new Uri[]{data.getData()};
-                                    } else if (data.getDataString() != null) {
-                                        results = new Uri[]{Uri.parse(data.getDataString())};
-                                    }
-                                }
-                                // 取消选择时 results 为 null —— 必须回传以解锁 WebView
-                                mUploadMessage.onReceiveValue(results);
+                        // ---------- 1. 文件选择（相册/视频/音频/文件） ----------
+                        @Override
+                        public boolean onShowFileChooser(WebView view,
+                                ValueCallback<Uri[]> filePathCallback,
+                                WebChromeClient.FileChooserParams params) {
+                            Log.i(TAG, "onShowFileChooser called!");
+                            if (mUploadMessage != null) {
+                                mUploadMessage.onReceiveValue(null);
                                 mUploadMessage = null;
                             }
-                        });
+                            mUploadMessage = filePathCallback;
 
-                // 运行时申请录音权限（manifest 里已声明 RECORD_AUDIO 才会弹出系统授权框；
-                // Android 6.0 以下安装即授予，无需请求）
-                try {
-                    if (Build.VERSION.SDK_INT >= 23
-                            && activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                                    != PackageManager.PERMISSION_GRANTED) {
-                        activity.requestPermissions(
-                                new String[]{Manifest.permission.RECORD_AUDIO},
-                                PERMISSION_REQ_RECORD_AUDIO);
+                            Intent contentIntent = null;
+                            try {
+                                contentIntent = params.createIntent();
+                                if (params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+                                    contentIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                                }
+                            } catch (Exception e) {
+                                Log.w(TAG, "params.createIntent() failed, fallback to ACTION_GET_CONTENT", e);
+                                contentIntent = null;
+                            }
+
+                            if (contentIntent == null) {
+                                contentIntent = new Intent(Intent.ACTION_GET_CONTENT);
+                                contentIntent.addCategory(Intent.CATEGORY_OPENABLE);
+                                contentIntent.setType("*/*");
+                                String[] acceptTypes = params.getAcceptTypes();
+                                if (acceptTypes != null && acceptTypes.length > 0 && !acceptTypes[0].isEmpty()) {
+                                    contentIntent.putExtra(Intent.EXTRA_MIME_TYPES, acceptTypes);
+                                } else {
+                                    contentIntent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+                                }
+                                contentIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                            }
+
+                            // 关键优化：使用 Intent.createChooser 包装，兼容所有国产 ROM（小米/华为/OPPO/vivo等）
+                            Intent chooserIntent = Intent.createChooser(contentIntent, "选择文件或媒体");
+                            try {
+                                activity.startActivityForResult(chooserIntent, FILECHOOSER_RESULTCODE);
+                                Log.i(TAG, "startActivityForResult dispatched successfully");
+                            } catch (ActivityNotFoundException e) {
+                                Log.e(TAG, "没有找到可用的文件选择器", e);
+                                if (mUploadMessage != null) {
+                                    mUploadMessage.onReceiveValue(null);
+                                    mUploadMessage = null;
+                                }
+                                return false;
+                            }
+                            return true;
+                        }
+
+                        // ---------- 2. getUserMedia 麦克风（录音） ----------
+                        @Override
+                        public void onPermissionRequest(final PermissionRequest request) {
+                            Log.i(TAG, "onPermissionRequest called for: " + java.util.Arrays.toString(request.getResources()));
+                            activity.runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        String[] requested = request.getResources();
+                                        java.util.ArrayList<String> allow = new java.util.ArrayList<>();
+                                        for (String r : requested) {
+                                            if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)
+                                                    || PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) {
+                                                allow.add(r);
+                                            }
+                                        }
+                                        if (!allow.isEmpty()) {
+                                            request.grant(allow.toArray(new String[0]));
+                                            Log.i(TAG, "WebView permissions granted: " + allow);
+                                        } else {
+                                            request.deny();
+                                        }
+                                    } catch (Exception e) {
+                                        Log.e(TAG, "onPermissionRequest grant error", e);
+                                        try { request.deny(); } catch (Exception ignored) {}
+                                    }
+                                }
+                            });
+                        }
+
+                        @Override
+                        public boolean onConsoleMessage(android.webkit.ConsoleMessage msg) {
+                            Log.i("WebViewConsole", msg.message() + " @" + msg.sourceId() + ":" + msg.lineNumber());
+                            return false;
+                        }
+                    });
+
+                    // 注册 Activity 结果监听器
+                    activity.registerActivityResultListener(
+                            new PythonActivity.ActivityResultListener() {
+                                @Override
+                                public void onActivityResult(int requestCode, int resultCode, Intent data) {
+                                    if (requestCode != FILECHOOSER_RESULTCODE || mUploadMessage == null) {
+                                        return;
+                                    }
+                                    Uri[] results = null;
+                                    if (resultCode == Activity.RESULT_OK && data != null) {
+                                        ClipData clip = data.getClipData();
+                                        if (clip != null && clip.getItemCount() > 0) {
+                                            int n = clip.getItemCount();
+                                            results = new Uri[n];
+                                            for (int i = 0; i < n; i++) {
+                                                results[i] = clip.getItemAt(i).getUri();
+                                            }
+                                        } else if (data.getData() != null) {
+                                            results = new Uri[]{data.getData()};
+                                        } else if (data.getDataString() != null) {
+                                            results = new Uri[]{Uri.parse(data.getDataString())};
+                                        }
+                                    }
+                                    mUploadMessage.onReceiveValue(results);
+                                    mUploadMessage = null;
+                                    Log.i(TAG, "ActivityResult handled, results count: " + (results != null ? results.length : 0));
+                                }
+                            });
+
+                    // 动态向 Android 系统申请麦克风权限
+                    if (Build.VERSION.SDK_INT >= 23) {
+                        if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                                != PackageManager.PERMISSION_GRANTED) {
+                            Log.i(TAG, "Requesting system RECORD_AUDIO permission...");
+                            activity.requestPermissions(
+                                    new String[]{Manifest.permission.RECORD_AUDIO},
+                                    PERMISSION_REQ_RECORD_AUDIO);
+                        } else {
+                            Log.i(TAG, "RECORD_AUDIO permission already granted");
+                        }
                     }
-                } catch (Exception e) {
-                    Log.e(TAG, "申请 RECORD_AUDIO 失败", e);
-                }
 
-                Log.i(TAG, "WebChromeClient (file chooser + mic) installed");
+                    Log.i(TAG, "✅ FileChooserHelper WebChromeClient installed successfully!");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to install WebChromeClient in runOnUiThread", e);
+                }
             }
         });
         return true;
