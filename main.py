@@ -336,19 +336,33 @@ _room_keepalive: dict[str, dict[str, dict[str, Any]]] = {}
 _room_keepalive_lock = threading.Lock()
 
 
+def room_stable_key(room: dict[str, Any], server_id: str = "") -> str:
+    """生成跨扫描稳定的房间标识，避免 index 型 id 导致保活失效。"""
+    sid = str(room.get("server_id") or server_id or "")
+    session = str(room.get("sessionId") or room.get("session_id") or "").strip()
+    rid = str(room.get("id") or "").strip()
+    # 真实 session 优先；排除 normalize 时用的 `{server}-{index}` 临时 id
+    if session:
+        return f"{sid}:sess:{session}"
+    if rid and not re.match(rf"^{re.escape(sid)}-\d+$", rid):
+        return f"{sid}:id:{rid}"
+    content = str(room.get("content_id") or room.get("title_id") or "")
+    host = str(room.get("host") or room.get("node_id") or "")
+    game = str(room.get("game") or "")
+    return f"{sid}:ch:{content}:{host}:{game}"
+
+
 def apply_room_keepalive(server_id: str, current_rooms: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """合并本轮扫描结果与保活缓存。
 
     - 本轮扫到：重置 miss 计数并更新房间数据
     - 本轮未扫到：miss + 1
     - miss >= ROOM_KEEPALIVE_MISSES：从卡片移除
+    保活结果同时驱动卡片房间列表与游戏筛选（总房间 / 各游戏 tab）
     """
     seen: dict[str, dict[str, Any]] = {}
     for room in current_rooms:
-        rid = str(
-            room.get("id")
-            or f"{room.get('server_id')}:{room.get('host')}:{room.get('content_id')}"
-        )
+        rid = room_stable_key(room, server_id)
         seen[rid] = room
 
     with _room_keepalive_lock:

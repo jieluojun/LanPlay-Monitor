@@ -644,7 +644,8 @@
     let hostHtml = `<span class="room-host-meta"><span class="host-icon-fixed">🏠</span><span class="host-name ellipsis">${esc(hostName)}</span></span>`;
 
     const roomId = esc(room.id || '');
-    return `<div class="room-item" data-game="${esc(gameVal)}" data-room-id="${roomId}">
+    const gameKey = normalizeFilterGame(gameVal);
+    return `<div class="room-item" data-game="${esc(gameVal)}" data-game-key="${esc(gameKey)}" data-room-id="${roomId}">
       <div class="room-top">
         <div class="room-game-left">
           ${iconHtml}
@@ -941,13 +942,18 @@
     const g = state.game;
     const isAll = (g === 'all');
     const isAllServers = (g === 'all_servers');
-    const filteredRooms = isAllServers ? state.rooms : (isAll ? state.rooms : state.rooms.filter(r => r.game === g));
+    const filteredRooms = isAllServers || isAll
+      ? state.rooms
+      : state.rooms.filter(r => roomMatchesFilterGame(r, g));
     const onlineCount = state.servers.filter(s => s.status === 'online').length;
     document.getElementById('ovServers').textContent = `${onlineCount}/${state.servers.length}`;
     document.getElementById('ovOnline').textContent = state.servers.filter(s => s.status === 'online').reduce((a, s) => a + (s.online || 0), 0);
     document.getElementById('ovIdle').textContent = state.servers.filter(s => s.status === 'online').reduce((a, s) => a + (s.idle || 0), 0);
     document.getElementById('ovRooms').textContent = filteredRooms.length;
-    document.querySelectorAll('.room-item').forEach(el => { el.style.display = (isAll || isAllServers || el.dataset.game === g) ? '' : 'none'; });
+    document.querySelectorAll('.room-item').forEach(el => {
+      const roomGame = el.dataset.gameKey || normalizeFilterGame(el.dataset.game);
+      el.style.display = (isAll || isAllServers || roomGame === normalizeFilterGame(g)) ? '' : 'none';
+    });
     state.servers.forEach(s => {
       const group = document.querySelector(`.server-group[data-id="${s.id}"]`);
       if (!group) return;
@@ -983,12 +989,18 @@
           m.style.display = '';
         }
       } else if (isAll) {
-        const hasAny = items.length > 0;
-        group.style.display = (hasAny && isOnline) ? '' : 'none';
+        // 总房间：有保活房间就显示（不因短暂离线/超时隐藏）
+        const hasKept = state.rooms.some(r => r.server_id === s.id);
+        const hasAny = items.length > 0 || hasKept;
+        group.style.display = hasAny ? '' : 'none';
         if (effectiveAutoExpand && hasAny && !group.classList.contains('open')) { group.classList.add('open'); state.expanded.add(s.id); }
         group.querySelectorAll('.no-rooms,.no-rooms-empty,.no-rooms-match').forEach(el => el.remove());
       } else {
-        if (visible > 0 && isOnline) {
+        // 游戏筛选（含未知游戏）：有匹配保活房间就显示，不要求服务器当前在线
+        const hasKeptMatch = state.rooms.some(
+          r => r.server_id === s.id && roomMatchesFilterGame(r, g)
+        );
+        if (visible > 0 || hasKeptMatch) {
           group.style.display = '';
           if (effectiveAutoExpand && !group.classList.contains('open')) { group.classList.add('open'); state.expanded.add(s.id); }
           group.querySelectorAll('.no-rooms,.no-rooms-empty').forEach(el => el.style.display = 'none');
@@ -2762,10 +2774,78 @@
   });
 
   // ===== 筛选器渲染 =====
+  // 房间保活：与「全部」相同（后端 + 前端 5 次）
+  // 游戏标题栏：跟随保活后的房间；该游戏保活房间归零后标签消失并回退到「总房间」
+  const ROOM_KEEP_MISSES = 5;
+  const _roomKeepClient = Object.create(null); // key -> { room, misses }
+
+  function normalizeFilterGame(game) {
+    const g = (game == null ? '' : String(game)).trim();
+    if (!g) return '未知游戏';
+    // 统一：未知游戏 / 未知游戏 (TITLEID) / 含「未知」的占位名
+    if (g === '未知游戏' || g.startsWith('未知游戏') || /^未知/.test(g)) return '未知游戏';
+    return g;
+  }
+
+  function isUnknownFilterGame(game) {
+    return normalizeFilterGame(game) === '未知游戏';
+  }
+
+  function roomClientKey(r) {
+    return [
+      r.server_id || '',
+      r.id || '',
+      r.content_id || '',
+      r.host || '',
+      normalizeFilterGame(r.game)
+    ].join('|');
+  }
+
+  // 前端房间保活：全部 / 总房间 / 各游戏筛选共用
+  function applyClientRoomKeepalive(incoming) {
+    const seen = Object.create(null);
+    (incoming || []).forEach(r => {
+      const k = roomClientKey(r);
+      seen[k] = true;
+      _roomKeepClient[k] = { room: r, misses: 0 };
+    });
+    Object.keys(_roomKeepClient).forEach(k => {
+      if (seen[k]) return;
+      _roomKeepClient[k].misses = (Number(_roomKeepClient[k].misses) || 0) + 1;
+      if (_roomKeepClient[k].misses >= ROOM_KEEP_MISSES) {
+        delete _roomKeepClient[k];
+      }
+    });
+    return Object.keys(_roomKeepClient).map(k => _roomKeepClient[k].room);
+  }
+
+  // 从保活后的房间列表提取游戏（含未知游戏）
+  function getActiveFilterGames() {
+    const set = new Set();
+    (state.rooms || []).forEach(r => {
+      set.add(normalizeFilterGame(r.game));
+    });
+    const list = [...set];
+    list.sort((a, b) => {
+      if (a === '未知游戏') return -1;
+      if (b === '未知游戏') return 1;
+      return String(a).localeCompare(String(b), 'zh');
+    });
+    return list;
+  }
+
+  function roomMatchesFilterGame(room, gameKey) {
+    if (gameKey === 'all' || gameKey === 'all_servers') return true;
+    if (gameKey === '未知游戏') return isUnknownFilterGame(room.game);
+    return normalizeFilterGame(room.game) === gameKey;
+  }
+
   function renderFilters() {
-    const games = [...new Set(state.rooms.map(r => r.game).filter(Boolean))];
-    const tabs = ['all_servers', 'all', ...games.slice(0, 10)];
+    const games = getActiveFilterGames().slice(0, 10);
+    // 固定：全部 / 总房间；游戏标签随保活房间存在而显示
+    const tabs = ['all_servers', 'all', ...games];
     const container = document.getElementById('filters');
+    if (!container) return;
     const existing = container.children;
 
     while (existing.length < tabs.length) {
@@ -2791,6 +2871,13 @@
 
     while (existing.length > tabs.length) {
       existing[existing.length - 1].remove();
+    }
+
+    // 当前选中的游戏已无保活房间 → 回退到「总房间」
+    const activeGames = new Set(games);
+    if (state.game !== 'all' && state.game !== 'all_servers' &&
+        !activeGames.has(normalizeFilterGame(state.game))) {
+      state.game = 'all';
     }
 
     tabs.forEach((g, i) => {
@@ -2901,7 +2988,9 @@
       const data = await getJSON(url);
 
       state.servers = Array.isArray(data.servers) ? data.servers : [];
-      state.rooms = Array.isArray(data.rooms) ? data.rooms : [];
+      // 全部 / 总房间 / 游戏筛选共用保活后的房间列表
+      const rawRooms = Array.isArray(data.rooms) ? data.rooms : [];
+      state.rooms = applyClientRoomKeepalive(rawRooms);
 
       if (ignoreSaved) {
         state._defaultOrder = state.servers.map(s => ({ id: s.id }));
