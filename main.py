@@ -71,9 +71,9 @@ sys.stderr = log_capturer
 
 try:
     import android_filechooser
-    android_filechooser.install_async()
+    android_filechooser.install()
 except Exception as e:
-    print("[文件选择] 初始化跳过:", e)
+    print("[文件选择] 初始化跳过:", repr(e))
 
 info = lambda *a, **k: print("[INFO]", *a, **k)
 warn = lambda *a, **k: print("[WARN]", *a, **k)
@@ -1417,6 +1417,14 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     with _download_status_lock:
                         st = dict(_download_status)
                     log_lines = list(logs)
+                    
+                    # ★ 拼接常驻日志，确保可以在 App 查看状态
+                    try:
+                        import android_filechooser
+                        log_lines.extend(android_filechooser.get_status_logs())
+                    except Exception:
+                        pass
+
                     if st.get("remote_servers_available"):
                         ts = st.get("servers_last_success", 0)
                         log_lines.append(f"[远程下载] 服务器列表: 正常 | 上次成功: {time.strftime('%H:%M:%S', time.localtime(ts))}")
