@@ -21,8 +21,6 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from email.parser import BytesParser
-from email.policy import default as default_policy
 from pathlib import Path
 from typing import Any
 
@@ -159,10 +157,6 @@ DEFAULT_SERVERS: list[dict[str, Any]] = [
 BUILTIN_GAME_TITLES: dict[str, str] = {
     "FFFFFFFFFFFFFFFF": "未知游戏"
 }
-
-# 图片上传目录
-UPLOAD_DIR = SCRIPT_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
 
 # ============================================================================
 # SECTION 4 · 远程文件下载
@@ -1367,36 +1361,6 @@ class MonitorHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
 
-            if path.startswith("/uploads/"):
-                filename = path[9:]
-                if ".." in filename or filename.startswith("/"):
-                    self.send_response(403)
-                    self.end_headers()
-                    return
-                filepath = SCRIPT_DIR / "uploads" / filename
-                if filepath.is_file():
-                    try:
-                        body = filepath.read_bytes()
-                        ext = filepath.suffix.lower()
-                        mime_type = {
-                            ".jpg": "image/jpeg",
-                            ".jpeg": "image/jpeg",
-                            ".png": "image/png",
-                            ".gif": "image/gif",
-                            ".webp": "image/webp",
-                        }.get(ext, "application/octet-stream")
-                        self.send_response(200)
-                        self.send_header("Content-Type", mime_type)
-                        self.send_header("Content-Length", str(len(body)))
-                        self.end_headers()
-                        self.wfile.write(body)
-                        return
-                    except Exception:
-                        pass
-                self.send_response(404)
-                self.end_headers()
-                return
-
             if path == "/api/servers":
                 try:
                     servers = ctx.get_all_servers()
@@ -1484,64 +1448,12 @@ class MonitorHandler(BaseHTTPRequestHandler):
             path = parsed_url.path
             content_length = int(self.headers.get("Content-Length", 0))
 
-            if path == "/api/upload":
-                try:
-                    if content_length <= 0:
-                        raise RuntimeError("Content-Length 为空，无法读取上传数据")
-
-                    content_type = self.headers.get("Content-Type", "")
-                    if "multipart/form-data" not in content_type:
-                        raise RuntimeError("只支持 multipart/form-data 类型")
-
-                    body_bytes = self.rfile.read(content_length)
-                    if len(body_bytes) != content_length:
-                        raise RuntimeError(f"读取数据不完整: 期望 {content_length}, 实际 {len(body_bytes)}")
-
-                    fake_header = f"Content-Type: {content_type}\r\n\r\n".encode("utf-8")
-                    msg = BytesParser(policy=default_policy).parsebytes(fake_header + body_bytes)
-
-                    file_data = None
-                    filename = None
-                    for part in msg.iter_parts():
-                        if part.get_content_maintype() == "multipart":
-                            continue
-                        filename = part.get_param("filename", header="Content-Disposition")
-                        if filename:
-                            file_data = part.get_payload(decode=True)
-                            break
-
-                    if not file_data or not filename:
-                        raise RuntimeError("未找到上传的文件，请确保表单包含文件字段")
-
-                    ext = Path(str(filename)).suffix.lower()
-                    if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".mov", ".avi", ".mkv", ".webm"):
-                        raise RuntimeError(f"不支持的文件格式: {ext}")
-
-                    save_name = f"{uuid.uuid4().hex}{ext}"
-                    filepath = UPLOAD_DIR / save_name
-                    with open(filepath, "wb") as f:
-                        f.write(file_data)
-
-                    info(f"[上传] ✅ 文件上传成功: {save_name} ({len(file_data)} bytes)")
-                    data = {"ok": True, "url": f"/uploads/{save_name}"}
-                    if ext in (".mp4", ".mov", ".avi", ".mkv", ".webm"):
-                        data["file_type"] = "video"
-                    else:
-                        data["file_type"] = "image"
-                    body, headers, status = make_json_response(data)
-                    self._send(body, headers, status)
-                    return
-
-                except Exception as e:
-                    err(f"[上传] ❌ 错误: {e}")
-                    data = {"ok": False, "error": str(e)}
-                    body, headers, status = make_json_response(data, status=400)
-                    self._send(body, headers, status)
-                    return
-
-            body_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            # POST 接口统一使用 JSON body（媒体文件一律走 GoEasy IM 原生上传，后端不再提供本地上传）
             try:
-                req_json = json.loads(body_data.decode("utf-8"))
+                raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+                req_json = json.loads(raw_body.decode("utf-8") or "{}")
+                if not isinstance(req_json, dict):
+                    req_json = {}
             except Exception:
                 req_json = {}
 
@@ -1739,15 +1651,14 @@ def main() -> None:
     info(f"[配置] 远程服务器列表本地路径: {LOCAL_SERVERS_FILE}")
     info(f"[配置] 远程标题映射本地路径: {LOCAL_CHINESE_DB_FILE}")
     info(f"[配置] 全局 TTL: {CACHE_TTL} 秒")
-    info(f"[配置] 图片上传目录: {UPLOAD_DIR}")
 
     start_remote_download_thread()
 
     port = int(os.getenv("PORT", "5000"))
-    server_address = ("0.0.0.0", port)
+    server_address = ("localhost", port)
     httpd = ThreadingHTTPServer(server_address, MonitorHandler)
     info(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 监控服务已启动，监听端口: {port}")
-    info(f"[访问地址] http://0.0.0.0:{port}/")
+    info(f"[访问地址] http://localhost:{port}/")
 
     try:
         httpd.serve_forever()
@@ -1758,6 +1669,11 @@ def main() -> None:
         SCAN_EXECUTOR.shutdown(wait=False)
         httpd.server_close()
 
+    try:
+        import android_filechooser
+        android_filechooser.install_async()
+    except Exception as e:
+        print("[文件选择] 初始化跳过:", e)
 
 if __name__ == "__main__":
     main()

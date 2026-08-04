@@ -12,7 +12,9 @@ icon.filename = icon.png
 fullscreen = 0
 orientation = portrait
 entrypoint = main.py
-requirements = python3
+
+# ★ 改动 1：加入 pyjnius（Python 调用 Java 桥 FileChooserHelper 所必需）
+requirements = python3, pyjnius
 
 android.accept_sdk_license = True
 android.allow_api_min = 21
@@ -21,8 +23,12 @@ android.minapi = 21
 android.ndk = 25b
 android.sdk = 33
 android.ndk_api = 21
-# 设置权限
-android.permissions = INTERNET, READ_MEDIA_IMAGES, READ_MEDIA_AUDIO, READ_MEDIA_VIDEO, READ_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
+
+# ★ 改动 2：加入自定义 Java 源码目录（内含
+#   org/kivy/android/FileChooserHelper.java，为 WebView 补上文件选择功能）
+android.add_src = ./android-src
+android.permissions = INTERNET
+
 # 强制使用特定架构
 android.archs = arm64-v8a
 

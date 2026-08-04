@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#dff3ff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f1923" media="(prefers-color-scheme: dark)">
   <title>LAN-Play 房间监控</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260804s">
+  <link rel="stylesheet" href="/static/styles.css?v=20260804im11">
   <script src="/static/goeasy.min.js"></script>
 </head>
 <body>
@@ -61,10 +61,15 @@
         <div id="publicChatMessages" style="height:300px;overflow-y:auto;background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px;display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);">
           <div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>
         </div>
-        <div class="chat-input-area" style="display:flex;gap:8px;align-items:center;">
-          <button id="publicChatImageBtn" class="image-upload-btn" title="选择图片">🖼️</button>
-          <input type="text" id="publicChatInput" placeholder="输入公共消息..." style="flex:1;padding:8px 14px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:14px;outline:none;">
-          <button id="publicChatSendBtn" style="padding:8px 20px;border:0;border-radius:20px;background:var(--cyan);color:#fff;font-weight:700;cursor:pointer;transition:var(--transition);">发送</button>
+        <div class="chat-draft-host" style="display:none;"></div>
+        <div class="chat-input-area">
+          <div class="chat-voice-wrap">
+            <button id="publicChatVoiceBtn" class="image-upload-btn chat-voice-btn" type="button" title="点击录制语音" data-draft-key="public">🎤</button>
+            <span class="chat-voice-timer" style="display:none">0:00</span>
+          </div>
+          <button id="publicChatImageBtn" class="image-upload-btn chat-image-btn" title="选择图片/视频" type="button">🖼️</button>
+          <input type="text" id="publicChatInput" class="chat-input" placeholder="输入公共消息...">
+          <button id="publicChatSendBtn" class="chat-send-btn" type="button">发送</button>
         </div>
       </div>
     </div>
@@ -182,6 +187,6 @@
     <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
   </div>
 </div>
-<script src="/static/script.js?v=20260804s"></script>
+<script src="/static/script.js?v=20260804im11"></script>
 </body>
 </html>
