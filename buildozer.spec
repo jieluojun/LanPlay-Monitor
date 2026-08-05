@@ -42,8 +42,8 @@ p4a.bootstrap = webview
 p4a.port = 5000
 
 # 启动画面（buildozer presplash）
-# presplash.filename = presplash.png
-# presplash.color = #dff3ff
+presplash.filename = presplash.png
+presplash.color = #dff3ff
 
 # 主题跟随系统深色模式
 android.manifest.extra = \
