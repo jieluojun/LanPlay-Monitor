@@ -1,6 +1,33 @@
 (() => {
   'use strict';
 
+  /* ================= Android Native Bridge (no-op on desktop) ================= */
+  const AndroidBridge = window.AndroidBridge || {
+    showSplash: () => {},
+    setStatusBarColor: () => {},
+    requestIgnoreBatteryOptimizations: () => {},
+    saveBlob: () => {},
+  };
+  window.AndroidBridge = AndroidBridge;
+
+  /* ================= 系统深色 MediaQuery ================= */
+  const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+  window.followSystemEnabled = false;
+  function applySystemTheme() {
+    const isDark = mqDark.matches;
+    const html = document.documentElement;
+    if (isDark) html.classList.add('dark');
+    else html.classList.remove('dark');
+    if (typeof updateThemeIcon === 'function') updateThemeIcon();
+    if (typeof updateThemeColor === 'function') updateThemeColor();
+  }
+  function syncStatusBarWithTheme() {
+    const isDark = mqDark.matches || document.documentElement.classList.contains('dark');
+    const color = isDark ? '#0f1923' : '#dff3ff';
+    try { AndroidBridge.setStatusBarColor(color); } catch (e) {}
+  }
+  /* ========================================================================== */
+
   document.addEventListener('contextmenu', (e) => e.preventDefault());
   document.addEventListener('selectstart', (e) => e.preventDefault());
 
@@ -193,9 +220,15 @@
     if (iosMeta) {
       iosMeta.content = isDark ? 'black-translucent' : 'default';
     }
+    // ✅ 同步 Android 状态栏颜色
+    try { AndroidBridge.setStatusBarColor(color); } catch (e) {}
   }
 
   function updateThemeIcon() {
+    if (window.followSystemEnabled) {
+      themeToggleBtn.textContent = '🌓';
+      return;
+    }
     const isDark = htmlEl.classList.contains('dark') || (!localStorage.getItem('lan_play_theme') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     themeToggleBtn.textContent = isDark ? '🌞' : '🌙';
   }
@@ -212,6 +245,11 @@
   }, { passive: true });
 
   themeToggleBtn.addEventListener('click', () => {
+    // 跟随系统时禁止手动切换
+    if (window.followSystemEnabled) {
+      showToast('🌗 请先关闭「跟随系统」再手动切换', 2000, false);
+      return;
+    }
     const isDark = htmlEl.classList.contains('dark');
     if (isDark) {
       htmlEl.classList.remove('dark');
@@ -237,6 +275,51 @@
         }
       });
     });
+  });
+
+  // ===== 跟随系统深色模式 =====
+  const followSystemChk = $('followSystemTheme');
+  const followSystemIcon = $('followSystemThemeIcon');
+  function syncFollowSystemUI() {
+    if (!followSystemChk || !followSystemIcon) return;
+    followSystemChk.checked = !!window.followSystemEnabled;
+    followSystemIcon.textContent = window.followSystemEnabled ? '🌗' : '🌓';
+    followSystemIcon.title = window.followSystemEnabled ? '关闭跟随系统深色' : '开启跟随系统深色';
+  }
+  function initFollowSystemTheme() {
+    const saved = localStorage.getItem('lan_play_follow_system');
+    if (saved === 'true') {
+      window.followSystemEnabled = true;
+      applySystemTheme();
+    }
+    syncFollowSystemUI();
+    if (followSystemChk) {
+      followSystemChk.addEventListener('change', () => {
+        window.followSystemEnabled = !!followSystemChk.checked;
+        localStorage.setItem('lan_play_follow_system', String(window.followSystemEnabled));
+        if (window.followSystemEnabled) {
+          applySystemTheme();
+          showToast('🌗 已开启跟随系统深色', 1500, true);
+        } else {
+          const t = localStorage.getItem('lan_play_theme');
+          if (t === 'dark') htmlEl.classList.add('dark');
+          else htmlEl.classList.remove('dark');
+          updateThemeColor();
+          showToast('🌓 已关闭跟随系统深色', 1500, true);
+        }
+        updateThemeIcon();
+        syncFollowSystemUI();
+      });
+    }
+  }
+  initFollowSystemTheme();
+
+  // 实时监听系统深色变化
+  mqDark.addEventListener('change', () => {
+    if (window.followSystemEnabled) {
+      applySystemTheme();
+      syncStatusBarWithTheme();
+    }
   });
 
   // ===== DPI 缩放 =====
@@ -546,13 +629,24 @@
     return `<b class="latency-badge slow">${lat}ms</b>`;
   }
 
-  // ===== 时间格式化 =====
+  function autoResizeChatInput(el) {
+    if (!el || el.tagName !== 'TEXTAREA') return;
+    el.style.height = 'auto';
+    const maxH = 120;
+    const newH = Math.min(el.scrollHeight, maxH);
+    el.style.height = newH + 'px';
+    el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
+  }
+
+  // ===== 手机 QQ 风格时间段格式化 =====
   function formatMessageTime(timestamp) {
     const date = new Date(timestamp || Date.now());
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 6);
 
     const hours = date.getHours();
     const minutes = date.getMinutes().toString().padStart(2, '0');
@@ -570,11 +664,14 @@
     if (date >= today) {
       return period + ' ' + timeStr;
     } else if (date >= yesterday) {
-      return '昨天 ' + timeStr;
+      return '昨天 ' + period + ' ' + timeStr;
+    } else if (date >= weekAgo) {
+      const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+      return weekdays[date.getDay()] + ' ' + period + ' ' + timeStr;
     } else {
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
       const day = date.getDate().toString().padStart(2, '0');
-      return month + '/' + day + ' ' + timeStr;
+      return month + '-' + day + ' ' + period + ' ' + timeStr;
     }
   }
 
@@ -589,18 +686,32 @@
     return Math.abs(b - a) >= CHAT_TIME_GAP_MS;
   }
 
+  function formatVoiceDuration(sec) {
+    const d = Math.round(Number(sec) || 0);
+    if (d <= 0) return '1"';
+    if (d < 60) return d + '"';
+    const m = Math.floor(d / 60);
+    const s = d % 60;
+    return m + "'" + (s < 10 ? '0' : '') + s + '"';
+  }
+
   function buildChatMessagesHtml(messages) {
     if (!messages || !messages.length) return '';
     let html = '';
+    let prevTs = null;
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
       const t = msg.time || Date.now();
+      if (shouldShowTimeDivider(prevTs, t)) {
+        const dividerLabel = formatMessageTime(t);
+        html += '<div class="chat-time-divider"><span>' + esc(dividerLabel) + '</span></div>';
+        prevTs = t;
+      }
       const cls = msg.isMine ? 'chat-msg-mine' : 'chat-msg-other';
       const sender = msg.sender || '匿名';
       const contentHtml = renderMessageContent(msg);
       const timeLabel = formatMessageTime(t);
-      // 布局：用户名 → 消息 → 时间（时间字体约为消息一半）
-      html += '<div class="chat-msg ' + cls + '">' +
+      html += '<div class="chat-msg ' + cls + '" data-id="' + esc(msg.id || '') + '" data-sender="' + esc(sender) + '" draggable="false">' +
         '<div class="msg-sender">' + esc(sender) + '：</div>' +
         '<div class="msg-body">' + contentHtml + '</div>' +
         '<div class="msg-time">' + esc(timeLabel) + '</div>' +
@@ -816,6 +927,7 @@
     }
 
     function onStart(e) {
+      if (e.target && (e.target.closest('.chat-wrapper') || e.target.closest('.chat-messages'))) return;
       const touch = e.touches ? e.touches[0] : e;
       startX = touch.clientX;
       currentX = startX;
@@ -1056,7 +1168,17 @@
   let draggedEl = null;
   function initDragAndDrop(div, s) {
     div.setAttribute('draggable', 'true');
-    div.addEventListener('dragstart', e => { draggedEl = div; div.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+    div.addEventListener('dragstart', e => {
+      // 严禁从聊天模块、控制区域触发卡片拖动，避免移动端长按消息被浏览器当成卡片拖曳排序
+      if (e.target && (e.target.closest('.chat-wrapper') || e.target.closest('.chat-messages') || e.target.closest('.chat-msg') || e.target.closest('button') || e.target.closest('input') || e.target.closest('textarea') || e.target.closest('.server-actions'))) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+      draggedEl = div;
+      div.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
     div.addEventListener('dragend', () => {
       div.classList.remove('dragging');
       draggedEl = null;
@@ -1453,8 +1575,18 @@
     const items = [];
     Array.from(files || []).forEach(function (file) {
       if (!file) return;
-      const kind = detectMediaKind(file);
-      items.push({ file: file, kind: kind, previewUrl: URL.createObjectURL(file), name: file.name || '' });
+      let fileObj = file;
+      // 针对腾讯云 COS 中国大陆地域对此类纯 .apk / .ipa 请求无论加速/CDN均统一 403 DownloadForbidden 的规则：
+      // 必须把后缀名称改为 _apk.rename / _ipa.rename 并采用 application/octet-stream 二进制形式，
+      // 这样既在自建无备案域 https://cos.svf.dpdns.org 下 100% 畅通无阻，也完美兼容酷安与手机 QQ 的直接应用包改名安装！
+      if (file.name && /\.(apk|ipa)$/i.test(file.name)) {
+        try {
+          const safeName = file.name.replace(/\.apk$/i, '_apk.rename').replace(/\.ipa$/i, '_ipa.rename');
+          fileObj = new File([file], safeName, { type: 'application/octet-stream' });
+        } catch (e) {}
+      }
+      const kind = detectMediaKind(fileObj);
+      items.push({ file: fileObj, kind: kind, previewUrl: URL.createObjectURL(fileObj), name: fileObj.name || '' });
     });
     if (!items.length) return;
     const first = items[0];
@@ -1501,13 +1633,27 @@
       if (it.kind === 'image') inner = '<img class="chat-draft-thumb" src="' + esc(it.previewUrl) + '" alt="预览">';
       else if (it.kind === 'video') inner = '<video class="chat-draft-thumb" src="' + esc(it.previewUrl) + '" muted playsinline></video><span class="chat-draft-badge">视频</span>';
       else if (it.kind === 'audio') inner = '<div class="chat-draft-audio">🎤 语音</div>';
-      else inner = '<div class="chat-draft-file">📎 ' + esc(it.name || '文件') + '</div>';
+      else inner = '<div class="chat-draft-file">💾 ' + esc(it.name || '文件') + '</div>';
       return '<div class="chat-draft-item" data-idx="' + idx + '">' + inner + '</div>';
     }).join('');
     const countLabel = d.items.length > 1 ? ('<span class="chat-draft-count">' + d.items.length + ' 个文件</span>') : '';
     host.innerHTML = '<div class="chat-draft-bar"><div class="chat-draft-media chat-draft-media-multi">' + thumbs + '</div>' + countLabel + '<button type="button" class="chat-draft-remove" title="取消">✕</button></div>';
     const rm = host.querySelector('.chat-draft-remove');
     if (rm) rm.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); clearDraft(key); });
+  }
+
+  function pickFileAsDraft(serverId, isPublic) {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '*/*';
+    fileInput.multiple = true;
+    fileInput.onchange = function (e) {
+      const files = e.target.files;
+      if (!files || !files.length) return;
+      const key = draftKey(serverId, isPublic);
+      setDraftFiles(key, files);
+    };
+    fileInput.click();
   }
 
   function pickMediaAsDraft(serverId, isPublic) {
@@ -1769,7 +1915,7 @@
 
     if (!_voiceAudio) {
       _voiceAudio = new Audio();
-      _voiceAudio.preload = 'metadata';
+      _voiceAudio.preload = 'auto';
       _voiceAudio.addEventListener('ended', function () { stopVoicePlayback(); });
       _voiceAudio.addEventListener('error', function () {
         showToast('❌ 语音播放失败', 1500, false);
@@ -1801,6 +1947,7 @@
     _voiceAudio.addEventListener('loadedmetadata', onMeta, { once: true });
 
     _voiceAudio.src = url;
+    _voiceAudio.load();
     const p = _voiceAudio.play();
     if (p && typeof p.catch === 'function') {
       p.catch(function (err) {
@@ -1826,16 +1973,42 @@
       box = document.createElement('div');
       box.id = 'mediaLightbox';
       box.className = 'media-lightbox';
-      box.innerHTML = '<div class="media-lightbox-inner"></div><button type="button" class="media-lightbox-close" title="关闭">✕</button>';
+      box.innerHTML = '<div class="media-lightbox-inner"></div>' +
+        '<button type="button" class="media-lightbox-download" title="下载保存">📥</button>' +
+        '<button type="button" class="media-lightbox-close" title="关闭">✕</button>';
       document.body.appendChild(box);
       box.addEventListener('click', function (e) {
         if (e.target === box || e.target.classList.contains('media-lightbox-close')) {
           box.classList.remove('open');
           const inner = box.querySelector('.media-lightbox-inner');
           if (inner) inner.innerHTML = '';
+        } else if (e.target.closest('.media-lightbox-download')) {
+          e.preventDefault();
+          e.stopPropagation();
+          const curUrl = box.dataset.currentUrl || url;
+          const curKind = box.dataset.currentKind || kind;
+          let filename = 'download';
+          try {
+            const parts = curUrl.split('?')[0].split('/');
+            filename = decodeURIComponent(parts[parts.length - 1] || '') || (curKind === 'video' ? 'video.mp4' : 'image.png');
+          } catch (err) {
+            filename = curKind === 'video' ? 'video.mp4' : 'image.png';
+          }
+          showToast('📥 正在下载: ' + filename, 2000, true);
+          const a = document.createElement('a');
+          a.href = curUrl;
+          a.download = filename;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
         }
       });
     }
+    box.dataset.currentUrl = url;
+    box.dataset.currentKind = kind;
     const inner = box.querySelector('.media-lightbox-inner');
     if (kind === 'video') {
       inner.innerHTML = '<video class="media-lightbox-video" src="' + esc(url) + '" controls autoplay playsinline></video>';
@@ -1862,6 +2035,47 @@
     }
   }, true);
 
+  // ===== Telegram / QQ 视口交叉懒加载引擎 (IntersectionObserver Lazy Loading) =====
+  const _lazyMediaObserver = (typeof IntersectionObserver !== 'undefined') ? new IntersectionObserver(function(entries, observer) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        const el = entry.target;
+        if (el.dataset.lazyPoster && !el.src) {
+          el.src = el.dataset.lazyPoster;
+          delete el.dataset.lazyPoster;
+        }
+        if (el.dataset.lazyVideo && !el.src) {
+          el.src = el.dataset.lazyVideo;
+          delete el.dataset.lazyVideo;
+        }
+        if (el.dataset.lazyVoice && !el.dataset.warmed) {
+          el.dataset.warmed = 'true';
+          try {
+            const pre = new Audio();
+            pre.preload = 'auto';
+            pre.src = el.dataset.lazyVoice;
+            pre.load();
+          } catch (e) {}
+        }
+        observer.unobserve(el);
+      }
+    });
+  }, { root: null, rootMargin: '80px 0px', threshold: 0.01 }) : null;
+
+  function observeLazyMedia(containerEl) {
+    if (!containerEl) return;
+    const targets = containerEl.querySelectorAll('.lazy-media-cover:not([data-observed="true"])');
+    targets.forEach(function (el) {
+      el.dataset.observed = 'true';
+      if (_lazyMediaObserver) {
+        _lazyMediaObserver.observe(el);
+      } else {
+        if (el.dataset.lazyPoster && !el.src) el.src = el.dataset.lazyPoster;
+        if (el.dataset.lazyVideo && !el.src) el.src = el.dataset.lazyVideo;
+      }
+    });
+  }
+
   function renderMessageContent(msg) {
     const t = msg.text || '';
     if (msg.msgType === 'image' || (msg.isImage && t.startsWith('[图片]'))) {
@@ -1871,27 +2085,30 @@
     if (msg.msgType === 'video' || (msg.isImage && t.startsWith('[视频]'))) {
       const url = msg.mediaUrl || (t.startsWith('[视频]') ? t.substring(4) : t);
       const poster = msg.thumbUrl ? esc(msg.thumbUrl) : '';
-      // 列表里只显示封面，点击全屏播放，避免气泡里控件抢点击
-      return '<div class="chat-video-cover" data-full="' + esc(url) + '" title="点击播放">' +
-        (poster ? '<img src="' + poster + '" alt="视频">' : '<video src="' + esc(url) + '" muted preload="metadata"></video>') +
+      const videoSrc = url.includes('#t=') ? url : (url + '#t=0.001');
+      // 列表里只显示封面，点击全屏播放；携带 #t=0.001 指令强制移动端浏览器解码并显全视频第一帧画幅
+      const imgHtml = poster ? `<img class="lazy-media-cover" data-lazy-poster="${poster}" alt="视频" onerror="this.style.display='none'; const v=this.nextElementSibling; if(v){v.style.display='block';}">` : '';
+      const videoStyle = poster ? 'style="display:none;"' : 'style="display:block;"';
+      return '<div class="chat-video-cover" data-full="' + esc(url) + '" title="点击全屏播放视频">' +
+        imgHtml +
+        `<video class="lazy-media-cover" data-lazy-video="${esc(videoSrc)}" ${videoStyle} muted playsinline preload="metadata" onloadedmetadata="this.onloadedmetadata=null; this.currentTime=0.001; this.pause();"></video>` +
         '<span class="chat-video-play">▶</span></div>';
     }
     if (msg.msgType === 'audio' || t.startsWith('[语音]')) {
       const url = msg.mediaUrl || (t.startsWith('[语音]') ? t.substring(4) : t);
       let durSec = Number(msg.duration) || 0;
-      // 气泡宽度随时长变化（最短约 64px，最长约 180px）
-      const w = Math.max(64, Math.min(180, 64 + (durSec || 3) * 8));
-      const durLabel = durSec > 0 ? (Math.ceil(durSec) + '"') : '';
-      return '<div class="chat-voice-bubble" data-url="' + esc(url) + '" data-duration="' + esc(String(durSec || '')) + '" style="width:' + w + 'px;" title="点击播放">' +
+      const w = Math.max(68, Math.min(200, 68 + (durSec || 3) * 8));
+      const durLabel = durSec > 0 ? formatVoiceDuration(durSec) : '';
+      return '<div class="chat-voice-bubble lazy-media-cover' + (msg.isMine ? ' is-mine' : ' is-other') + '" data-url="' + esc(url) + '" data-lazy-voice="' + esc(url) + '" data-duration="' + esc(String(durSec || '')) + '" style="width:' + w + 'px;" title="点击播放">' +
         '<span class="chat-voice-icon">▶</span>' +
         '<span class="chat-voice-waves" aria-hidden="true"><i></i><i></i><i></i></span>' +
-        (durLabel ? ('<span class="chat-voice-dur">' + durLabel + '</span>') : '') +
+        '<span class="chat-voice-dur">' + esc(durLabel) + '</span>' +
       '</div>';
     }
     if (msg.msgType === 'file' || t.startsWith('[文件]')) {
       const url = msg.mediaUrl || (t.startsWith('[文件]') ? t.substring(4) : t);
       const name = msg.fileName || '文件';
-      return '<a class="chat-link" data-url="' + esc(url) + '" href="' + esc(url) + '" target="_blank" rel="noopener">📎 ' + esc(name) + '</a>';
+      return '<a class="chat-link chat-file-link" data-url="' + esc(url) + '" data-filename="' + esc(name) + '" href="' + esc(url) + '" download="' + esc(name) + '" target="_blank" rel="noopener">💾 ' + esc(name) + '</a>';
     }
     return linkifyText(t);
   }
@@ -2054,6 +2271,21 @@
 
     if (type === 'text') {
       text = payload.text != null ? String(payload.text) : '';
+      if (text.includes('__revoke__')) {
+        try {
+          let revId = null;
+          if (text.startsWith('{')) {
+            const parsed = JSON.parse(text);
+            if (parsed && parsed.__revoke__) revId = parsed.__revoke__;
+          } else if (text.startsWith('__revoke__:')) {
+            revId = text.substring(11);
+          }
+          if (revId) {
+            removeMessageById(revId);
+            return null;
+          }
+        } catch (e) {}
+      }
       if (isPresenceText(text)) return null;
       if (text.startsWith('[图片]') || text.startsWith('[视频]')) isImage = true;
     } else if (type === 'image') {
@@ -2360,7 +2592,7 @@
     const card = document.querySelector(`.server-group[data-id="${serverId}"]`);
     if (card) {
       const input = card.querySelector('.chat-input');
-      if (input) input.value = '';
+      if (input) { input.value = ''; autoResizeChatInput(input); }
     }
   }
 
@@ -2606,7 +2838,7 @@
         }
         renderPublicChat(true);
         const el = document.getElementById('publicChatInput');
-        if (el) el.value = '';
+        if (el) { el.value = ''; autoResizeChatInput(el); }
         setPublicUnread(false);
       },
       onFailed: function () { showToast('❌ 公共消息发送失败', 2000, false); }
@@ -2800,13 +3032,20 @@
     if (container.dataset.sig === sig && !forceScroll) return;
     container.dataset.sig = sig;
     if (!msgs.length) {
-      container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:8px;font-size:12px;">暂无消息，来说点什么吧</div>';
+      container.innerHTML = '<div style="color:var(--muted);text-align:center;margin:auto 0;padding:20px 8px;font-size:12px;">暂无消息，来说点什么吧</div>';
     } else {
       container.innerHTML = buildChatMessagesHtml(msgs);
+      observeLazyMedia(container);
     }
-    if (forceScroll || !inputFocused) {
-      const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
-      if (forceScroll || nearBottom) {
+    // 滚动位置恢复：强制滚动时滚底；否则优先恢复保存的位置
+    if (forceScroll) {
+      container.scrollTop = container.scrollHeight;
+      saveChatScroll(serverId, container.scrollTop);
+    } else if (!inputFocused) {
+      const saved = getChatScroll(serverId);
+      if (saved != null) {
+        container.scrollTop = Math.min(saved, container.scrollHeight - container.clientHeight);
+      } else {
         container.scrollTop = container.scrollHeight;
         saveChatScroll(serverId, container.scrollTop);
       }
@@ -2822,18 +3061,25 @@
     if (!wrapper) {
       wrapper = document.createElement('div');
       wrapper.className = 'chat-wrapper';
+      wrapper.setAttribute('draggable', 'false');
       const hasUsername = !!(state.username && state.username.trim());
       const ready = state.goEasyReady && hasUsername;
       wrapper.innerHTML = `
         <div class="chat-messages"></div>
         <div class="chat-draft-host" style="display:none;"></div>
         <div class="chat-input-area">
+          <div class="chat-plus-wrap">
+            <button class="image-upload-btn chat-plus-btn" type="button" title="更多">➕</button>
+            <div class="chat-plus-menu">
+              <button class="chat-plus-item chat-image-btn" type="button">🏞️ 图片/视频</button>
+              <button class="chat-plus-item chat-file-btn" type="button">💾 文件</button>
+            </div>
+          </div>
+          <textarea class="chat-input" rows="1" placeholder="${ready ? '输入聊天内容...' : (state.goEasyReady ? '请先设置用户名' : '聊天未连接')}" ${ready ? '' : 'disabled'}></textarea>
           <div class="chat-voice-wrap">
             <button class="image-upload-btn chat-voice-btn" type="button" title="点击录制语音" data-draft-key="${esc(serverId)}">🎤</button>
             <span class="chat-voice-timer" style="display:none">0:00</span>
           </div>
-          <button class="image-upload-btn chat-image-btn" title="选择图片/视频" type="button">🖼️</button>
-          <input type="text" class="chat-input" placeholder="${ready ? '输入聊天内容...' : (state.goEasyReady ? '请先设置用户名' : '聊天未连接')}" ${ready ? '' : 'disabled'}>
           <button class="chat-send-btn" type="button" ${ready ? '' : 'disabled'}>发送</button>
         </div>`;
       bodyInner.insertBefore(wrapper, bodyInner.firstChild);
@@ -2841,15 +3087,48 @@
     if (wrapper.dataset.bound !== 'true') {
       const input = wrapper.querySelector('.chat-input');
       const sendBtn = wrapper.querySelector('.chat-send-btn');
-      const imageBtn = wrapper.querySelector('.chat-image-btn');
       const sendHandler = function () {
         // 有草稿时即使输入框为空也要发送；无草稿再发文字
         sendChatMessage(serverId, (input && input.value) || '', false);
       };
       sendBtn.addEventListener('click', sendHandler);
       input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); sendHandler(); }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendHandler(); }
+        // auto-resize on next frame after value changes
+        requestAnimationFrame(() => autoResizeChatInput(input));
       });
+      input.addEventListener('input', function () {
+        autoResizeChatInput(this);
+      });
+
+      // QQ 风格 ➕ 按钮：点击展开/收起菜单
+      const plusWrap = wrapper.querySelector('.chat-plus-wrap');
+      const plusBtn = wrapper.querySelector('.chat-plus-btn');
+      const plusMenu = wrapper.querySelector('.chat-plus-menu');
+      if (plusBtn && plusMenu) {
+        plusBtn.addEventListener('click', function (e) {
+          e.preventDefault(); e.stopPropagation();
+          plusMenu.classList.toggle('open');
+        });
+        // 点击菜单项后关闭菜单
+        plusMenu.querySelectorAll('.chat-plus-item').forEach(function (item) {
+          item.addEventListener('click', function () {
+            plusMenu.classList.remove('open');
+          });
+        });
+        // 点击外部关闭菜单
+        document.addEventListener('click', function (ev) {
+          if (!plusWrap.contains(ev.target)) plusMenu.classList.remove('open');
+        });
+      }
+
+      const imageBtn = plusMenu ? plusMenu.querySelector('.chat-image-btn') : wrapper.querySelector('.chat-image-btn');
+      const fileBtn = plusMenu ? plusMenu.querySelector('.chat-file-btn') : wrapper.querySelector('.chat-file-btn');
+      if (fileBtn) {
+        fileBtn.addEventListener('click', function () {
+          pickFileAsDraft(serverId, false);
+        });
+      }
       if (imageBtn) {
         imageBtn.addEventListener('click', function () {
           pickMediaAsDraft(serverId, false);
@@ -2882,16 +3161,23 @@
       return;
     }
     if (msgs.length === 0) {
-      container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>';
+      container.innerHTML = '<div style="color:var(--muted);text-align:center;margin:auto 0;padding:20px;font-size:14px;">暂无消息</div>';
     } else {
       container.innerHTML = buildChatMessagesHtml(msgs);
+      observeLazyMedia(container);
     }
     if (forceScroll) {
       container.scrollTop = container.scrollHeight;
       savePublicScroll(container.scrollTop);
     } else {
       const saved = getPublicScroll();
-      if (saved != null) container.scrollTop = saved;
+      if (saved != null) {
+        container.scrollTop = Math.min(saved, container.scrollHeight - container.clientHeight);
+      } else {
+        // 首次加载或无保存位置 → 滚到底部
+        container.scrollTop = container.scrollHeight;
+        savePublicScroll(container.scrollTop);
+      }
     }
   }
 
@@ -2951,23 +3237,67 @@
     }
     if (input) {
       input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           if (sendBtn) sendBtn.click();
         }
+        requestAnimationFrame(() => autoResizeChatInput(input));
+      });
+      input.addEventListener('input', function () {
+        autoResizeChatInput(this);
       });
     }
-    if (imageBtn) {
-      imageBtn.textContent = '🖼️';
-      imageBtn.title = '选择图片/视频';
-      imageBtn.addEventListener('click', function () {
+    // QQ 风格 ➕ 按钮
+    const publicPlusWrap = document.getElementById('publicPlusWrap');
+    const publicPlusBtn = publicPlusWrap ? publicPlusWrap.querySelector('.chat-plus-btn') : null;
+    const publicPlusMenu = publicPlusWrap ? publicPlusWrap.querySelector('.chat-plus-menu') : null;
+    if (publicPlusBtn && publicPlusMenu) {
+      publicPlusBtn.addEventListener('click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        publicPlusMenu.classList.toggle('open');
+      });
+      publicPlusMenu.querySelectorAll('.chat-plus-item').forEach(function (item) {
+        item.addEventListener('click', function () {
+          publicPlusMenu.classList.remove('open');
+        });
+      });
+      document.addEventListener('click', function (ev) {
+        if (!publicPlusWrap.contains(ev.target)) publicPlusMenu.classList.remove('open');
+      });
+    }
+
+    const pubFileBtn = publicPlusMenu ? publicPlusMenu.querySelector('.chat-file-btn') : document.getElementById('publicChatFileBtn');
+    const pubImageBtn = publicPlusMenu ? publicPlusMenu.querySelector('.chat-image-btn') : document.getElementById('publicChatImageBtn');
+    if (pubFileBtn) {
+      pubFileBtn.addEventListener('click', function () {
+        pickFileAsDraft(null, true);
+      });
+    }
+    if (pubImageBtn) {
+      pubImageBtn.addEventListener('click', function () {
+        pickMediaAsDraft(null, true);
+      });
+    }
+    // keep backward compat
+    const oldFileBtn = document.getElementById('publicChatFileBtn');
+    if (oldFileBtn && oldFileBtn !== pubFileBtn) {
+      oldFileBtn.addEventListener('click', function () {
+        pickFileAsDraft(null, true);
+      });
+    }
+    const oldImageBtn = document.getElementById('publicChatImageBtn');
+    if (oldImageBtn && oldImageBtn !== pubImageBtn) {
+      oldImageBtn.textContent = '🏞️';
+      oldImageBtn.title = '选择图片/视频';
+      oldImageBtn.addEventListener('click', function () {
         pickMediaAsDraft(null, true);
       });
     }
     let voiceBtn = document.getElementById('publicChatVoiceBtn');
     if (!voiceBtn) {
       const area = document.querySelector('#publicChatModal .chat-input-area');
-      if (area && imageBtn) {
+      if (area) {
+        const anchor = area.querySelector('.chat-plus-wrap') || area.querySelector('.chat-send-btn');
         const wrap = document.createElement('div');
         wrap.className = 'chat-voice-wrap';
         voiceBtn = document.createElement('button');
@@ -2983,7 +3313,7 @@
         timer.textContent = '0:00';
         wrap.appendChild(voiceBtn);
         wrap.appendChild(timer);
-        area.insertBefore(wrap, imageBtn);
+        if (anchor) area.insertBefore(wrap, anchor);
       }
     }
     if (voiceBtn) {
@@ -3265,17 +3595,60 @@
     }
   });
 
-  // ---- 聊天链接点击复制 ----
+  // ---- 聊天链接点击：文件链接让浏览器原生处理并给出提示, 文本链接复制URL ----
   document.addEventListener('click', function(e) {
+    const fileLink = e.target.closest('.chat-file-link');
+    if (fileLink) {
+      // 严禁使用 e.preventDefault()！保留原生的 <a> 点击默认行为，确保移动端浏览器原生启动 APK/ZIP 等二进制文件下载
+      e.stopPropagation();
+      var name = fileLink.dataset.filename || '文件';
+      showToast('📥 正在准备下载: ' + name + ' (若未响应可长按链接下载)', 3000, true);
+      return;
+    }
     const link = e.target.closest('.chat-link');
     if (link) {
       e.stopPropagation();
-      const url = link.dataset.url;
-      if (url) {
-        copyWithMessage(url, '✅ 已复制：' + url);
+      var url2 = link.dataset.url;
+      if (url2) {
+        copyWithMessage(url2, '✅ 已复制：' + url2);
       }
     }
   });
+
+  // 强制下载：支持 CORS 场景以 Blob 保存；不支持 CORS 时以原生超链接方式触发下载，杜绝 window.close() 中断请求
+  function forceDownload(url, filename) {
+    showToast('📥 正在准备下载: ' + filename, 2500, true);
+    fetch(url, { mode: 'cors' })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.blob();
+      })
+      .then(function (blob) {
+        var blobUrl = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 60000);
+        showToast('✅ 下载完成: ' + filename, 1500, true);
+      })
+      .catch(function () {
+        // CORS 拦截时回退：以 <a> 标签触发系统默认下载，严禁执行 window.close() 否则会直接结束新开页签并弹出警告
+        showToast('📥 正在启动直链下载: ' + filename + ' (若未响应可长按链接下载)', 3000, true);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      });
+  }
 
   // ===== 筛选器渲染 =====
   // 房间保活：与「全部」相同（后端 + 前端 5 次）
@@ -3588,7 +3961,197 @@
   setupHostPortAutoFill(addHost, addPort);
 
   initGoEasy();
+  let _pendingRevokeMsg = null;
+  let _longPressTimer = null;
+  let _touchStartPos = { x: 0, y: 0 };
+
+  function showRevokeConfirmModal(msgId, serverId, isPublic, senderName) {
+    if (!msgId) return;
+    if (_longPressTimer) {
+      clearTimeout(_longPressTimer);
+      _longPressTimer = null;
+    }
+    const modal = document.getElementById('revokeConfirmModal');
+    if (modal && modal.classList.contains('open')) return;
+    _pendingRevokeMsg = { msgId: msgId, serverId: serverId, isPublic: !!isPublic };
+    const txt = document.getElementById('revokeModalText');
+    if (txt) {
+      txt.textContent = senderName ? `确定要撤回 ${senderName} 发送的这条消息吗？` : '确定要撤回这条消息吗？';
+    }
+    if (modal) modal.classList.add('open');
+  }
+
+  function hideRevokeConfirmModal() {
+    const modal = document.getElementById('revokeConfirmModal');
+    if (modal) modal.classList.remove('open');
+    _pendingRevokeMsg = null;
+  }
+
+  function executeRevoke() {
+    if (!_pendingRevokeMsg) return;
+    const { msgId, serverId, isPublic } = _pendingRevokeMsg;
+    hideRevokeConfirmModal();
+
+    setTimeout(function () {
+      try {
+        removeMessageById(msgId);
+        const im = getIm();
+        if (im && state.goEasyReady) {
+          const gid = isPublic ? PUBLIC_CHANNEL : serverGroupId(serverId);
+          if (gid) {
+            const revokePayload = JSON.stringify({ __revoke__: msgId });
+            const textMsg = im.createTextMessage({ text: revokePayload, to: buildGroupTo(gid, '撤回指令') });
+            im.sendMessage({ message: textMsg });
+          }
+        }
+      } catch (e) {
+        console.warn('广播撤回消息失败:', e);
+      }
+      showToast('✅ 消息已撤回', 1500, true);
+    }, 10);
+  }
+
+  function removeMessageById(msgId) {
+    if (!msgId) return;
+    let changed = false;
+    Object.keys(state.chatMessages).forEach(serverId => {
+      const msgs = state.chatMessages[serverId];
+      if (msgs && msgs.some(m => m.id === msgId)) {
+        state.chatMessages[serverId] = msgs.filter(m => m.id !== msgId);
+        changed = true;
+        renderChatMessages(serverId, false);
+      }
+    });
+    if (state.publicMessages && state.publicMessages.some(m => m.id === msgId)) {
+      state.publicMessages = state.publicMessages.filter(m => m.id !== msgId);
+      changed = true;
+      renderPublicChat(false);
+    }
+    if (changed) {
+      saveChatMessages();
+      savePublicMessages();
+    }
+  }
+
+  function bindRevokeModalEvents() {
+    const modal = document.getElementById('revokeConfirmModal');
+    const cancelBtn = document.getElementById('cancelRevokeBtn');
+    const confirmBtn = document.getElementById('confirmRevokeBtn');
+    const doCancel = function (e) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      hideRevokeConfirmModal();
+    };
+    const doConfirm = function (e) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      executeRevoke();
+    };
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', doCancel);
+      cancelBtn.addEventListener('touchend', doCancel, { passive: false });
+    }
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', doConfirm);
+      confirmBtn.addEventListener('touchend', doConfirm, { passive: false });
+    }
+    if (modal) {
+      modal.addEventListener('click', function (e) {
+        if (e.target === modal) doCancel(e);
+      });
+    }
+  }
+
+  function bindMessageLongPressEvents() {
+    // 捕获期动态解绑：在手按到卡片内部聊天区域（尤其是短文本/纯数字消息）的第一瞬，直接移除外层服务器卡片的 draggable 属性！
+    // 这样无论各种手机 Chromium 引擎如何判定原生长按，底层也不会再把此次长按当成卡片拖拽排序！
+    const lockCardDrag = function (e) {
+      if (!e || !e.target) return;
+      const wrap = e.target.closest && e.target.closest('.chat-wrapper');
+      if (wrap) {
+        const card = wrap.closest('.server-group');
+        if (card && card.getAttribute('draggable') !== 'false') {
+          card.setAttribute('draggable', 'false');
+          card.classList.remove('dragging');
+        }
+      } else {
+        const card = e.target.closest && e.target.closest('.server-group');
+        if (card && card.getAttribute('draggable') !== 'true') {
+          card.setAttribute('draggable', 'true');
+        }
+      }
+    };
+    document.addEventListener('touchstart', lockCardDrag, { passive: true, capture: true });
+    document.addEventListener('mousedown', lockCardDrag, { passive: true, capture: true });
+
+    const handleStart = function (e) {
+      const msgEl = e.target.closest && e.target.closest('.chat-msg');
+      if (!msgEl) return;
+      const card = msgEl.closest('.server-group');
+      if (card) {
+        card.setAttribute('draggable', 'false');
+        card.classList.remove('dragging');
+      }
+      const msgId = msgEl.dataset.id;
+      if (!msgId) return;
+
+      const isPublic = !!msgEl.closest('#publicChatModal');
+      const serverId = card ? card.dataset.id : null;
+      const senderName = msgEl.dataset.sender || '';
+
+      const touch = e.touches ? e.touches[0] : e;
+      _touchStartPos = { x: touch.clientX, y: touch.clientY };
+
+      if (_longPressTimer) clearTimeout(_longPressTimer);
+      _longPressTimer = setTimeout(function () {
+        _longPressTimer = null;
+        showRevokeConfirmModal(msgId, serverId, isPublic, senderName);
+      }, 400);
+    };
+
+    const handleMove = function (e) {
+      if (!_longPressTimer) return;
+      const touch = e.touches ? e.touches[0] : e;
+      const dx = Math.abs(touch.clientX - _touchStartPos.x);
+      const dy = Math.abs(touch.clientY - _touchStartPos.y);
+      if (dx > 15 || dy > 15) {
+        clearTimeout(_longPressTimer);
+        _longPressTimer = null;
+      }
+    };
+
+    const handleEnd = function () {
+      if (_longPressTimer) {
+        clearTimeout(_longPressTimer);
+        _longPressTimer = null;
+      }
+    };
+
+    const handleContextMenu = function (e) {
+      const msgEl = e.target.closest && e.target.closest('.chat-msg');
+      if (!msgEl) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const msgId = msgEl.dataset.id;
+      if (!msgId) return;
+      const isPublic = !!msgEl.closest('#publicChatModal');
+      const card = msgEl.closest('.server-group');
+      const serverId = card ? card.dataset.id : null;
+      const senderName = msgEl.dataset.sender || '';
+      showRevokeConfirmModal(msgId, serverId, isPublic, senderName);
+    };
+
+    document.addEventListener('touchstart', handleStart, { passive: true });
+    document.addEventListener('touchmove', handleMove, { passive: true });
+    document.addEventListener('touchend', handleEnd, { passive: true });
+    document.addEventListener('touchcancel', handleEnd, { passive: true });
+    document.addEventListener('mousedown', handleStart, { passive: true });
+    document.addEventListener('mousemove', handleMove, { passive: true });
+    document.addEventListener('mouseup', handleEnd, { passive: true });
+    document.addEventListener('contextmenu', handleContextMenu, true);
+  }
+
   bindPublicChatEvents();
+  bindRevokeModalEvents();
+  bindMessageLongPressEvents();
   bindOnlineMembersEvents();
   updateOnlineMembersUI();
   startPolling();
@@ -3695,5 +4258,120 @@
   window.addEventListener('pageshow', () => {
     if (state.goEasyReady) { try { sendPresenceAction('heartbeat'); syncPresenceToState(); } catch (e) {} }
   });
+
+  /* ============== Android 启动流程 ============== */
+  document.addEventListener('DOMContentLoaded', () => {
+    try { AndroidBridge.showSplash(); } catch (e) {}
+    setTimeout(() => {
+      try { AndroidBridge.requestIgnoreBatteryOptimizations(); } catch (e) {}
+    }, 1200);
+    if (window.followSystemEnabled) {
+      applySystemTheme();
+    }
+    syncStatusBarWithTheme();
+  });
+
+  // 立即执行（WebView 可能已过了 DOMContentLoaded）
+  if (document.readyState === 'loading') {
+    // 等 DOMContentLoaded 处理
+  } else {
+    try { AndroidBridge.showSplash(); } catch (e) {}
+    setTimeout(() => {
+      try { AndroidBridge.requestIgnoreBatteryOptimizations(); } catch (e) {}
+    }, 1200);
+    syncStatusBarWithTheme();
+  }
+
+  /* ============== Blob / data: URL 拦截 → 原生保存 ============== */
+  const _origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url);
+    if (url && (url.startsWith('blob:') || url.startsWith('data:'))) {
+      return _origFetch.apply(this, arguments).then(async (resp) => {
+        if (resp.ok && resp.blob) {
+          const clone = resp.clone();
+          clone.blob().then(blob => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              try { AndroidBridge.saveBlob(reader.result); } catch (e) {}
+            };
+            reader.readAsDataURL(blob);
+          }).catch(() => {});
+        }
+        return resp;
+      }).catch(err => {
+        return _origFetch.apply(this, arguments);
+      });
+    }
+    return _origFetch.apply(this, arguments);
+  };
+
+  // 全局点击拦截：<a download href="blob:..."> 或 data: URI
+  document.addEventListener('click', (e) => {
+    const a = e.target && e.target.closest && e.target.closest('a[download], a[href^="blob:"], a[href^="data:"]');
+    if (!a || !a.href) return;
+    if (a.href.startsWith('blob:') || a.href.startsWith('data:')) {
+      e.preventDefault();
+      e.stopPropagation();
+      fetch(a.href)
+        .then(r => r.blob())
+        .then(blob => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            try { AndroidBridge.saveBlob(reader.result); } catch (e) {}
+            const name = a.download || ('download_' + Date.now());
+            showToast('📥 正在通过原生保存: ' + name, 2000, true);
+          };
+          reader.readAsDataURL(blob);
+        })
+        .catch(() => {
+          // 兜底：让浏览器自己处理
+          const ta = document.createElement('a');
+          ta.href = a.href;
+          ta.download = a.download || '';
+          ta.target = '_blank';
+          ta.rel = 'noopener';
+          document.body.appendChild(ta);
+          ta.click();
+          document.body.removeChild(ta);
+        });
+    }
+  }, true);
+
+  // XHR 响应拦截（部分框架用 XHR 下载）
+  const _origXHROpen = XMLHttpRequest.prototype.open;
+  const _origXHRSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.__interceptUrl = (url && typeof url === 'string') ? url : '';
+    return _origXHROpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function () {
+    const url = this.__interceptUrl || '';
+    if (url.startsWith('blob:') || url.startsWith('data:')) {
+      this.addEventListener('load', () => {
+        if (this.status === 200 && this.response) {
+          try {
+            const blob = (this.response instanceof Blob) ? this.response : new Blob([this.response]);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              try { AndroidBridge.saveBlob(reader.result); } catch (e) {}
+            };
+            reader.readAsDataURL(blob);
+          } catch (e) {}
+        }
+      });
+    }
+    return _origXHRSend.apply(this, arguments);
+  };
+
+  /* ============== 暴露给 Java 的回调 ============== */
+  window.onSplashFinished = function () {
+    // Java 端 splash 结束后回调（可选）
+    console.log('[Android] Splash finished');
+  };
+
+  window.onBatteryOptimizationResult = function (granted) {
+    console.log('[Android] Battery optimization:', granted ? 'granted' : 'denied');
+  };
 
 })();
