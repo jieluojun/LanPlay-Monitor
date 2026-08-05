@@ -1123,17 +1123,34 @@ html.dark .dpi-reset-btn {
     border-top: 1px solid var(--line);
     padding-top: 8px;
     padding-bottom: 4px;
+    -webkit-user-drag: none;
+    user-drag: none;
 }
 .chat-messages {
-    max-height: 120px;
+    height: 130px;
+    min-height: 130px;
+    max-height: 130px;
     overflow-y: auto;
     background: var(--card);
     border-radius: 12px;
-    padding: 8px 12px;
+    padding: 10px 12px;
     font-size: 13px;
     display: flex;
     flex-direction: column;
     gap: 4px;
+    -webkit-user-drag: none;
+    user-drag: none;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    will-change: scroll-position;
+    transform: translateZ(0);
+}
+#serverList,
+#publicChatMessages {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    will-change: scroll-position;
+    transform: translateZ(0);
 }
 .chat-msg {
     padding: 6px 10px;
@@ -1145,6 +1162,11 @@ html.dark .dpi-reset-btn {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    user-drag: none;
 }
 .chat-msg-mine {
     background: var(--cyan);
@@ -1163,16 +1185,16 @@ html.dark .dpi-reset-btn {
     word-break: break-word;
 }
 .chat-msg .msg-time {
-    font-size: 50%; /* 比消息小一倍 */
-    line-height: 1.2;
-    margin-top: 2px;
-    opacity: 0.75;
+    font-size: 11.5px; /* 稍微改大，清晰易读且不超过消息字体的 13px */
+    line-height: 1.3;
+    margin-top: 3px;
+    opacity: 0.82;
     font-weight: 600;
     align-self: flex-start;
 }
 .chat-msg-mine .msg-time {
     align-self: flex-end;
-    opacity: 0.8;
+    opacity: 0.85;
 }
 .chat-msg-other .msg-time {
     color: var(--muted);
@@ -1184,12 +1206,12 @@ html.dark .dpi-reset-btn {
     justify-content: center;
     width: 100%;
     align-self: stretch;
-    margin: 8px 0 4px;
+    margin: 10px 0 6px;
     pointer-events: none;
     user-select: none;
 }
 .chat-time-divider span {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--muted);
     background: transparent;
@@ -1206,6 +1228,7 @@ html.dark .chat-time-divider span {
     display: flex;
     gap: 6px;
     margin-top: 8px;
+    align-items: flex-end;
 }
 .chat-input {
     flex: 1;
@@ -1216,6 +1239,12 @@ html.dark .chat-time-divider span {
     color: var(--ink);
     font-size: 13px;
     outline: none;
+    font-family: inherit;
+    resize: none;
+    overflow-y: hidden;
+    line-height: 1.5;
+    min-height: 34px;
+    max-height: 120px;
 }
 .chat-input:focus {
     border-color: var(--cyan);
@@ -1277,6 +1306,15 @@ html.dark .chat-msg-other .msg-time {
 .chat-link:hover {
     color: #0077ea;
     transform: scale(1.02);
+}
+/* 文件下载链接：绿色标识，鼠标变下载箭头 */
+.chat-file-link {
+    color: #178a78 !important;
+    text-decoration-color: #178a78 !important;
+    cursor: pointer;
+}
+.chat-file-link:hover {
+    color: #0e5a4e !important;
 }
 
 html.dark .chat-link,
@@ -1388,44 +1426,63 @@ html.dark .chat-draft-bar {
 .chat-media-thumb {
   max-width: 200px;
   max-height: 200px;
+  width: auto;
+  height: auto;
   border-radius: 8px;
   display: block;
   margin-top: 4px;
   cursor: zoom-in;
-  object-fit: cover;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.15);
 }
 .chat-video-cover {
   position: relative;
-  max-width: 200px;
-  max-height: 200px;
-  border-radius: 8px;
+  max-width: 220px;
+  max-height: 280px;
+  min-width: 140px;
+  min-height: 170px;
+  border-radius: 10px;
   overflow: hidden;
   margin-top: 4px;
   cursor: pointer;
-  background: #000;
-  display: inline-block;
+  background: #111;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
 }
 .chat-video-cover img,
 .chat-video-cover video {
   display: block;
-  max-width: 200px;
-  max-height: 200px;
+  max-width: 220px;
+  max-height: 280px;
+  min-width: 140px;
+  min-height: 170px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
+  border-radius: 10px;
 }
 .chat-video-play {
   position: absolute;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  background: rgba(0,0,0,.55);
+  background: rgba(25, 200, 174, 0.9);
   color: #fff;
   display: grid;
   place-items: center;
-  font-size: 16px;
+  font-size: 18px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   pointer-events: none;
+  transition: transform 0.2s, background 0.2s;
+}
+.chat-video-cover:hover .chat-video-play {
+  transform: translate(-50%, -50%) scale(1.1);
+  background: var(--cyan);
 }
 /* QQ 风格语音气泡 */
 .chat-voice-bubble {
@@ -1551,19 +1608,41 @@ html.dark .chat-msg-other .chat-voice-bubble {
   background: #000;
   border-radius: 8px;
 }
-.media-lightbox-close {
+.media-lightbox-close,
+.media-lightbox-download {
   position: absolute;
   top: 14px;
-  right: 14px;
   width: 40px;
   height: 40px;
   border: 0;
   border-radius: 50%;
-  background: rgba(255,255,255,.15);
+  background: rgba(255, 255, 255, 0.15);
   color: #fff;
   font-size: 18px;
   font-weight: 800;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, transform 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.media-lightbox-close:hover,
+.media-lightbox-download:hover {
+  background: rgba(255, 255, 255, 0.28);
+  transform: scale(1.05);
+}
+.media-lightbox-close:active,
+.media-lightbox-download:active {
+  transform: scale(0.95);
+}
+.media-lightbox-close {
+  right: 14px;
+}
+.media-lightbox-download {
+  right: 64px;
+  font-size: 17px;
 }
 
 
@@ -1590,4 +1669,135 @@ html.dark .chat-msg-other .chat-voice-bubble {
 .chat-voice-btn.recording + .chat-voice-timer,
 .chat-voice-wrap:has(.chat-voice-btn.recording) .chat-voice-timer {
   display: block;
+}
+
+/* ===== 手机 QQ 风格语音气泡与时长 ===== */
+.chat-voice-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 18px;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: opacity 0.2s, transform 0.1s;
+  min-width: 68px;
+  max-width: 200px;
+}
+.chat-voice-bubble:active {
+  transform: scale(0.98);
+}
+.chat-msg-mine .chat-voice-bubble {
+  flex-direction: row-reverse; /* QQ 风格：自己发送的语音，时长在左，播放图标在右 */
+  background: var(--cyan);
+  color: #fff;
+}
+.chat-msg-other .chat-voice-bubble {
+  flex-direction: row; /* 收到的语音：播放图标在左，时长在右 */
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.chat-voice-dur {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.9;
+  white-space: nowrap;
+}
+.chat-voice-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ===== QQ 风格 ➕ 弹出菜单 ===== */
+.chat-plus-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.chat-plus-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 12px;
+  transition: var(--transition);
+  color: var(--muted);
+  line-height: 1;
+}
+.chat-plus-btn:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+.chat-plus-menu {
+  display: none;
+  position: absolute;
+  bottom: 44px;
+  left: 0;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.12);
+  padding: 6px 0;
+  min-width: 140px;
+  z-index: 200;
+  animation: fadeIn .18s ease;
+}
+.chat-plus-menu.open {
+  display: block;
+}
+.chat-plus-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+  text-align: left;
+}
+.chat-plus-item:hover {
+  background: rgba(125,175,210,.1);
+}
+.chat-plus-item:active {
+  background: rgba(125,175,210,.18);
+}
+html.dark .chat-plus-menu {
+  background: var(--white);
+  border-color: rgba(255,255,255,.08);
+  box-shadow: 0 8px 30px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .chat-plus-menu {
+    background: var(--white);
+    border-color: rgba(255,255,255,.08);
+    box-shadow: 0 8px 30px rgba(0,0,0,.35);
+  }
+}
+@media (max-width:600px) {
+  .chat-plus-menu {
+    bottom: 40px;
+    min-width: 130px;
+  }
+  .chat-plus-item {
+    padding: 9px 14px;
+    font-size: 13px;
+  }
+}
+.chat-msg {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.chat-msg:active {
+  opacity: 0.82;
 }

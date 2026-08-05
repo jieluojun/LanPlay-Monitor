@@ -1,33 +1,6 @@
 (() => {
   'use strict';
 
-  /* ================= Android Native Bridge (no-op on desktop) ================= */
-  const AndroidBridge = window.AndroidBridge || {
-    showSplash: () => {},
-    setStatusBarColor: () => {},
-    requestIgnoreBatteryOptimizations: () => {},
-    saveBlob: () => {},
-  };
-  window.AndroidBridge = AndroidBridge;
-
-  /* ================= 系统深色 MediaQuery ================= */
-  const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
-  window.followSystemEnabled = false;
-  function applySystemTheme() {
-    const isDark = mqDark.matches;
-    const html = document.documentElement;
-    if (isDark) html.classList.add('dark');
-    else html.classList.remove('dark');
-    if (typeof updateThemeIcon === 'function') updateThemeIcon();
-    if (typeof updateThemeColor === 'function') updateThemeColor();
-  }
-  function syncStatusBarWithTheme() {
-    const isDark = mqDark.matches || document.documentElement.classList.contains('dark');
-    const color = isDark ? '#0f1923' : '#dff3ff';
-    try { AndroidBridge.setStatusBarColor(color); } catch (e) {}
-  }
-  /* ========================================================================== */
-
   document.addEventListener('contextmenu', (e) => e.preventDefault());
   document.addEventListener('selectstart', (e) => e.preventDefault());
 
@@ -220,15 +193,9 @@
     if (iosMeta) {
       iosMeta.content = isDark ? 'black-translucent' : 'default';
     }
-    // ✅ 同步 Android 状态栏颜色
-    try { AndroidBridge.setStatusBarColor(color); } catch (e) {}
   }
 
   function updateThemeIcon() {
-    if (window.followSystemEnabled) {
-      themeToggleBtn.textContent = '🌓';
-      return;
-    }
     const isDark = htmlEl.classList.contains('dark') || (!localStorage.getItem('lan_play_theme') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     themeToggleBtn.textContent = isDark ? '🌞' : '🌙';
   }
@@ -245,11 +212,6 @@
   }, { passive: true });
 
   themeToggleBtn.addEventListener('click', () => {
-    // 跟随系统时禁止手动切换
-    if (window.followSystemEnabled) {
-      showToast('🌗 请先关闭「跟随系统」再手动切换', 2000, false);
-      return;
-    }
     const isDark = htmlEl.classList.contains('dark');
     if (isDark) {
       htmlEl.classList.remove('dark');
@@ -275,51 +237,6 @@
         }
       });
     });
-  });
-
-  // ===== 跟随系统深色模式 =====
-  const followSystemChk = $('followSystemTheme');
-  const followSystemIcon = $('followSystemThemeIcon');
-  function syncFollowSystemUI() {
-    if (!followSystemChk || !followSystemIcon) return;
-    followSystemChk.checked = !!window.followSystemEnabled;
-    followSystemIcon.textContent = window.followSystemEnabled ? '🌗' : '🌓';
-    followSystemIcon.title = window.followSystemEnabled ? '关闭跟随系统深色' : '开启跟随系统深色';
-  }
-  function initFollowSystemTheme() {
-    const saved = localStorage.getItem('lan_play_follow_system');
-    if (saved === 'true') {
-      window.followSystemEnabled = true;
-      applySystemTheme();
-    }
-    syncFollowSystemUI();
-    if (followSystemChk) {
-      followSystemChk.addEventListener('change', () => {
-        window.followSystemEnabled = !!followSystemChk.checked;
-        localStorage.setItem('lan_play_follow_system', String(window.followSystemEnabled));
-        if (window.followSystemEnabled) {
-          applySystemTheme();
-          showToast('🌗 已开启跟随系统深色', 1500, true);
-        } else {
-          const t = localStorage.getItem('lan_play_theme');
-          if (t === 'dark') htmlEl.classList.add('dark');
-          else htmlEl.classList.remove('dark');
-          updateThemeColor();
-          showToast('🌓 已关闭跟随系统深色', 1500, true);
-        }
-        updateThemeIcon();
-        syncFollowSystemUI();
-      });
-    }
-  }
-  initFollowSystemTheme();
-
-  // 实时监听系统深色变化
-  mqDark.addEventListener('change', () => {
-    if (window.followSystemEnabled) {
-      applySystemTheme();
-      syncStatusBarWithTheme();
-    }
   });
 
   // ===== DPI 缩放 =====
@@ -4258,120 +4175,5 @@
   window.addEventListener('pageshow', () => {
     if (state.goEasyReady) { try { sendPresenceAction('heartbeat'); syncPresenceToState(); } catch (e) {} }
   });
-
-  /* ============== Android 启动流程 ============== */
-  document.addEventListener('DOMContentLoaded', () => {
-    try { AndroidBridge.showSplash(); } catch (e) {}
-    setTimeout(() => {
-      try { AndroidBridge.requestIgnoreBatteryOptimizations(); } catch (e) {}
-    }, 1200);
-    if (window.followSystemEnabled) {
-      applySystemTheme();
-    }
-    syncStatusBarWithTheme();
-  });
-
-  // 立即执行（WebView 可能已过了 DOMContentLoaded）
-  if (document.readyState === 'loading') {
-    // 等 DOMContentLoaded 处理
-  } else {
-    try { AndroidBridge.showSplash(); } catch (e) {}
-    setTimeout(() => {
-      try { AndroidBridge.requestIgnoreBatteryOptimizations(); } catch (e) {}
-    }, 1200);
-    syncStatusBarWithTheme();
-  }
-
-  /* ============== Blob / data: URL 拦截 → 原生保存 ============== */
-  const _origFetch = window.fetch;
-  window.fetch = function (input, init) {
-    const url = typeof input === 'string' ? input : (input && input.url);
-    if (url && (url.startsWith('blob:') || url.startsWith('data:'))) {
-      return _origFetch.apply(this, arguments).then(async (resp) => {
-        if (resp.ok && resp.blob) {
-          const clone = resp.clone();
-          clone.blob().then(blob => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              try { AndroidBridge.saveBlob(reader.result); } catch (e) {}
-            };
-            reader.readAsDataURL(blob);
-          }).catch(() => {});
-        }
-        return resp;
-      }).catch(err => {
-        return _origFetch.apply(this, arguments);
-      });
-    }
-    return _origFetch.apply(this, arguments);
-  };
-
-  // 全局点击拦截：<a download href="blob:..."> 或 data: URI
-  document.addEventListener('click', (e) => {
-    const a = e.target && e.target.closest && e.target.closest('a[download], a[href^="blob:"], a[href^="data:"]');
-    if (!a || !a.href) return;
-    if (a.href.startsWith('blob:') || a.href.startsWith('data:')) {
-      e.preventDefault();
-      e.stopPropagation();
-      fetch(a.href)
-        .then(r => r.blob())
-        .then(blob => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            try { AndroidBridge.saveBlob(reader.result); } catch (e) {}
-            const name = a.download || ('download_' + Date.now());
-            showToast('📥 正在通过原生保存: ' + name, 2000, true);
-          };
-          reader.readAsDataURL(blob);
-        })
-        .catch(() => {
-          // 兜底：让浏览器自己处理
-          const ta = document.createElement('a');
-          ta.href = a.href;
-          ta.download = a.download || '';
-          ta.target = '_blank';
-          ta.rel = 'noopener';
-          document.body.appendChild(ta);
-          ta.click();
-          document.body.removeChild(ta);
-        });
-    }
-  }, true);
-
-  // XHR 响应拦截（部分框架用 XHR 下载）
-  const _origXHROpen = XMLHttpRequest.prototype.open;
-  const _origXHRSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.open = function (method, url) {
-    this.__interceptUrl = (url && typeof url === 'string') ? url : '';
-    return _origXHROpen.apply(this, arguments);
-  };
-  XMLHttpRequest.prototype.send = function () {
-    const url = this.__interceptUrl || '';
-    if (url.startsWith('blob:') || url.startsWith('data:')) {
-      this.addEventListener('load', () => {
-        if (this.status === 200 && this.response) {
-          try {
-            const blob = (this.response instanceof Blob) ? this.response : new Blob([this.response]);
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              try { AndroidBridge.saveBlob(reader.result); } catch (e) {}
-            };
-            reader.readAsDataURL(blob);
-          } catch (e) {}
-        }
-      });
-    }
-    return _origXHRSend.apply(this, arguments);
-  };
-
-  /* ============== 暴露给 Java 的回调 ============== */
-  window.onSplashFinished = function () {
-    // Java 端 splash 结束后回调（可选）
-    console.log('[Android] Splash finished');
-  };
-
-  window.onBatteryOptimizationResult = function (granted) {
-    console.log('[Android] Battery optimization:', granted ? 'granted' : 'denied');
-  };
 
 })();

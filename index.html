@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="format-detection" content="telephone=no, email=no, address=no">
   <meta name="theme-color" content="#dff3ff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f1923" media="(prefers-color-scheme: dark)">
   <title>LAN-Play 房间监控</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260804im11">
+  <link rel="stylesheet" href="/static/styles.css?v=20260805im12">
   <script src="/static/goeasy.min.js"></script>
 </head>
 <body>
@@ -63,13 +64,35 @@
         </div>
         <div class="chat-draft-host" style="display:none;"></div>
         <div class="chat-input-area">
+          <div class="chat-plus-wrap" id="publicPlusWrap">
+            <button class="image-upload-btn chat-plus-btn" type="button" title="更多">➕</button>
+            <div class="chat-plus-menu">
+              <button class="chat-plus-item chat-image-btn" type="button">🏞️ 图片/视频</button>
+              <button class="chat-plus-item chat-file-btn" type="button">💾 文件</button>
+            </div>
+          </div>
+          <textarea id="publicChatInput" class="chat-input" rows="1" placeholder="输入公共消息..."></textarea>
           <div class="chat-voice-wrap">
             <button id="publicChatVoiceBtn" class="image-upload-btn chat-voice-btn" type="button" title="点击录制语音" data-draft-key="public">🎤</button>
             <span class="chat-voice-timer" style="display:none">0:00</span>
           </div>
-          <button id="publicChatImageBtn" class="image-upload-btn chat-image-btn" title="选择图片/视频" type="button">🖼️</button>
-          <input type="text" id="publicChatInput" class="chat-input" placeholder="输入公共消息...">
           <button id="publicChatSendBtn" class="chat-send-btn" type="button">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 消息撤回确认模态框 -->
+  <div id="revokeConfirmModal" class="custom-modal">
+    <div class="custom-modal-box" style="width:min(360px,calc(100% - 32px));text-align:center;">
+      <div class="custom-modal-header" style="justify-content:center;">
+        <span style="font-weight:700;font-size:16px;">💬 撤回消息</span>
+      </div>
+      <div class="custom-modal-body" style="padding:16px 8px;">
+        <p style="margin-bottom:18px;font-size:14px;color:var(--ink);line-height:1.5;" id="revokeModalText">确定要撤回这条消息吗？</p>
+        <div style="display:flex;gap:10px;justify-content:center;">
+          <button id="cancelRevokeBtn" class="chat-send-btn" style="background:var(--card);color:var(--ink);border:1px solid var(--line);">取消</button>
+          <button id="confirmRevokeBtn" class="chat-send-btn" style="background:var(--red);color:#fff;">撤回</button>
         </div>
       </div>
     </div>
@@ -187,6 +210,6 @@
     <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
   </div>
 </div>
-<script src="/static/script.js?v=20260804im11"></script>
+<script src="/static/script.js?v=20260805im12"></script>
 </body>
 </html>
