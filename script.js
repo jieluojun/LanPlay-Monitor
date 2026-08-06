@@ -2223,7 +2223,6 @@ html.dark .msg-action-btn.recall {
       <!-- 顺序：主题切换 → 日志 → 复制插件 → 添加服务器 → 重置排序 → DPI → 自动展开 → 公共聊天 → 在线成员 -->
       <button id="themeToggleBtn" class="theme-toggle" title="切换浅色/深色主题">🌙</button>
       <button id="openLogModalBtn" class="icon-btn" title="查看运行日志">💻</button>
-      <button id="copyPluginBtn" class="icon-btn" title="点击复制最新版联机插件地址">🎮</button>
       <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
       <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
       <button id="dpiToggleBtn" class="icon-btn" title="调节界面缩放 (DPI)">🔍</button>
@@ -2237,6 +2236,7 @@ html.dark .msg-action-btn.recall {
         <span class="online-icon">👥</span>
         <span id="onlineCountBadge" class="online-count-badge">0</span>
       </button>
+      <button id="copyPluginBtn" class="icon-btn" title="点击复制最新版联机插件地址">🎮</button>
     </div>
     <div class="scan">
       <i id="netDot" class="dot" title="检测网络连接中..."></i>
