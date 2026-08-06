@@ -4807,7 +4807,7 @@ html.dark .msg-action-btn.recall {
       try {
         goEasy = GoEasy.getInstance({
           host: 'hangzhou.goeasy.io',
-          appkey: 'BC-e891108825ab43fb97dabe3327478e30',
+          appkey: 'BC-729843d9d3fa40aa99dddda591554336',
           modules: ['pubsub'],
           forceTLS: true
         });
@@ -4911,7 +4911,7 @@ html.dark .msg-action-btn.recall {
   }
 
   function subscribeChannel(serverId) {
-    if (!goEasy || !state.goEasyReady) return;
+    if (!goEasy || !state.goEasyReady || state.chatSubscribed[serverId]) return;
     const channel = CHAT_PREFIX + serverId;
     goEasy.pubsub.subscribe({
       channel: channel,
@@ -4921,13 +4921,12 @@ html.dark .msg-action-btn.recall {
       },
       onSuccess: function () {
         state.chatSubscribed[serverId] = true;
-        loadChannelHistory(channel, message => handleChatMessage(serverId, message.content));
         console.log(`订阅频道 ${channel} 成功`);
       },
       onFailed: function (error) {
         console.error(`订阅频道 ${channel} 失败`, error);
         setTimeout(() => {
-          if (state.goEasyReady) {
+          if (state.goEasyReady && !state.chatSubscribed[serverId]) {
             subscribeChannel(serverId);
           }
         }, 5000);
@@ -5216,7 +5215,7 @@ html.dark .msg-action-btn.recall {
 
   // ---- 公共频道 ----
   function subscribePublicChannel() {
-    if (!goEasy || !state.goEasyReady) return;
+    if (!goEasy || !state.goEasyReady || state.publicChatReady) return;
     goEasy.pubsub.subscribe({
       channel: PUBLIC_CHANNEL,
       history: 50,
@@ -5266,17 +5265,6 @@ html.dark .msg-action-btn.recall {
       onSuccess: function () {
         console.log('公共频道订阅成功');
         state.publicChatReady = true;
-        loadChannelHistory(PUBLIC_CHANNEL, message => {
-          try { const msg = JSON.parse(message.content);
-            if (msg.type === 'delete' && msg.id) { markMsgDeleted(msg.id); state.publicMessages = (state.publicMessages||[]).filter(m=>m.id!==msg.id); return; }
-            if (_deletedMsgIds.has(msg.id)) return;
-            if (!state.publicMessages.some(m => m.id === msg.id)) {
-              const isMine=(msg.senderId===state.userId)||(msg.sender===state.userId)||(msg.sender===state.username);
-              const restored = Object.assign({}, msg, {isMine, senderName:msg.senderName||msg.sender, senderId:msg.senderId||'', fileName:_restoreBlockedExt(msg.fileName||''), isXor:!!msg.isXor});
-            state.publicMessages.push(restored);
-            }
-          } catch(e) {}
-        });
         savePublicMessages(); renderPublicChat(false);
         restorePublicUnread();
         // 公共频道订阅成功后再拉在线列表（自己已在该 channel 上）
@@ -5289,7 +5277,7 @@ html.dark .msg-action-btn.recall {
       onFailed: function (error) {
         console.error('公共频道订阅失败', error);
         setTimeout(() => {
-          if (state.goEasyReady) {
+          if (state.goEasyReady && !state.publicChatReady) {
             subscribePublicChannel();
           }
         }, 5000);
@@ -5308,11 +5296,11 @@ html.dark .msg-action-btn.recall {
 
   function startPresencePolling() {
     if (presenceRefreshTimer) clearInterval(presenceRefreshTimer);
-    // 后台每 5 秒刷新；弹窗打开时在 bind 里会加速
+    // 依赖 subscribePresence 监听实时上下线推送，定时器放宽至 60 秒作为保底校准
     presenceRefreshTimer = setInterval(() => {
       if (!state.goEasyReady || document.hidden) return;
       queryHereNow();
-    }, 5000);
+    }, 60000);
   }
 
   function normalizeMember(m) {
@@ -5637,11 +5625,8 @@ html.dark .msg-action-btn.recall {
     let modalPollTimer = null;
     function startModalPoll() {
       if (modalPollTimer) clearInterval(modalPollTimer);
-      modalPollTimer = setInterval(() => {
-        if (state.goEasyReady && modal.classList.contains('open')) {
-          queryHereNow();
-        }
-      }, 2000);
+      // 打开弹窗时仅主动拉取一次，无需 2 秒高频轮询
+      modalPollTimer = null;
     }
     function stopModalPoll() {
       if (modalPollTimer) {
@@ -5865,7 +5850,16 @@ html.dark .msg-action-btn.recall {
 
   function reconnectChat() {
     if (state.goEasyReady) {
-      forceSubscribeAll();
+      if (Array.isArray(state.servers)) {
+        state.servers.forEach(s => {
+          if (s && s.id && !state.chatSubscribed[s.id]) {
+            subscribeChannel(s.id);
+          }
+        });
+      }
+      if (!state.publicChatReady) {
+        subscribePublicChannel();
+      }
     } else {
       initGoEasy(0);
     }
@@ -6376,8 +6370,12 @@ html.dark .msg-action-btn.recall {
       await new Promise(res => requestAnimationFrame(res));
       render();
 
-      if (state.goEasyReady) {
-        forceSubscribeAll();
+      if (state.goEasyReady && Array.isArray(state.servers)) {
+        state.servers.forEach(s => {
+          if (s && s.id && !state.chatSubscribed[s.id]) {
+            subscribeChannel(s.id);
+          }
+        });
       }
 
       checkNetwork(true);
