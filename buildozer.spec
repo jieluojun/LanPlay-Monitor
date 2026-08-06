@@ -27,7 +27,8 @@ android.ndk_api = 21
 # ★ 改动 2：加入自定义 Java 源码目录（内含
 #  org/kivy/android/FileChooserHelper.java，为 WebView 补上文件选择功能）
 android.add_src = ./android-src
-android.permissions = INTERNET, RECORD_AUDIO, MODIFY_AUDIO_SETTINGS, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+# 设置权限
+android.permissions = INTERNET, RECORD_AUDIO, MODIFY_AUDIO_SETTINGS, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, VIBRATE, ACCESS_NETWORK_STATE, READ_EXTERNAL_STORAGE, READ_MEDIA_IMAGES, READ_MEDIA_VIDEO, READ_MEDIA_AUDIO, CAMERA
 
 # 强制使用特定架构
 android.archs = arm64-v8a

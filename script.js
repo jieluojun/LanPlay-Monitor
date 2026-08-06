@@ -17,40 +17,75 @@
 //    Java 端据此切换状态栏图标颜色。
 // 4) 监听 `prefers-color-scheme: dark` 变化，WebView 自身也跟随（Android 11+ WebView 已支持）。
 
+// 替换 script.js 最顶部的 (function setupSystemThemeAndImmersive() { ... })();
+// 这是已修复的完整版，可直接覆盖原  IIFE（约 1-150 行）
+// 修复点：
+//  - 增加 “跟随系统” 语义：lan_play_theme 的值为 'light'|'dark'|'auto'(或空) ，auto 才跟随系统
+//  - 增加 window.resetToFollowSystem() 和长按主题按钮回到跟随系统
+//  - 启动时优先从 Java 的 LanPlayNative.getInfo() 同步系统深色，避免 localStorage 竞态
+//  - 初始推送延迟重试，确保 Java 的 evaluateJavascript 在页面就绪后仍能生效
+//  - 修复深色切换时状态栏图标通过 syncPageTheme 回推，避免 Java 侧强制覆盖
+//  - 兼容旧版 WebView 不支持 matchMedia addEventListener 的情况
+
 (function setupSystemThemeAndImmersive() {
   'use strict';
 
-  // ---------- 1) 暴露给 Java 端调用的全局钩子 ----------
-  // Java 端 Configuration.uiMode 变化时会 evaluateJavascript('window.applySystemDarkMode(true/false)')
-  // 我们把当前是否"跟随系统"和"用户是否手动覆盖"分开管理。
-  //   - state.systemDarkAuto = true  → 跟随系统
-  //   - state.systemDarkAuto = false → 用户手动点过主题按钮，已锁定
   if (typeof window.__lanplaySystemDark === 'undefined') {
     window.__lanplaySystemDark = false;
   }
 
-  // 当前生效的主题（'light' / 'dark'）
+  // 对外暴露：让设置页或长按按钮可一键回到跟随系统
+  window.resetToFollowSystem = function() {
+    try {
+      localStorage.removeItem('lan_play_theme');
+      // 也清理旧的 light 标记（兼容只有 dark 存储的版本）
+    } catch(e){}
+    const isDark = !!window.__lanplaySystemDark
+      || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    _applyThemeToDom(isDark ? 'dark' : 'light');
+    _pushThemeToJava(isDark ? 'dark' : 'light');
+    try { window.dispatchEvent(new CustomEvent('lanplay:system-theme-changed', {detail:{isDark}})); } catch(e){}
+    // 同步更新图标
+    try { if (typeof updateThemeIcon === 'function') updateThemeIcon(); } catch(e){}
+    try { if (typeof updateThemeColor === 'function') updateThemeColor(); } catch(e){}
+  };
+
+  function _getSavedManualTheme() {
+    try {
+      const v = localStorage.getItem('lan_play_theme');
+      if (v === 'light' || v === 'dark') return v;
+      if (v === 'auto') return null; // 兼容 auto 显式值
+    } catch(e){}
+    return null;
+  }
+
+  function _fetchSystemDarkFromJava() {
+    try {
+      if (window.LanPlayNative && typeof window.LanPlayNative.getInfo === 'function') {
+        const raw = window.LanPlayNative.getInfo();
+        const info = JSON.parse(raw);
+        if (info && typeof info.isSystemDark === 'boolean') return info.isSystemDark;
+      }
+    } catch(e){}
+    return null;
+  }
+
   function _resolveTheme() {
-    // 1) 用户手动选择：localStorage.lan_play_theme 优先
-    const saved = (function () {
-      try { return localStorage.getItem('lan_play_theme'); } catch (e) { return null; }
-    })();
-    if (saved === 'light' || saved === 'dark') {
-      return saved;
-    }
-    // 2) Java 端在启动时通过 initThemeJs 写入了 lanplay_system_dark
+    const manual = _getSavedManualTheme();
+    if (manual) return manual;
+    // 跟随系统
     let cached = null;
     try {
       const v = localStorage.getItem('lanplay_system_dark');
       if (v === '1') cached = true;
       else if (v === '0') cached = false;
-    } catch (e) {}
+    } catch(e){}
+    // 优先用 Java 提供的真实系统值（避免 WebView 虚拟值）
+    const fromJava = _fetchSystemDarkFromJava();
+    if (fromJava !== null) return fromJava ? 'dark' : 'light';
     if (cached === true) return 'dark';
     if (cached === false) return 'light';
-    // 3) 兜底：matchMedia
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      return 'dark';
-    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
     return 'light';
   }
 
@@ -64,154 +99,162 @@
       html.classList.add('light');
       html.classList.remove('dark');
     } else {
-      // 跟随系统：移除 light，dark 由 CSS @media 自动判断
-      html.classList.remove('light');
-      html.classList.remove('dark');
+      html.classList.remove('light','dark');
     }
+    // 同时更新 meta theme-color
+    try {
+      if (typeof updateThemeColor === 'function') updateThemeColor();
+      else {
+        const isDark = theme === 'dark';
+        const color = isDark ? '#0f1923' : '#dff3ff';
+        document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.remove());
+        const meta = document.createElement('meta'); meta.name='theme-color'; meta.content=color;
+        document.head.appendChild(meta);
+      }
+    } catch(e){}
   }
 
-  // 通知 Java 端"当前是深色 / 浅色"，让状态栏图标切到合适的颜色
   function _pushThemeToJava(theme) {
     try {
       if (window.LanPlayNative && typeof window.LanPlayNative.syncPageTheme === 'function') {
         window.LanPlayNative.syncPageTheme(theme === 'dark');
       }
-    } catch (e) { /* ignore */ }
+    } catch(e){}
   }
 
-  // Java 端调用的入口（Configuration 变化）
-  window.applySystemDarkMode = function (isDark) {
+  window.applySystemDarkMode = function(isDark) {
     try {
       window.__lanplaySystemDark = !!isDark;
-      try {
-        localStorage.setItem('lanplay_system_dark', isDark ? '1' : '0');
-      } catch (e) {}
-      // 如果用户没手动选过主题，立即同步到 DOM
-      const saved = (function () {
-        try { return localStorage.getItem('lan_play_theme'); } catch (e) { return null; }
-      })();
-      if (saved !== 'light' && saved !== 'dark') {
+      try { localStorage.setItem('lanplay_system_dark', isDark ? '1' : '0'); } catch(e){}
+      const manual = _getSavedManualTheme();
+      if (!manual) {
         const theme = isDark ? 'dark' : 'light';
         _applyThemeToDom(theme);
         _pushThemeToJava(theme);
-        // 触发一个自定义事件，让 main script 里的 updateThemeIcon / updateThemeColor 也能感知
-        try {
-          window.dispatchEvent(new CustomEvent('lanplay:system-theme-changed', { detail: { isDark: !!isDark } }));
-        } catch (e) {}
+        try { window.dispatchEvent(new CustomEvent('lanplay:system-theme-changed', {detail:{isDark:!!isDark}})); } catch(e){}
+        // 让外层的 theme 图标也刷新
+        try { if (typeof updateThemeIcon === 'function') updateThemeIcon(); } catch(e){}
+      } else {
+        // 已手动锁定：仅缓存系统值，不切页面，但仍让 Java 知道真实系统值备用
+        // 不推送，避免状态栏被强制跟随系统而与页面不一致
       }
-    } catch (e) {
-      console.warn('[applySystemDarkMode] failed', e);
-    }
+    } catch(e){ console.warn('[applySystemDarkMode] failed', e); }
   };
 
-  // ---------- 2) 监听 prefers-color-scheme 变化（WebView 自身也跟随） ----------
-  // Android 11+ WebView 原生支持 prefers-color-scheme，CSS @media 会自动切换。
-  // 这里再补一份 JS 监听，兼顾 Android 7-10 老 WebView，并在变化时同步通知 Java。
+  // 监听系统媒体查询（Android 11+ WebView 支持，旧版需 Java 回调兜底）
   try {
     if (window.matchMedia) {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      const _onMqChange = function (ev) {
+      const _onMqChange = function(ev){
         try {
           const isDark = !!ev.matches;
-          window.__lanplaySystemDark = isDark;
-          try { localStorage.setItem('lanplay_system_dark', isDark ? '1' : '0'); } catch (e) {}
-          // 仅在"未手动选过"时同步 DOM；否则只是把 isDark 缓存给下次启动使用
-          const saved = (function () {
-            try { return localStorage.getItem('lan_play_theme'); } catch (e) { return null; }
-          })();
-          if (saved !== 'light' && saved !== 'dark') {
-            _applyThemeToDom(isDark ? 'dark' : 'light');
-          }
-          _pushThemeToJava(isDark ? 'dark' : 'light');
-          try {
-            window.dispatchEvent(new CustomEvent('lanplay:system-theme-changed', { detail: { isDark: isDark } }));
-          } catch (e) {}
-        } catch (e) {}
+          window.applySystemDarkMode(isDark);
+        } catch(e){}
       };
-      // Safari 14+ 用 addEventListener，旧版 WebView 还要 fallback 到 addListener
-      if (typeof mq.addEventListener === 'function') {
-        mq.addEventListener('change', _onMqChange);
-      } else if (typeof mq.addListener === 'function') {
-        mq.addListener(_onMqChange);
-      }
+      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', _onMqChange);
+      else if (typeof mq.addListener === 'function') mq.addListener(_onMqChange);
     }
-  } catch (e) { /* ignore */ }
+  } catch(e){}
 
-  // ---------- 3) 早期就把主题应用上，避免 FOUC（首屏白闪） ----------
+  // 启动时立即应用一次
   try {
     const t = _resolveTheme();
     _applyThemeToDom(t);
-    // 等 DOM 可用后再推给 Java（同步可在早期就做）
-    if (window.LanPlayNative && typeof window.LanPlayNative.syncPageTheme === 'function') {
-      _pushThemeToJava(t);
-    } else {
-      // LanPlayNative 还没注入（极早期）：等 load 后再推
-      window.addEventListener('load', function () {
-        setTimeout(function () {
-          const t2 = _resolveTheme();
-          _pushThemeToJava(t2);
-        }, 50);
-      });
-    }
-  } catch (e) { /* ignore */ }
+    // 推给 Java：需等待 bridge 注入
+    const tryPush = (attempt) => {
+      if (window.LanPlayNative && typeof window.LanPlayNative.syncPageTheme === 'function') {
+        _pushThemeToJava(t);
+      } else if (attempt < 8) {
+        setTimeout(()=>tryPush(attempt+1), 250);
+      } else {
+        window.addEventListener('load', ()=> setTimeout(()=>_pushThemeToJava(_resolveTheme()), 100));
+      }
+    };
+    tryPush(0);
+    // 若 Java 后续通过 evaluateJavascript 再次推送，会自动覆盖
+  } catch(e){}
 
-  // ---------- 4) 沉浸式状态栏：body 加 safe-area padding，避免内容被状态栏遮挡 ----------
-  // CSS 会通过 :root 的 --safe-top / --safe-bottom 来应用，JS 只负责设置变量
+  // 沉浸式安全区（保持原逻辑，略）
   try {
-    function _applySafeArea() {
-      const html = document.documentElement;
-      if (!html) return;
-      let topPx = 0, bottomPx = 0;
-      // 优先用 env() 计算：getComputedStyle 拿到的 px 值
-      try {
-        const probe = document.createElement('div');
-        probe.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:0;height:0;'
-          + 'padding-top:env(safe-area-inset-top, 0px);'
-          + 'padding-bottom:env(safe-area-inset-bottom, 0px);'
-          + 'padding-left:env(safe-area-inset-left, 0px);'
-          + 'padding-right:env(safe-area-inset-right, 0px);';
+    function _applySafeArea(){
+      const html = document.documentElement; if(!html) return;
+      try{
+        const probe=document.createElement('div');
+        probe.style.cssText='position:fixed;left:-9999px;top:-9999px;width:0;height:0;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);';
         document.body.appendChild(probe);
-        const cs = getComputedStyle(probe);
-        topPx = parseFloat(cs.paddingTop) || 0;
-        bottomPx = parseFloat(cs.paddingBottom) || 0;
-        // left/right 用作左右安全距离
-        const leftPx = parseFloat(cs.paddingLeft) || 0;
-        const rightPx = parseFloat(cs.paddingRight) || 0;
+        const cs=getComputedStyle(probe);
+        html.style.setProperty('--safe-top', (parseFloat(cs.paddingTop)||0)+'px');
+        html.style.setProperty('--safe-bottom', (parseFloat(cs.paddingBottom)||0)+'px');
+        html.style.setProperty('--safe-left', (parseFloat(cs.paddingLeft)||0)+'px');
+        html.style.setProperty('--safe-right', (parseFloat(cs.paddingRight)||0)+'px');
         document.body.removeChild(probe);
-        html.style.setProperty('--safe-top', topPx + 'px');
-        html.style.setProperty('--safe-bottom', bottomPx + 'px');
-        html.style.setProperty('--safe-left', leftPx + 'px');
-        html.style.setProperty('--safe-right', rightPx + 'px');
-      } catch (e) { /* ignore */ }
+      }catch(e){}
     }
-    _applySafeArea();
-    // 屏幕旋转 / 键盘弹出时重算
-    window.addEventListener('resize', _applySafeArea, { passive: true });
-    window.addEventListener('orientationchange', _applySafeArea, { passive: true });
-  } catch (e) { /* ignore */ }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _applySafeArea);
+    else _applySafeArea();
+    window.addEventListener('resize', _applySafeArea, {passive:true});
+    window.addEventListener('orientationchange', _applySafeArea, {passive:true});
+  } catch(e){}
 
-  // ---------- 5) 主题变化时同步通知 Java ----------
-  // 监听 main script 里的 themeToggleBtn 点击 → 切换 → 这里只是多调一次 syncPageTheme
+  // 点击主题按钮：light -> dark -> 跟随系统（auto）三态循环，长按直接回到跟随
   try {
-    document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('DOMContentLoaded', function(){
       const btn = document.getElementById('themeToggleBtn');
-      if (!btn) return;
-      btn.addEventListener('click', function () {
-        // 等 main script 改完 DOM 后再读
-        setTimeout(function () {
-          const isDark = document.documentElement.classList.contains('dark')
-            || (!document.documentElement.classList.contains('light')
-                && window.matchMedia
-                && window.matchMedia('(prefers-color-scheme: dark)').matches);
-          try {
-            if (window.LanPlayNative && window.LanPlayNative.syncPageTheme) {
-              window.LanPlayNative.syncPageTheme(!!isDark);
-            }
-          } catch (e) {}
-        }, 0);
+      if(!btn) return;
+      // 单击：三态循环
+      btn.addEventListener('click', function(){
+        setTimeout(function(){
+          const manual = _getSavedManualTheme();
+          let next;
+          if (!manual) {
+            // 当前是跟随系统，点一下锁定为与当前相反的固定主题
+            const curIsDark = document.documentElement.classList.contains('dark')
+              || (!document.documentElement.classList.contains('light') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            next = curIsDark ? 'light' : 'dark';
+            try{ localStorage.setItem('lan_play_theme', next); }catch(e){}
+          } else if (manual === 'light') {
+            next = 'dark';
+            try{ localStorage.setItem('lan_play_theme', 'dark'); }catch(e){}
+          } else {
+            // dark -> 回到跟随
+            try{ localStorage.removeItem('lan_play_theme'); }catch(e){}
+            next = _resolveTheme();
+          }
+          _applyThemeToDom(next);
+          _pushThemeToJava(next);
+          try{ if(typeof updateThemeIcon==='function') updateThemeIcon(); }catch(e){}
+        },0);
+      });
+      // 长按 600ms 回到跟随系统
+      let lpTimer=null, sx=0, sy=0;
+      btn.addEventListener('pointerdown', e=>{
+        sx=e.clientX; sy=e.clientY;
+        lpTimer=setTimeout(()=>{
+          window.resetToFollowSystem();
+          try{ if(navigator.vibrate) navigator.vibrate(20);}catch(e){}
+          // 阻止随后的 click
+          const blocker=(ev)=>{ev.preventDefault();ev.stopImmediatePropagation();};
+          btn.addEventListener('click', blocker, {capture:true, once:true});
+          setTimeout(()=>btn.removeEventListener('click', blocker, {capture:true}), 700);
+          // 提示
+          try{ if(typeof showToast==='function') showToast('已切换为跟随系统',1500,true);}catch(e){}
+        },600);
+      });
+      ['pointerup','pointercancel','pointerleave','pointermove'].forEach(ev=>{
+        btn.addEventListener(ev, e=>{
+          if(ev==='pointermove' && lpTimer){
+            const dx=e.clientX-sx, dy=e.clientY-sy;
+            if(dx*dx+dy*dy>64){ clearTimeout(lpTimer); lpTimer=null; }
+          } else { clearTimeout(lpTimer); lpTimer=null; }
+        }, {passive:true});
       });
     });
-  } catch (e) { /* ignore */ }
+  } catch(e){}
+
+  // 监听外部事件：当 Java 或其它脚本分发 lanplay:system-theme-changed 时刷新图标
+  try {
+    window.addEventListener('lanplay:system-theme-changed', ()=>{ try{ if(typeof updateThemeIcon==='function') updateThemeIcon(); }catch(e){} });
+  } catch(e){}
 })();
 
 
@@ -5117,15 +5160,19 @@ html:not(.dark) {
     });
   }
 
-  // 调用原生 Intent 打开外部浏览器(绕开 WebView intent:// 包装 bug)
+  // 调用原生 Intent 打开外部浏览器(绕开 WebView intent:// 包装 bug) - 已修复：检测 Java 返回值
   function _openExternalBrowser(url) {
     try {
       if (window.LanPlayNative && typeof window.LanPlayNative.openExternalBrowser === 'function') {
-        window.LanPlayNative.openExternalBrowser(String(url));
+        const ok = window.LanPlayNative.openExternalBrowser(String(url));
+        if (ok === false) {
+          console.warn('[外部浏览器] Java 端拒绝:', url);
+          try { window.open(String(url), '_blank', 'noopener'); return true; } catch (_) {}
+          return false;
+        }
         return true;
       }
     } catch (e) { console.warn('[外部浏览器] Java 桥接调用失败', e); }
-    // 桥接未实现时:降级用 webview,避免 ERR_UNKNOWN_URL_SCHEME
     try { window.open(String(url), '_blank', 'noopener'); return true; } catch (_) {}
     return false;
   }
