@@ -44,8 +44,8 @@ p4a.port = 5000
 # ========================
 
 # ★ 改动 3：禁止构建时将 py 编译为 pyc，APK 内保留 py 源码
-# android.no-byte-compile-python = True
-# p4a.args = --no-compile-pyo
+android.no-byte-compile-python = True
+p4a.args = --no-compile-pyo
 
 exclude_patterns = **/test/*, **/tests/*
 android.aab = False
