@@ -2368,7 +2368,7 @@ html.dark .msg-action-btn.recall {
     function ensureGoEasySdk(cb) {
       if (typeof GoEasy !== 'undefined') { if (typeof cb === 'function') cb(); return; }
       const __sdkEl = document.createElement('script');
-      __sdkEl.src = 'https://cdn.goeasy.io/goeasy-2.11.1.min.js';
+      __sdkEl.src = 'https://cdn.goeasy.io/goeasy-2.13.3.min.js';
       __sdkEl.onload = function () { if (typeof cb === 'function') cb(); };
       __sdkEl.onerror = function () { if (typeof cb === 'function') cb(); };
       document.head.appendChild(__sdkEl);

@@ -154,10 +154,7 @@ REMOTE_SERVERS_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor
 REMOTE_FRONTEND_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/script.js"
 REMOTE_BACKEND_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/main.py"
 LOCAL_FRONTEND_FILE = str(SCRIPT_DIR / "script.js")
-# 修复：APK 内 __file__ 可能是 main.pyc，必须固定指向 main.py，避免写入错误的 .pyc 路径导致更新后文件丢失
 LOCAL_BACKEND_FILE = str(SCRIPT_DIR / "main.py")
-# pyc 实际位置（APK 可能为同目录 main.pyc 或 __pycache__/main.*.pyc）
-LOCAL_BACKEND_PYC = str(SCRIPT_DIR / "main.pyc")
 
 def _remote_candidate_urls(url: str) -> list[str]:
     """根据 REMOTE_UPDATE_PROXY 生成候选 URL 列表：优先代理，失败自动重试直连。"""
@@ -486,235 +483,14 @@ def ensure_frontend_exists() -> None:
     else:
         warn("[更新] 前端自动下载失败（远程无数据）")
 
-def _compile_py_to_pyc(py_path: Path) -> dict[str, Any]:
-    """将 .py 编译为 pyc（APK 内实际使用格式），返回 {ok, pyc_path, error}。非 .py 文件直接跳过。
-    修复：不再拷贝为 legacy .pyc（会因 Python 版本 magic 不一致导致 APK 白屏），仅生成 __pycache__ 缓存由解释器自动加载。"""
-    try:
-        if py_path.suffix.lower() != ".py":
-            return {"ok": True, "skipped": True, "reason": "非Python文件无需编译"}
-        if not py_path.is_file():
-            return {"ok": False, "error": "源文件不存在"}
-        import py_compile
-        try:
-            compile(py_path.read_text(encoding="utf-8", errors="replace"), str(py_path), "exec")
-        except SyntaxError as se:
-            return {"ok": False, "error": f"语法错误无法编译: {se}"}
-        cpath = py_compile.compile(str(py_path), cfile=None, doraise=True)
-        info(f"[pyc] ✅ 已编译 {py_path.name} -> {cpath}")
-        # 不再 copy 为同目录 .pyc，避免旧版 Python magic 导致 APK 白屏；__pycache__ 已足够
-        # 若存在旧的 legacy .pyc，删除以免误加载
-        try:
-            legacy = py_path.with_suffix(".pyc")
-            if legacy.is_file():
-                legacy.unlink()
-                info(f"[pyc] 已清理旧 legacy {legacy.name}")
-        except Exception:
-            pass
-        return {"ok": True, "pyc_path": cpath}
-    except Exception as e:
-        warn(f"[pyc] 编译失败 {py_path}: {e}")
-        return {"ok": False, "error": str(e)}
-
-def _cleanup_stale_pyc(py_path: Path) -> None:
-    """清理旧 pyc，避免版本不一致的 pyc 被优先加载导致白屏。"""
-    try:
-        legacy = py_path.with_suffix(".pyc")
-        if legacy.is_file():
-            legacy.unlink()
-            info(f"[pyc] 已清理 {legacy.name}")
-        cache_dir = py_path.parent / "__pycache__"
-        if cache_dir.is_dir():
-            for f in cache_dir.glob(f"{py_path.stem}.*.pyc"):
-                try:
-                    f.unlink()
-                    info(f"[pyc] 已清理缓存 {f.name}")
-                except Exception:
-                    pass
-        # 额外清理 APK 常见的 _python_bundle / .bin 中的 pyc
-        for extra in [py_path.parent / "_python_bundle", py_path.parent / ".bin"]:
-            if extra.is_dir():
-                for p in list(extra.rglob("main.*.pyc")) + list(extra.rglob("main.pyc")):
-                    try:
-                        p.unlink()
-                        info(f"[pyc] 已清理额外 {p}")
-                    except Exception:
-                        pass
-    except Exception as e:
-        warn(f"[pyc] 清理失败: {e}")
-
-def _backend_candidates() -> list[Path]:
-    """APK 内 main.py 可能分散在多个位置（app/, _python_bundle/, .bin/），全部更新以确保 file manager 可见。"""
-    base = Path(SCRIPT_DIR)
-    cands = [base / "main.py"]
-    for sub in ["_python_bundle", ".bin", "app"]:
-        p = base / sub / "main.py"
-        if p.parent.is_dir():
-            cands.append(p)
-    # 去重
-    seen=set()
-    out=[]
-    for p in cands:
-        s=str(p.resolve()) if p.exists() else str(p)
-        if s not in seen:
-            seen.add(s)
-            out.append(p)
-    return out
-
-def _write_backend_all(data: bytes) -> None:
-    for p in _backend_candidates():
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            tmp = str(p) + f".tmp.{uuid.uuid4().hex[:6]}"
-            Path(tmp).write_bytes(data)
-            os.replace(tmp, str(p))
-            info(f"[更新] 已写入 {p} ({len(data)} bytes)")
-        except Exception as e:
-            warn(f"[更新] 写入 {p} 失败: {e}")
-
-def _ensure_pyc_for_existing(py_path: Path, label: str) -> None:
-    if py_path.suffix.lower() != ".py" or not py_path.is_file():
-        return
-    info(f"[更新] 检测到{label}有更新，更新前先将现有文件编译为 pyc…")
-    res = _compile_py_to_pyc(py_path)
-    if res.get("ok"):
-        info(f"[更新] {label} 现有文件已预编译为 pyc")
-    else:
-        warn(f"[更新] {label} 预编译失败（不影响更新）: {res.get('error')}")
-
-# ===== 自动检测后端当前使用格式 =====
-def _get_local_pyc_path(py_path: Path) -> Path | None:
-    """查找后端本地 pyc：优先 __pycache__/main.cpython-*.pyc，其次同目录 main.pyc"""
-    legacy = py_path.with_suffix(".pyc")
-    if legacy.is_file():
-        return legacy
-    cache_dir = py_path.parent / "__pycache__"
-    if cache_dir.is_dir():
-        candidates = sorted(cache_dir.glob(f"{py_path.stem}.*.pyc"), key=lambda p: p.stat().st_mtime, reverse=True)
-        if candidates:
-            return candidates[0]
-    return None
-
-def _is_backend_pyc_mode() -> bool:
-    """检测当前后端是否以 pyc 方式运行：__file__ 后缀为 .pyc/.pyo 或本地存在 pyc 且比 py 更新/ py 缺失。"""
-    cur = Path(__file__)
-    if cur.suffix.lower() in (".pyc", ".pyo"):
-        return True
-    py = Path(LOCAL_BACKEND_FILE)
-    pyc = _get_local_pyc_path(py)
-    if not py.is_file() and pyc is not None:
-        return True
-    if pyc is not None and py.is_file():
-        try:
-            if pyc.stat().st_mtime >= py.stat().st_mtime:
-                return True
-        except Exception:
-            pass
-        # 若 py 存在且 pyc 存在但不是最新，仍视为 py 模式（避免误判）
-        return False
-    return False
-
-def _hash_py_bytes_as_pyc(py_bytes: bytes) -> str | None:
-    """将 py 源码（本地或远程）用本机解释器编译为临时 pyc 并取哈希，仅用于同机对比，跨版本不直接比对磁盘 pyc。"""
-    import py_compile, tempfile
-    tmp_py = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="wb", suffix=".py", delete=False) as f:
-            f.write(py_bytes)
-            tmp_py = f.name
-        pyc_path = py_compile.compile(tmp_py, cfile=None, doraise=True)
-        if pyc_path and Path(pyc_path).is_file():
-            h = _sha256_file(Path(pyc_path))
-            try:
-                Path(pyc_path).unlink()
-            except Exception:
-                pass
-            return h
-    except Exception as e:
-        warn(f"[pyc] 源码转 pyc 哈希失败: {e}")
-    finally:
-        if tmp_py:
-            try:
-                Path(tmp_py).unlink()
-            except Exception:
-                pass
-    return None
-
-def _hash_remote_py_as_pyc(py_bytes: bytes) -> str | None:
-    return _hash_py_bytes_as_pyc(py_bytes)
-
-def _hash_py_bytes_as_apk_pyc(py_bytes: bytes) -> str | None:
-    pyc = _compile_py_bytes_to_apk_pyc(py_bytes)
-    return _sha256_bytes(pyc) if pyc else None
-
-# ===== APK pyc 兼容生成（保持与打包时一致的 magic，避免强制 py 覆盖）=====
-APK_PYC_MAGIC = bytes.fromhex("2b0e0d0a")  # 来自你上传的 main.pyc（Python 3.14）
-APK_PYC_FLAGS = b"\x00\x00\x00\x00"
-
-def _compile_py_bytes_to_apk_pyc(py_bytes: bytes, src_name: str = "main.py") -> bytes | None:
-    """用本机 marshal 但替换为 APK 的 magic/flags，生成 APK 可直接加载的 pyc（3.14 可兼容 3.13 的 marshal）。"""
-    import marshal
-    try:
-        code = compile(py_bytes.decode("utf-8", errors="replace"), src_name, "exec")
-        marshaled = marshal.dumps(code)
-        mtime = int(time.time())
-        size = len(py_bytes)
-        header = APK_PYC_MAGIC + APK_PYC_FLAGS + struct.pack("<I", mtime) + struct.pack("<I", size)
-        return header + marshaled
-    except Exception as e:
-        warn(f"[pyc] APK pyc 生成失败: {e}")
-        return None
-
-def _write_pyc_all(pyc_bytes: bytes) -> None:
-    for p in [Path(LOCAL_BACKEND_PYC), Path(SCRIPT_DIR) / "__pycache__" / "main.cpython-314.pyc"]:
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            # 同时清理旧 host 版本的 pyc
-            tmp = str(p) + f".tmp.{uuid.uuid4().hex[:6]}"
-            Path(tmp).write_bytes(pyc_bytes)
-            os.replace(tmp, str(p))
-            info(f"[pyc] 已写入 APK 兼容 pyc {p} ({len(pyc_bytes)} bytes)")
-        except Exception as e:
-            warn(f"[pyc] 写入 {p} 失败: {e}")
-    # 同步到其它候选目录的 pyc
-    for cand in _backend_candidates():
-        pyc = cand.with_suffix(".pyc")
-        if pyc != Path(LOCAL_BACKEND_PYC):
-            try:
-                pyc.parent.mkdir(parents=True, exist_ok=True)
-                pyc.write_bytes(pyc_bytes)
-                info(f"[pyc] 已同步 {pyc}")
-            except Exception:
-                pass
-
 def check_update_status() -> dict[str, Any]:
     frontend_local = _sha256_file(Path(LOCAL_FRONTEND_FILE))
     fe_data = _fetch_remote_bytes(REMOTE_FRONTEND_URL)
     fe_remote = _sha256_bytes(fe_data) if fe_data else None
-    # 后端：自动检测当前格式
-    pyc_mode = _is_backend_pyc_mode()
     be_data = _fetch_remote_bytes(REMOTE_BACKEND_URL)
-    if pyc_mode:
-        # pyc 模式：先将远程 py 转成 APK 兼容 pyc 再比 pyc 哈希（保持与打包时一致的 magic）
-        try:
-            local_py_bytes = Path(LOCAL_BACKEND_FILE).read_bytes() if Path(LOCAL_BACKEND_FILE).is_file() else b""
-        except Exception:
-            local_py_bytes = b""
-        backend_local = _hash_py_bytes_as_apk_pyc(local_py_bytes) if local_py_bytes else None
-        # 若本地无法生成则回退到磁盘 pyc 文件哈希
-        if backend_local is None:
-            local_pyc = _get_local_pyc_path(Path(LOCAL_BACKEND_FILE))
-            backend_local = _sha256_file(local_pyc) if local_pyc else None
-        backend_remote = _hash_py_bytes_as_apk_pyc(be_data) if be_data else None
-        backend_need = bool(backend_remote and backend_local != backend_remote)
-        if backend_local is None or backend_remote is None:
-            backend_local = _sha256_file(Path(LOCAL_BACKEND_FILE))
-            backend_remote = _sha256_bytes(be_data) if be_data else None
-            backend_need = bool(backend_remote and backend_local != backend_remote)
-        info(f"[检查] 后端当前为 PYC 模式 local_pyc_hash={backend_local[:8] if backend_local else 'none'} remote_pyc_hash={backend_remote[:8] if backend_remote else 'none'}")
-    else:
-        backend_local = _sha256_file(Path(LOCAL_BACKEND_FILE))
-        backend_remote = _sha256_bytes(be_data) if be_data else None
-        backend_need = bool(backend_remote and backend_local != backend_remote)
+    backend_local = _sha256_file(Path(LOCAL_BACKEND_FILE))
+    backend_remote = _sha256_bytes(be_data) if be_data else None
+    backend_need = bool(backend_remote and backend_local != backend_remote)
     return {
         "frontend": {
             "local_hash": frontend_local,
@@ -728,7 +504,7 @@ def check_update_status() -> dict[str, Any]:
             "remote_hash": backend_remote,
             "need_update": backend_need,
             "remote_available": backend_remote is not None,
-            "mode": "pyc" if pyc_mode else "py",
+            "mode": "py",
         },
     }
 
@@ -741,8 +517,6 @@ def do_update_frontend() -> dict[str, Any]:
     remote_hash = _sha256_bytes(data)
     if local_hash == remote_hash:
         return {"ok": True, "skipped": True, "message": "前端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash}
-    # 前后端有更新是点击更新前先文件转换成pyc格式（APK 内使用 pyc）
-    # 前端为 .js，无需 pyc；此处仅对 .py 后端生效，前端跳过
     try:
         tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
         Path(tmp).write_bytes(data)
@@ -754,60 +528,25 @@ def do_update_frontend() -> dict[str, Any]:
 
 def do_update_backend() -> dict[str, Any]:
     fp = Path(LOCAL_BACKEND_FILE)
-    pyc_mode = _is_backend_pyc_mode()
     data = _fetch_remote_bytes(REMOTE_BACKEND_URL)
     if not data:
         return {"ok": False, "error": "远程后端获取失败", "skipped": False}
-    if pyc_mode:
-        # pyc 模式：先将远程源码转成 APK 兼容 pyc 再比对 pyc 哈希
-        local_pyc = _get_local_pyc_path(fp)
-        local_hash = _sha256_file(local_pyc) if local_pyc else None
-        # 若磁盘 pyc 哈希不可用，改用 py 源码转 APK pyc 哈希对比
-        if local_hash is None:
-            try:
-                local_py_bytes = fp.read_bytes() if fp.is_file() else b""
-                local_hash = _hash_py_bytes_as_apk_pyc(local_py_bytes) if local_py_bytes else None
-            except Exception:
-                local_hash = None
-        remote_hash = _hash_py_bytes_as_apk_pyc(data)
-        if local_hash is not None and remote_hash is not None and local_hash == remote_hash:
-            return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash, "mode": "pyc"}
-        remote_hash_py = _sha256_bytes(data)
-    else:
-        local_hash = _sha256_file(fp)
-        remote_hash = _sha256_bytes(data)
-        if local_hash == remote_hash:
-            return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash, "mode": "py"}
-        remote_hash_py = remote_hash
+    local_hash = _sha256_file(fp)
+    remote_hash = _sha256_bytes(data)
+    if local_hash == remote_hash:
+        return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash, "mode": "py"}
     try:
-        if pyc_mode:
-            # 按当前格式更新：生成 APK 兼容 pyc 并写入所有 pyc 候选位置，不强制覆盖 py 源码
-            pyc_bytes = _compile_py_bytes_to_apk_pyc(data)
-            if pyc_bytes is None:
-                return {"ok": False, "error": "远程源码编译为 APK pyc 失败", "skipped": False}
-            _write_pyc_all(pyc_bytes)
-            # 同时更新 py 源码作为备份（不影响 pyc 优先加载）
-            try:
-                _write_backend_all(data)
-            except Exception:
-                pass
-            info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash_py[:8] if remote_hash_py else 'none'} [pyc]")
-            pyc_res = {"ok": True, "pyc_bytes": len(pyc_bytes), "reason": "已按当前 PYC 格式更新 pyc（APK 兼容 magic）"}
-            info(f"[更新] 后端 pyc 模式已就绪：pyc 已同步到 {len(_backend_candidates())} 个位置（APK 兼容）")
-        else:
-            _write_backend_all(data)
-            if not Path(fp).is_file():
+        try:
+            tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
+            Path(tmp).write_bytes(data)
+            os.replace(tmp, str(fp))
+        except Exception:
+            if not fp.is_file():
                 tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
                 Path(tmp).write_bytes(data)
                 os.replace(tmp, str(fp))
-            info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash_py[:8] if remote_hash_py else 'none'} [py]")
-            _cleanup_stale_pyc(fp)
-            for cand in _backend_candidates():
-                if cand != fp:
-                    _cleanup_stale_pyc(cand)
-            pyc_res = {"ok": True, "skipped": True, "reason": "已按当前 PY 格式更新源码并清理旧 pyc"}
-            info(f"[更新] 后端 py 模式已就绪：源码已同步到 {len(_backend_candidates())} 个位置")
-        return {"ok": True, "skipped": False, "message": "后端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash_py, "pyc": pyc_res, "mode": "pyc" if pyc_mode else "py"}
+        info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash[:8]} [py]")
+        return {"ok": True, "skipped": False, "message": "后端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash, "mode": "py"}
     except Exception as e:
         return {"ok": False, "error": str(e), "skipped": False}
 
@@ -2242,7 +1981,7 @@ class MonitorHandler(BaseHTTPRequestHandler):
                         if result.get("skipped"):
                             data = {"ok": True, "skipped": True, "message": result.get("message"), "target": "backend", "mode": result.get("mode")}
                         else:
-                            data = {"ok": True, "skipped": False, "message": result.get("message", "后端更新完成请重启应用"), "target": "backend", "mode": result.get("mode"), "pyc": result.get("pyc")}
+                            data = {"ok": True, "skipped": False, "message": result.get("message", "后端更新完成请重启应用"), "target": "backend", "mode": result.get("mode")}
                         body, headers, status = make_json_response(data)
                     else:
                         data = {"ok": False, "error": result.get("error", "更新失败"), "target": "backend"}
