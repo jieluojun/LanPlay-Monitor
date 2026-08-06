@@ -11,24 +11,17 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
 /**
- * 沉浸式状态栏 / 边缘到边缘（Edge-to-Edge）助手 - 已修复版
- *
- * 修复说明（针对原版失效问题）：
- *  1. 原版同时执行了 addFlags(FLAG_TRANSLUCENT_STATUS) + FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS，
- *     这两个 flag 是互斥的。FLAG_TRANSLUCENT_STATUS 会让状态栏变成半透明灰色蒙层，
- *     并且阻止 setStatusBarColor(Color.TRANSPARENT) 生效，导致 WebView 无法真正延伸到
- *     状态栏下方，表现为“沉浸式没有效果”。
- *     修复：改为 clearFlags(FLAG_TRANSLUCENT_STATUS | FLAG_TRANSLUCENT_NAVIGATION)，
- *           只保留 FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS。
- *
- *  2. API 30+ 必须在 setDecorFitsSystemWindows(false) 之前先把窗口背景设为透明，
- *     否则导航条仍会出现白/黑底。
- *
- *  3. API 21-29 保留 SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | LAYOUT_HIDE_NAVIGATION
- *     并在 setPageTheme 中正确处理 LIGHT_STATUS_BAR 标志的叠加，避免 toggle 时丢失
- *     LAYOUT 标志。
- *
- *  对外 API 不变：install(activity) / setPageTheme(activity, isDarkPage)
+ * 透明沉浸式状态栏 - 最终版 2026-08-06 v3
+ * 本次强制透明：状态栏 + 导航栏 全透明，内容延伸到系统栏下方
+ * 
+ * 与原版差异对比（关键 4 行）：
+ *   原：window.addFlags(FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+ *       window.addFlags(FLAG_TRANSLUCENT_STATUS);  // 半透明灰色，遮挡透明
+ *   新：window.clearFlags(FLAG_TRANSLUCENT_STATUS);
+ *       window.clearFlags(FLAG_TRANSLUCENT_NAVIGATION);
+ *       window.addFlags(FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+ *       window.setStatusBarColor(Color.TRANSPARENT);
+ *       window.setNavigationBarColor(Color.TRANSPARENT);
  */
 public class ImmersiveStatusBarHelper {
 
@@ -43,48 +36,35 @@ public class ImmersiveStatusBarHelper {
         try {
             final Window window = activity.getWindow();
 
-            // 1) 彻底清除半透明标志，换成透明绘制模式
+            // === 1) 透明状态栏核心：清除半透明，设为全透明 ===
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                // ★★★ 关键修复：原来是 addFlags(TRANSLUCENT_STATUS) 导致失效，改为 clear ★★★
+                // 必须先清除半透明，否则 setStatusBarColor 不生效
                 window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
                 window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
                 window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+                // 强制透明
                 window.setStatusBarColor(Color.TRANSPARENT);
                 window.setNavigationBarColor(Color.TRANSPARENT);
-                // 许多国产 ROM 需要同时把背景设为透明才能让内容延伸
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    window.setNavigationBarColor(Color.TRANSPARENT);
-                }
+                // 国产 ROM 二次设置确保生效
+                window.setNavigationBarColor(Color.TRANSPARENT);
+                Log.i(TAG, "window colors set to TRANSPARENT");
             }
 
-            // 2) 让内容延伸到系统栏下方
+            // === 2) 内容延伸到状态栏/导航栏下方 ===
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                // API 30+ 新 API
                 window.setDecorFitsSystemWindows(false);
-                // 默认先不强制指定图标颜色，交给 setPageTheme 决定
-                // 但要保证 controller 存在时不崩
-                try {
-                    WindowInsetsController controller = window.getInsetsController();
-                    if (controller != null) {
-                        // 不在这里强行设置 appearance，等待前端主题推送
-                    }
-                } catch (Exception ignored) {}
+                // 图标颜色由 setPageTheme 决定，这里不强制
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                // API 21-29 旧 flag —— 必须同时带上 LAYOUT_STABLE 避免闪动
                 int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
-                // 保留当前已有的 LIGHT 标志位（如果已设置过）
                 int cur = window.getDecorView().getSystemUiVisibility();
-                // 清掉可能干扰的 FLAG_TRANSLUCENT 相关位已在上面处理
                 window.getDecorView().setSystemUiVisibility(flags | (cur & (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR)));
             }
 
-            // 3) 推送当前系统夜间模式给前端
             dispatchSystemUiModeToFrontend(activity);
-
             s_installed = true;
-            Log.i(TAG, "Immersive status bar installed (API " + Build.VERSION.SDK_INT + ") - fixed");
+            Log.i(TAG, "Transparent Immersive installed (API " + Build.VERSION.SDK_INT + ") - v3 transparent");
         } catch (Exception e) {
             Log.e(TAG, "install failed", e);
         }
@@ -99,16 +79,11 @@ public class ImmersiveStatusBarHelper {
                 if (controller != null) {
                     int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                             | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
-                    // 取当前 appearance，再按需增/删 LIGHT 位
                     int appearance = 0;
-                    try {
-                        appearance = controller.getSystemBarsAppearance();
-                    } catch (Exception ignored) {}
-                    // 先清掉 mask 位
+                    try { appearance = controller.getSystemBarsAppearance(); } catch (Exception ignored) {}
                     appearance &= ~mask;
                     if (!isDarkPage) {
-                        // 浅色页面：图标用黑色
-                        appearance |= mask;
+                        appearance |= mask; // 浅色页面用黑色图标
                     }
                     controller.setSystemBarsAppearance(appearance, mask);
                 }
@@ -119,11 +94,9 @@ public class ImmersiveStatusBarHelper {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     mask |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
                 }
-                // 必须保留 LAYOUT 标志，避免切换主题时内容突然不延伸
                 int layoutMask = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
-                // 确保 LAYOUT 标志常驻
                 flags |= layoutMask;
                 if (isDarkPage) {
                     flags &= ~mask;
