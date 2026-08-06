@@ -5,6 +5,216 @@
 
   'use strict';
 
+// ============================================================
+// 补丁：沉浸式状态栏 + 网页深色跟随系统深色 + 电池优化桥接
+// 适用：合并进 script.js 的最顶部 IIFE 入口 `__lanPlayInit()` 内。
+//       在 `__lanPlayInit()` 函数最开始（约第 4 行 `use strict;` 之后）插入本块。
+// ============================================================
+//
+// 1) 在脚本启动最早的时间建立"系统深色模式"主题管线（必须在 main themeToggle 之前）。
+// 2) 提供 `window.applySystemDarkMode(isDark)` 给 Java 端调用（监听 Configuration 变化）。
+// 3) 启动后通过 `window.LanPlayNative.syncPageTheme(...)` 把当前主题推给 Java，
+//    Java 端据此切换状态栏图标颜色。
+// 4) 监听 `prefers-color-scheme: dark` 变化，WebView 自身也跟随（Android 11+ WebView 已支持）。
+
+(function setupSystemThemeAndImmersive() {
+  'use strict';
+
+  // ---------- 1) 暴露给 Java 端调用的全局钩子 ----------
+  // Java 端 Configuration.uiMode 变化时会 evaluateJavascript('window.applySystemDarkMode(true/false)')
+  // 我们把当前是否"跟随系统"和"用户是否手动覆盖"分开管理。
+  //   - state.systemDarkAuto = true  → 跟随系统
+  //   - state.systemDarkAuto = false → 用户手动点过主题按钮，已锁定
+  if (typeof window.__lanplaySystemDark === 'undefined') {
+    window.__lanplaySystemDark = false;
+  }
+
+  // 当前生效的主题（'light' / 'dark'）
+  function _resolveTheme() {
+    // 1) 用户手动选择：localStorage.lan_play_theme 优先
+    const saved = (function () {
+      try { return localStorage.getItem('lan_play_theme'); } catch (e) { return null; }
+    })();
+    if (saved === 'light' || saved === 'dark') {
+      return saved;
+    }
+    // 2) Java 端在启动时通过 initThemeJs 写入了 lanplay_system_dark
+    let cached = null;
+    try {
+      const v = localStorage.getItem('lanplay_system_dark');
+      if (v === '1') cached = true;
+      else if (v === '0') cached = false;
+    } catch (e) {}
+    if (cached === true) return 'dark';
+    if (cached === false) return 'light';
+    // 3) 兜底：matchMedia
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return 'dark';
+    }
+    return 'light';
+  }
+
+  function _applyThemeToDom(theme) {
+    const html = document.documentElement;
+    if (!html) return;
+    if (theme === 'dark') {
+      html.classList.add('dark');
+      html.classList.remove('light');
+    } else if (theme === 'light') {
+      html.classList.add('light');
+      html.classList.remove('dark');
+    } else {
+      // 跟随系统：移除 light，dark 由 CSS @media 自动判断
+      html.classList.remove('light');
+      html.classList.remove('dark');
+    }
+  }
+
+  // 通知 Java 端"当前是深色 / 浅色"，让状态栏图标切到合适的颜色
+  function _pushThemeToJava(theme) {
+    try {
+      if (window.LanPlayNative && typeof window.LanPlayNative.syncPageTheme === 'function') {
+        window.LanPlayNative.syncPageTheme(theme === 'dark');
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Java 端调用的入口（Configuration 变化）
+  window.applySystemDarkMode = function (isDark) {
+    try {
+      window.__lanplaySystemDark = !!isDark;
+      try {
+        localStorage.setItem('lanplay_system_dark', isDark ? '1' : '0');
+      } catch (e) {}
+      // 如果用户没手动选过主题，立即同步到 DOM
+      const saved = (function () {
+        try { return localStorage.getItem('lan_play_theme'); } catch (e) { return null; }
+      })();
+      if (saved !== 'light' && saved !== 'dark') {
+        const theme = isDark ? 'dark' : 'light';
+        _applyThemeToDom(theme);
+        _pushThemeToJava(theme);
+        // 触发一个自定义事件，让 main script 里的 updateThemeIcon / updateThemeColor 也能感知
+        try {
+          window.dispatchEvent(new CustomEvent('lanplay:system-theme-changed', { detail: { isDark: !!isDark } }));
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.warn('[applySystemDarkMode] failed', e);
+    }
+  };
+
+  // ---------- 2) 监听 prefers-color-scheme 变化（WebView 自身也跟随） ----------
+  // Android 11+ WebView 原生支持 prefers-color-scheme，CSS @media 会自动切换。
+  // 这里再补一份 JS 监听，兼顾 Android 7-10 老 WebView，并在变化时同步通知 Java。
+  try {
+    if (window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const _onMqChange = function (ev) {
+        try {
+          const isDark = !!ev.matches;
+          window.__lanplaySystemDark = isDark;
+          try { localStorage.setItem('lanplay_system_dark', isDark ? '1' : '0'); } catch (e) {}
+          // 仅在"未手动选过"时同步 DOM；否则只是把 isDark 缓存给下次启动使用
+          const saved = (function () {
+            try { return localStorage.getItem('lan_play_theme'); } catch (e) { return null; }
+          })();
+          if (saved !== 'light' && saved !== 'dark') {
+            _applyThemeToDom(isDark ? 'dark' : 'light');
+          }
+          _pushThemeToJava(isDark ? 'dark' : 'light');
+          try {
+            window.dispatchEvent(new CustomEvent('lanplay:system-theme-changed', { detail: { isDark: isDark } }));
+          } catch (e) {}
+        } catch (e) {}
+      };
+      // Safari 14+ 用 addEventListener，旧版 WebView 还要 fallback 到 addListener
+      if (typeof mq.addEventListener === 'function') {
+        mq.addEventListener('change', _onMqChange);
+      } else if (typeof mq.addListener === 'function') {
+        mq.addListener(_onMqChange);
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  // ---------- 3) 早期就把主题应用上，避免 FOUC（首屏白闪） ----------
+  try {
+    const t = _resolveTheme();
+    _applyThemeToDom(t);
+    // 等 DOM 可用后再推给 Java（同步可在早期就做）
+    if (window.LanPlayNative && typeof window.LanPlayNative.syncPageTheme === 'function') {
+      _pushThemeToJava(t);
+    } else {
+      // LanPlayNative 还没注入（极早期）：等 load 后再推
+      window.addEventListener('load', function () {
+        setTimeout(function () {
+          const t2 = _resolveTheme();
+          _pushThemeToJava(t2);
+        }, 50);
+      });
+    }
+  } catch (e) { /* ignore */ }
+
+  // ---------- 4) 沉浸式状态栏：body 加 safe-area padding，避免内容被状态栏遮挡 ----------
+  // CSS 会通过 :root 的 --safe-top / --safe-bottom 来应用，JS 只负责设置变量
+  try {
+    function _applySafeArea() {
+      const html = document.documentElement;
+      if (!html) return;
+      let topPx = 0, bottomPx = 0;
+      // 优先用 env() 计算：getComputedStyle 拿到的 px 值
+      try {
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:0;height:0;'
+          + 'padding-top:env(safe-area-inset-top, 0px);'
+          + 'padding-bottom:env(safe-area-inset-bottom, 0px);'
+          + 'padding-left:env(safe-area-inset-left, 0px);'
+          + 'padding-right:env(safe-area-inset-right, 0px);';
+        document.body.appendChild(probe);
+        const cs = getComputedStyle(probe);
+        topPx = parseFloat(cs.paddingTop) || 0;
+        bottomPx = parseFloat(cs.paddingBottom) || 0;
+        // left/right 用作左右安全距离
+        const leftPx = parseFloat(cs.paddingLeft) || 0;
+        const rightPx = parseFloat(cs.paddingRight) || 0;
+        document.body.removeChild(probe);
+        html.style.setProperty('--safe-top', topPx + 'px');
+        html.style.setProperty('--safe-bottom', bottomPx + 'px');
+        html.style.setProperty('--safe-left', leftPx + 'px');
+        html.style.setProperty('--safe-right', rightPx + 'px');
+      } catch (e) { /* ignore */ }
+    }
+    _applySafeArea();
+    // 屏幕旋转 / 键盘弹出时重算
+    window.addEventListener('resize', _applySafeArea, { passive: true });
+    window.addEventListener('orientationchange', _applySafeArea, { passive: true });
+  } catch (e) { /* ignore */ }
+
+  // ---------- 5) 主题变化时同步通知 Java ----------
+  // 监听 main script 里的 themeToggleBtn 点击 → 切换 → 这里只是多调一次 syncPageTheme
+  try {
+    document.addEventListener('DOMContentLoaded', function () {
+      const btn = document.getElementById('themeToggleBtn');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        // 等 main script 改完 DOM 后再读
+        setTimeout(function () {
+          const isDark = document.documentElement.classList.contains('dark')
+            || (!document.documentElement.classList.contains('light')
+                && window.matchMedia
+                && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          try {
+            if (window.LanPlayNative && window.LanPlayNative.syncPageTheme) {
+              window.LanPlayNative.syncPageTheme(!!isDark);
+            }
+          } catch (e) {}
+        }, 0);
+      });
+    });
+  } catch (e) { /* ignore */ }
+})();
+
+
     // ============================================================
     // ★ 单文件版：HTML + CSS 已合并进本 JS（由 build_merged.py 生成）
     // ============================================================
@@ -1344,7 +1554,7 @@ html.dark .chat-link,
 .chat-media-img {
   max-width: 200px;
   max-height: 200px;
-  border-radius: 10px;
+  border-radius: 0;
   display: block;
   margin-top: 4px;
   cursor: zoom-in;
@@ -1354,10 +1564,11 @@ html.dark .chat-link,
 .chat-media-video {
   max-width: 240px;
   max-height: 200px;
-  border-radius: 10px;
+  border-radius: 0;
   display: block;
   margin-top: 4px;
   background: #000;
+  cursor: zoom-in;
 }
 .chat-media-audio {
   display: flex;
@@ -1533,33 +1744,296 @@ html.dark .chat-media-file:hover {
   background: rgba(255,255,255,.10);
 }
 
-/* 图片放大灯箱 */
-.chat-lightbox {
+/* ===== 聊天图片 / 视频放大预览 ===== */
+.chat-lightbox,
+.chat-video-lightbox {
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: rgba(0,0,0,.82);
+  background: rgba(0,0,0,.86);
   display: none;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  cursor: zoom-out;
+  padding: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
 }
-.chat-lightbox.open {
+.chat-lightbox.open,
+.chat-video-lightbox.open {
   display: flex;
 }
-.chat-lightbox-img {
-  max-width: min(96vw, 1100px);
-  max-height: 90vh;
-  border-radius: 8px;
-  object-fit: contain;
-  box-shadow: 0 12px 40px rgba(0,0,0,.45);
-  cursor: default;
+.chat-lightbox-stage,
+.chat-video-lightbox-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
 }
-.chat-lightbox-close {
+.chat-lightbox-img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  border-radius: 0 !important;
+  object-fit: contain;
+  box-shadow: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  transform: translate3d(-50%, -50%, 0) translate3d(0, 0, 0) scale(1);
+  transform-origin: center center;
+  will-change: transform;
+}
+.chat-lightbox-img.is-dragging {
+  cursor: grabbing;
+}
+/* ===== QQ 风格内置视频播放器：不使用原生 controls ===== */
+.chat-video-player {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  background: transparent;
+  line-height: normal;
+  border-radius: 0;
+  isolation: isolate;
+  padding: 0;
+  margin: 0;
+  vertical-align: top;
+}
+.chat-video-player .chat-media-video,
+.chat-video-player .chat-lightbox-video {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 0 !important;
+  background: #000;
+  object-fit: contain;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+.chat-video-wrap .chat-media-video {
+  max-width: 255px;
+  max-height: 180px;
+}
+.chat-video-lightbox-player {
+  width: min(96vw, 1200px);
+  max-width: 96vw;
+  max-height: 90vh;
+  touch-action: none;
+}
+.chat-video-lightbox-player .chat-lightbox-video {
+  width: 100%;
+  max-width: min(96vw, 1200px);
+  max-height: 90vh;
+}
+/* 竖屏视频：按原比例完整显示，不强行拉伸或裁切。 */
+.chat-video-player.is-portrait .chat-media-video {
+  width: auto;
+  height: auto;
+  max-width: min(62vw, 220px);
+  max-height: min(58vh, 300px);
+  object-fit: contain;
+  /* 裁掉竖屏源视频顶部极薄的黑边，避免预览出现黑色横条。 */
+  transform: scale(1.04);
+  transform-origin: center center;
+  background: transparent;
+}
+.chat-video-lightbox-player.is-portrait {
+  width: auto;
+  max-width: 96vw;
+}
+.chat-video-lightbox-player.is-portrait .chat-lightbox-video {
+  width: auto;
+  height: auto;
+  max-width: 96vw;
+  max-height: 90vh;
+  object-fit: contain;
+}
+.chat-video-player.is-portrait .chat-video-controls {
+  gap: 2px;
+  padding: 20px 4px 5px;
+}
+.chat-video-player.is-portrait .chat-video-control-btn {
+  width: 21px;
+  height: 21px;
+  font-size: 13px;
+}
+.chat-video-player.is-portrait .chat-video-time {
+  min-width: 23px;
+  font-size: 9px;
+}
+.chat-video-player.is-portrait .chat-video-duration {
+  display: none;
+}
+.chat-video-player.is-portrait .chat-video-progress {
+  min-width: 18px;
+  margin: 0 1px;
+}
+.chat-video-center-play { 
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  width: 64px;
+  height: 64px;
+  padding: 0 0 0 4px;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  background: rgba(255,255,255,.78);
+  color: #000;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0,0,0,.32);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .18s ease, background .18s ease, opacity .18s ease;
+}
+.chat-video-center-play:hover {
+  transform: translate(-50%, -50%) scale(1.06);
+  background: rgba(255,255,255,.92);
+}
+.chat-video-center-play:active {
+  transform: translate(-50%, -50%) scale(.94);
+}
+.chat-video-center-play.is-hidden {
+  display: none !important;
+}
+.chat-video-controls {
+  position: absolute;
+  touch-action: manipulation;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 24px 8px 7px;
+  color: #fff;
+  background: linear-gradient(to bottom, transparent, rgba(0,0,0,.82));
+  line-height: 1;
+  opacity: .96;
+}
+.chat-video-control-btn {
+  flex: 0 0 auto;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.chat-video-control-btn:hover {
+  background: rgba(255,255,255,.18);
+}
+.chat-video-time {
+  flex: 0 0 auto;
+  min-width: 34px;
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+.chat-video-progress {
+  flex: 1 1 auto;
+  min-width: 40px;
+  height: 4px;
+  margin: 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(to right, #fff var(--video-progress, 0%), rgba(255,255,255,.42) var(--video-progress, 0%));
+}
+.chat-video-progress::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+.chat-video-progress::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border: 0;
+  border-radius: 50%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.35);
+}
+.chat-video-progress::-moz-range-track {
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.42);
+}
+.chat-video-progress::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: #fff;
+}
+.chat-video-progress::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+}
+.chat-video-lightbox-player .chat-video-controls {
+  min-height: 46px;
+  padding-bottom: 10px;
+}
+.chat-video-lightbox-player .chat-video-control-btn {
+  width: 34px;
+  height: 34px;
+  font-size: 19px;
+}
+.chat-video-lightbox-player .chat-video-time {
+  font-size: 13px;
+}
+.chat-lightbox-close,
+.chat-video-lightbox-close {
   position: absolute;
   top: 16px;
   right: 16px;
+  z-index: 2;
   width: 40px;
   height: 40px;
   border: 0;
@@ -1569,8 +2043,22 @@ html.dark .chat-media-file:hover {
   font-size: 18px;
   cursor: pointer;
 }
-.chat-lightbox-close:hover {
+.chat-lightbox-close:hover,
+.chat-video-lightbox-close:hover {
   background: rgba(255,255,255,.28);
+}
+.chat-video-lightbox-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 2;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: rgba(255,255,255,.78);
+  background: rgba(0,0,0,.35);
+  font-size: 12px;
+  pointer-events: none;
 }
 
 .chat-input-area .image-upload-btn {
@@ -1755,9 +2243,12 @@ html.light #publicChatMessages {
 .chat-msg * {
   -webkit-touch-callout: none !important;
 }
+.chat-msg img,
 .chat-msg video,
 .chat-msg audio {
   -webkit-touch-callout: none !important;
+  -webkit-user-drag: none;
+  user-drag: none;
   outline: none;
 }
 /* 防止视频/音频长按弹出系统菜单 */
@@ -1844,6 +2335,41 @@ html.light .chat-input-area .chat-input {
 }
 html.light .chat-plus-btn,
 html.light .chat-voice-btn { background: #e8f0f4; color: #55768b; }
+/* 录音中固定语音按钮尺寸，计时显示为小角标，避免按钮横向撑大。 */
+.chat-input-area .chat-voice-btn.recording {
+  width: 42px !important;
+  min-width: 42px !important;
+  max-width: 42px !important;
+  flex: 0 0 42px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  max-height: 42px !important;
+  padding: 0 !important;
+  overflow: visible;
+  position: relative;
+  transform: none !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+  white-space: nowrap;
+}
+.chat-input-area .chat-voice-btn.recording::after {
+  content: attr(data-recording-seconds) 's';
+  position: absolute;
+  top: -5px;
+  right: -9px;
+  min-width: 25px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 1px 5px rgba(0,0,0,.28);
+  pointer-events: none;
+}
 .chat-send-btn {
   min-width: 78px;
   height: 42px;
@@ -2071,8 +2597,12 @@ html.dark .chat-image-download, html.dark .chat-video-download,
   background:rgba(79,190,240,.24);
   text-shadow:0 1px 2px rgba(0,0,0,.65);
 }
-.chat-video-wrap { display:inline-block; max-width:100%; }
-
+.chat-video-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
 /* 最终消息格式：用户名： / 消息 / 时间 下载图片或下载视频 */
 .chat-msg .msg-content { display:block; width:fit-content; max-width:100%; }
 .chat-msg .msg-sender { display:block; margin:0 0 4px; line-height:1.25; }
@@ -2212,6 +2742,96 @@ html.dark .msg-action-btn.recall {
   :root:not(.light) .msg-action-btn:hover { background: rgba(255,255,255,.06); }
   :root:not(.light) .msg-action-btn.recall { color: #ff5a6e; }
 }
+/* ============================================================
+   CSS 补丁：沉浸式状态栏适配
+   把这段追加到 script.js 注入的 __styleEl.textContent 模板字符串最末尾。
+   ============================================================ */
+
+/* 安全区变量由前端 JS 在启动时通过 getComputedStyle(env(safe-area-inset-*))
+   计算并写入 :root；此处仅作 fallback。 */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* ====== 沉浸式状态栏：让顶部 hero 留出状态栏高度 ======
+   WebView 已延伸到状态栏下方（FLAG_LAYOUT_NO_LIMITS / setDecorFitsSystemWindows(false)），
+   所以我们需要给：
+     1) .hero（导航栏）— 加 top padding，避免被状态栏遮挡
+     2) .page — 加左右 padding，避免被手势条/导航条遮挡
+     3) body — 保持背景色延伸到顶部 */
+body {
+  background: var(--bg);
+  /* 防止在沉浸式下底部出现白条（导航条透明后仍要画背景） */
+  background-attachment: fixed;
+  /* 底部安全区 */
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/* hero（导航栏）自身需要顶部 padding，避开状态栏 */
+.hero {
+  margin-top: var(--safe-top);
+  /* 替代原来的 sticky top:12px，改为可计算的安全距离 */
+  top: var(--safe-top);
+}
+
+/* log-modal、custom-modal、dpi-modal、chat-lightbox、msg-action-menu 也要避开状态栏 */
+.log-modal,
+.custom-modal,
+.dpi-modal,
+.chat-lightbox,
+.chat-video-lightbox,
+.msg-action-menu {
+  /* 这些是全屏模态，顶部不需 padding（背景已铺满到顶部） */
+}
+
+/* 在 600px 以下的小屏，hero 的 padding 还需要更紧凑 */
+@media (max-width: 600px) {
+  .hero {
+    border-radius: 16px;
+    padding: 8px 10px;
+  }
+  .hero .theme-toggle,
+  .hero .icon-btn {
+    width: 34px;
+    height: 34px;
+  }
+}
+
+/* ====== 暗色模式下状态栏图标变白（由 Java 端控制） ======
+   下面这条规则仅作 fallback，真实场景下 Java 已经在
+   WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS 切了。 */
+html.dark {
+  /* 让浏览器知道：当前背景是深色，状态栏应切白图标 */
+  color-scheme: dark;
+}
+html:not(.dark) {
+  color-scheme: light;
+}
+
+/* ====== 沉浸式下 hero 玻璃效果稍微调整 ====== */
+.hero {
+  /* 沉浸式下，hero 顶部留出状态栏后，整体看上去更"悬浮" */
+  margin-top: max(var(--safe-top), 6px);
+  margin-left: max(var(--safe-left), 0px);
+  margin-right: max(var(--safe-right), 0px);
+}
+
+/* 任何 fixed 在顶部的元素都要避开状态栏 */
+.global-copy-toast,
+.plugin-toast {
+  top: calc(80px + var(--safe-top));
+}
+@media (max-width: 600px) {
+  .global-copy-toast,
+  .plugin-toast {
+    top: calc(72px + var(--safe-top));
+  }
+}
 `;
     document.head.appendChild(__styleEl);
 
@@ -2226,7 +2846,7 @@ html.dark .msg-action-btn.recall {
       <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
       <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
       <button id="dpiToggleBtn" class="icon-btn" title="调节界面缩放 (DPI)">🔍</button>
-      <button id="manualUpdateBtn" class="icon-btn" title="检查并更新前后端">⬆️</button>
+      <button id="manualUpdateBtn" class="icon-btn" title="点击检查并更新前后端">⬆️</button>
       <button id="toggleAutoExpandBtn" class="icon-btn" title="切换自动展开房间">📂</button>
       <button id="openPublicChatBtn" class="icon-btn public-chat-btn" title="公共聊天">
         <span class="public-chat-icon">💬</span>
@@ -2236,7 +2856,7 @@ html.dark .msg-action-btn.recall {
         <span class="online-icon">👥</span>
         <span id="onlineCountBadge" class="online-count-badge">0</span>
       </button>
-      <button id="copyPluginBtn" class="icon-btn" title="点击复制最新版联机插件地址">🎮</button>
+      <button id="copyPluginBtn" class="icon-btn" title="点击下载最新版联机插件">🎮</button>
     </div>
     <div class="scan">
       <i id="netDot" class="dot" title="检测网络连接中..."></i>
@@ -2475,17 +3095,25 @@ html.dark .msg-action-btn.recall {
     publicModalOpen: false,
     frozenCardId: null,
     unreadStatus: {},
-    autoExpand: true,
+    autoExpand: false,
     onlineMembers: [],
     onlineCount: 0,
     presenceReady: false,
   };
 
+  // 自动展开默认关闭；首次升级时清理旧版本默认写入的 true。
+  const AUTO_EXPAND_DEFAULT_VERSION_KEY = 'lan_play_auto_expand_default_v2';
   const savedAuto = localStorage.getItem(AUTO_EXPAND_KEY);
-  if (savedAuto !== null) {
+  const autoExpandDefaultMigrated = localStorage.getItem(AUTO_EXPAND_DEFAULT_VERSION_KEY) === '1';
+  if (!autoExpandDefaultMigrated) {
+    state.autoExpand = false;
+    localStorage.setItem(AUTO_EXPAND_KEY, 'false');
+    localStorage.setItem(AUTO_EXPAND_DEFAULT_VERSION_KEY, '1');
+  } else if (savedAuto !== null) {
     state.autoExpand = savedAuto === 'true';
   } else {
-    localStorage.setItem(AUTO_EXPAND_KEY, 'true');
+    state.autoExpand = false;
+    localStorage.setItem(AUTO_EXPAND_KEY, 'false');
   }
 
   const $ = id => document.getElementById(id);
@@ -2744,12 +3372,16 @@ html.dark .msg-action-btn.recall {
     }
   } catch (e) { /* ignore */ }
 
-  // ===== 插件链接复制 =====
+  // ===== 插件链接下载 =====
+  // 改为点击直接调用内置下载器下载（_builtInDownload 会自动探测扩展名）
   const PLUGIN_DOWNLOAD_URL = 'https://www.tomodachilife.cn/downloads/ldn-mitm/latest';
-  function copyPluginLink() {
-    copyWithMessage(PLUGIN_DOWNLOAD_URL, '✅ 已复制最新版联机插件地址！请前往浏览器下载');
+  // 已知该 URL 永远返回 application/zip 压缩包
+  // 提前写好 .zip 后缀，避免 HEAD 请求被 CORS/中间件拦截时丢失扩展名
+  const PLUGIN_DOWNLOAD_NAME = 'ldn-mitm-latest.zip';
+  function downloadPlugin() {
+    _builtInDownload(PLUGIN_DOWNLOAD_URL, PLUGIN_DOWNLOAD_NAME, false);
   }
-  $('copyPluginBtn').addEventListener('click', copyPluginLink);
+  $('copyPluginBtn').addEventListener('click', downloadPlugin);
 
   // ===== 模态框管理 =====
   const addServerModal = $('addServerModal');
@@ -3305,7 +3937,7 @@ html.dark .msg-action-btn.recall {
       if (url && mediaType === 'image') {
         downloadHtml = `<a class="chat-media-download" href="${esc(url)}" download="${esc(msg.fileName || 'image')}" target="_blank" rel="noopener noreferrer">下载图片</a>`;
       } else if (url && mediaType === 'video') {
-        downloadHtml = `<a class="chat-media-download" href="${esc(url)}" download target="_blank" rel="noopener noreferrer">下载视频</a>`;
+        downloadHtml = `<a class="chat-media-download" href="${esc(url)}" download="${esc(msg.fileName || 'video')}" target="_blank" rel="noopener noreferrer">下载视频</a>`;
       } else if (url && mediaType === 'file') {
         if (_isXorMsg(msg)) {
           downloadHtml = `<a class="chat-media-download" data-xor-url="${esc(url)}" data-xor-name="${esc(msg.fileName || '文件')}" data-xor-mime="${esc(msg.mimeType || '')}">下载文件</a>`;
@@ -3777,7 +4409,20 @@ html.dark .msg-action-btn.recall {
   let draggedEl = null;
   function initDragAndDrop(div, s) {
     div.setAttribute('draggable', 'true');
-    div.addEventListener('dragstart', e => { draggedEl = div; div.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+    div.addEventListener('dragstart', e => {
+      // 聊天消息内（尤其是图片）长按不能启动服务器卡片拖拽，否则卡片会停留在 opacity:.4 的灰色状态。
+      const target = e.target;
+      if (target && target.closest && target.closest('.chat-msg')) {
+        e.preventDefault();
+        e.stopPropagation();
+        div.classList.remove('dragging');
+        draggedEl = null;
+        return;
+      }
+      draggedEl = div;
+      div.classList.add('dragging');
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    });
     div.addEventListener('dragend', () => {
       div.classList.remove('dragging');
       draggedEl = null;
@@ -4277,27 +4922,278 @@ html.dark .msg-action-btn.recall {
     const safeName = file.name + '.dlp';
     return new File([buf], safeName, { type: 'application/octet-stream' });
   }
-  // XOR 解密并下载：fetch → 解密 → Blob → 触发浏览器下载
-  async function _xorDecryptAndDownload(url, originalName, mimeType) {
-    try {
-      showToast('⏳ 正在下载…', 60000, true);
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error('下载失败 HTTP ' + resp.status);
-      const buf = await resp.arrayBuffer();
-      _xorBuffer(buf);
-      const blob = new Blob([buf], { type: mimeType || 'application/octet-stream' });
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = originalName || 'file';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
-      showToast('✅ 下载完成', 1200, true);
-    } catch (e) {
-      showToast('❌ 下载失败：' + e.message, 3000, false);
+  // ===== 内置下载器：由 Python 后端直接保存到 Android 公共 Download 目录 =====
+  const BUILTIN_DOWNLOAD_DIR = '/storage/emulated/0/Download';
+  let _downloadRequestId = 0;
+
+  // 已知文件扩展名白名单（用于无后缀 URL 的扩展名推断）
+  // 完整列表太长，这里只放最常见、命中率最高的几个
+  const _KNOWN_FILE_EXTS = new Set([
+    'zip','rar','7z','tar','gz','bz2','xz',
+    'exe','msi','apk','ipa','dmg','pkg','deb','rpm',
+    'pdf','doc','docx','xls','xlsx','ppt','pptx',
+    'jpg','jpeg','png','gif','bmp','webp','svg','ico','tiff',
+    'mp3','wav','flac','aac','ogg','m4a','opus',
+    'mp4','mkv','avi','mov','wmv','flv','webm','m4v','ts',
+    'iso','img','bin','dat',
+    'txt','md','json','xml','csv','log',
+    'apk.dlp','dlp'
+  ]);
+
+  // 根据 MIME 或 URL 末段推断扩展名
+  // 优先用 Content-Type,失败再用 URL 末段,都没有返回 null
+  function _inferFileExtension(url, mimeType) {
+    // 1. 从 MIME 推断
+    if (mimeType) {
+      const m = String(mimeType).toLowerCase().split(';')[0].trim();
+      const mimeMap = {
+        'application/zip': '.zip',
+        'application/x-zip-compressed': '.zip',
+        'application/x-rar-compressed': '.rar',
+        'application/x-7z-compressed': '.7z',
+        'application/x-tar': '.tar',
+        'application/gzip': '.gz',
+        'application/pdf': '.pdf',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+        'application/vnd.ms-excel': '.xls',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+        'application/vnd.ms-powerpoint': '.ppt',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+        'application/octet-stream': null, // 不可靠,继续尝试 URL
+        'application/x-apk': '.apk',
+        'application/vnd.android.package-archive': '.apk',
+        'application/x-iso9660-image': '.iso',
+        'application/x-msdownload': '.exe',
+        'application/x-deb': '.deb',
+        'application/x-rpm': '.rpm',
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/webp': '.webp',
+        'image/svg+xml': '.svg',
+        'image/x-icon': '.ico',
+        'image/bmp': '.bmp',
+        'audio/mpeg': '.mp3',
+        'audio/mp3': '.mp3',
+        'audio/wav': '.wav',
+        'audio/x-wav': '.wav',
+        'audio/flac': '.flac',
+        'audio/aac': '.aac',
+        'audio/ogg': '.ogg',
+        'audio/x-m4a': '.m4a',
+        'audio/mp4': '.m4a',
+        'audio/opus': '.opus',
+        'video/mp4': '.mp4',
+        'video/x-matroska': '.mkv',
+        'video/x-msvideo': '.avi',
+        'video/quicktime': '.mov',
+        'video/webm': '.webm',
+        'text/plain': '.txt',
+        'text/markdown': '.md',
+        'application/json': '.json',
+        'application/xml': '.xml',
+        'text/xml': '.xml',
+        'text/csv': '.csv',
+      };
+      if (m in mimeMap) return mimeMap[m]; // 可能是 null(继续 URL 推断)
     }
+    // 2. 从 URL 末段推断
+    try {
+      const u = new URL(url, window.location.href);
+      const pathname = u.pathname || '';
+      const lastSlash = pathname.lastIndexOf('/');
+      const lastSeg = lastSlash >= 0 ? pathname.substring(lastSlash + 1) : pathname;
+      // 去掉查询参数(已由 URL 解析隔离)
+      const dotIdx = lastSeg.lastIndexOf('.');
+      if (dotIdx > 0 && dotIdx < lastSeg.length - 1) {
+        const ext = lastSeg.substring(dotIdx).toLowerCase();
+        if (ext.length <= 6 && /^\.[a-z0-9.]+$/.test(ext)) {
+          return ext;
+        }
+      }
+      // 2.1 末段是常见下载入口关键字时兜底为 .zip
+      // 例如 https://xxx.com/downloads/ldn-mitm/latest 这种 "latest" 端点
+      // 多数服务器都会返回 zip 压缩包，这样即使 HEAD 请求被 CORS/中间件拦截
+      // 也能保证保存的文件有正确的扩展名
+      const lastSegLower = lastSeg.toLowerCase();
+      if (lastSegLower === 'latest' || lastSegLower === 'download' || lastSegLower === 'dl' || lastSegLower === 'setup') {
+        return '.zip';
+      }
+    } catch (_) { /* URL 解析失败 */ }
+    return null;
+  }
+
+  // 推断 URL 内容类型(文件 / 网站)
+  // 返回 { type: 'file'|'web'|'unknown', ext?: string, mimeHint?: string }
+  function _classifyLink(url) {
+    if (!url) return { type: 'unknown' };
+    const cleaned = String(url).trim();
+    // 1. 明显的文件扩展名 → 文件
+    try {
+      const u = new URL(cleaned, window.location.href);
+      const pathname = u.pathname || '';
+      const lastSlash = pathname.lastIndexOf('/');
+      const lastSeg = lastSlash >= 0 ? pathname.substring(lastSlash + 1) : pathname;
+      const dotIdx = lastSeg.lastIndexOf('.');
+      if (dotIdx > 0 && dotIdx < lastSeg.length - 1) {
+        const ext = lastSeg.substring(dotIdx + 1).toLowerCase();
+        if (ext.length <= 6 && /^[a-z0-9]+$/.test(ext) && _KNOWN_FILE_EXTS.has(ext)) {
+          return { type: 'file', ext: '.' + ext };
+        }
+      }
+    } catch (_) { /* ignore */ }
+    // 2. 域名/IP/无扩展名路径 → 网站
+    return { type: 'web' };
+  }
+
+  // 显示"在系统 WebView 中查看 / 用外部浏览器打开"选择弹窗
+  function _showLinkOpenChooser(url) {
+    return new Promise((resolve) => {
+      // 移除旧弹窗
+      const old = document.getElementById('linkOpenChooser');
+      if (old) old.remove();
+
+      const overlay = document.createElement('div');
+      overlay.id = 'linkOpenChooser';
+      overlay.className = 'msg-action-menu open';
+      // 显示域名
+      let displayHost = url;
+      try { displayHost = new URL(url, window.location.href).host || url; } catch (_) {}
+      // 截断过长 host
+      if (displayHost.length > 40) displayHost = displayHost.substring(0, 38) + '…';
+
+      overlay.innerHTML =
+        '<div class="msg-action-mask"></div>' +
+        '<div class="link-open-sheet" style="position:relative;z-index:1;width:min(320px,calc(100% - 32px));background:var(--white);border-radius:18px;box-shadow:0 12px 40px rgba(0,0,0,.25);overflow:hidden;">' +
+          '<div style="padding:18px 18px 8px;text-align:center;">' +
+            '<div style="font-size:14px;color:var(--muted);margin-bottom:8px;">🔗 打开链接</div>' +
+            '<div style="font-size:13px;font-weight:700;color:var(--ink);word-break:break-all;line-height:1.4;">' + esc(displayHost) + '</div>' +
+          '</div>' +
+          '<div style="padding:8px 12px 12px;display:flex;flex-direction:column;gap:8px;">' +
+            '<button type="button" data-action="webview" ' +
+              'style="width:100%;border:0;border-radius:14px;padding:14px;background:linear-gradient(135deg,var(--cyan),#14a891);color:#fff;font-weight:800;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">' +
+              '<span style="font-size:18px;">🌐</span>' +
+              '<span>在系统 WebView 中打开</span>' +
+            '</button>' +
+            '<button type="button" data-action="external" ' +
+              'style="width:100%;border:0;border-radius:14px;padding:14px;background:rgba(125,175,210,.15);color:var(--ink);font-weight:800;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">' +
+              '<span style="font-size:18px;">🚀</span>' +
+              '<span>用外部浏览器打开</span>' +
+            '</button>' +
+            '<button type="button" data-action="cancel" ' +
+              'style="width:100%;border:0;border-radius:14px;padding:10px;background:transparent;color:var(--muted);font-weight:600;font-size:13px;cursor:pointer;margin-top:2px;">' +
+              '取消' +
+            '</button>' +
+          '</div>' +
+        '</div>';
+
+      document.body.appendChild(overlay);
+
+      let resolved = false;
+      const cleanup = () => {
+        if (resolved) return;
+        resolved = true;
+        document.removeEventListener('keydown', onKey, true);
+        if (overlay.parentElement) overlay.remove();
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { cleanup(); resolve(null); }
+      };
+
+      overlay.querySelector('.msg-action-mask').addEventListener('click', () => {
+        cleanup(); resolve(null);
+      });
+      overlay.querySelector('[data-action="webview"]').addEventListener('click', () => {
+        cleanup(); resolve('webview');
+      });
+      overlay.querySelector('[data-action="external"]').addEventListener('click', () => {
+        cleanup(); resolve('external');
+      });
+      overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => {
+        cleanup(); resolve(null);
+      });
+      document.addEventListener('keydown', onKey, true);
+    });
+  }
+
+  // 调用原生 Intent 打开外部浏览器(绕开 WebView intent:// 包装 bug)
+  function _openExternalBrowser(url) {
+    try {
+      if (window.LanPlayNative && typeof window.LanPlayNative.openExternalBrowser === 'function') {
+        window.LanPlayNative.openExternalBrowser(String(url));
+        return true;
+      }
+    } catch (e) { console.warn('[外部浏览器] Java 桥接调用失败', e); }
+    // 桥接未实现时:降级用 webview,避免 ERR_UNKNOWN_URL_SCHEME
+    try { window.open(String(url), '_blank', 'noopener'); return true; } catch (_) {}
+    return false;
+  }
+
+  // 内置下载器:由 Python 后端直接保存到 Android 公共 Download 目录
+  // 自动追加后缀:若 fileName 没有扩展名,先用 HEAD 请求拿 Content-Type,再用 URL 末段/Content-Type 推断补上
+  async function _builtInDownload(url, fileName, isXor) {
+    if (!url) return false;
+    const requestId = ++_downloadRequestId;
+    let displayName = (fileName || '').trim() || '文件';
+    let mimeHint = '';
+
+    // 智能追加扩展名:无后缀时探测
+    try {
+      const hasExt = /\.[a-z0-9]{1,6}(?:\.[a-z0-9]{1,6})?$/i.test(displayName);
+      if (!hasExt) {
+        // 1. 先 HEAD 拿 Content-Type
+        let headMime = '';
+        try {
+          const headRes = await fetch(String(url), { method: 'HEAD', cache: 'no-store' });
+          headMime = headRes.headers.get('content-type') || '';
+          // 一些服务器对 HEAD 返回 octet-stream,这种不可靠,继续走 URL 推断
+        } catch (_) { /* HEAD 失败,继续 */ }
+
+        // 2. 推断扩展名
+        const ext = _inferFileExtension(String(url), headMime || mimeHint);
+        if (ext) {
+          displayName = displayName + ext;
+          console.log('[下载] 自动追加扩展名:', ext, '→', displayName);
+        }
+      }
+    } catch (e) {
+      console.warn('[下载] 扩展名推断失败,继续使用原文件名:', e);
+    }
+
+    // 不使用省略号结尾，完整显示文件名
+    showToast('⏳ 正在下载文件 ' + displayName, 60000, true);
+    try {
+      const response = await fetch('/api/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          url: String(url),
+          filename: String(displayName),
+          xor: !!isXor,
+        }),
+        cache: 'no-store',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || ('下载失败 (' + response.status + ')'));
+      const savedPath = data.file_path || ((data.directory || BUILTIN_DOWNLOAD_DIR) + '/' + (data.file_name || displayName));
+      // 显示完整保存路径，不使用省略号截断
+      showToast('✅ 已保存到 ' + savedPath, 3600, true);
+      return true;
+    } catch (e) {
+      // 后端不可用时不再打开浏览器下载，避免文件落到未知目录。
+      showToast('❌ 下载失败：' + (e && e.message ? e.message : e), 3500, false);
+      return false;
+    } finally {
+      // 保留 requestId，便于后续扩展下载队列/进度显示。
+      void requestId;
+    }
+  }
+
+  // XOR 文件由后端边下载边解密，直接落盘为原始文件名。
+  async function _xorDecryptAndDownload(url, originalName, mimeType) {
+    void mimeType;
+    return _builtInDownload(url, originalName, true);
   }
 
   function uploadFile(file) {
@@ -4525,11 +5421,19 @@ html.dark .msg-action-btn.recall {
   // ---------- 语音录制（发送按钮左侧） ----------
   const _voiceRecordState = {
     recorder: null,
-    chunks: [],
     stream: null,
     timer: null,
     startedAt: 0,
     activeBtn: null,
+    audioContext: null,
+    source: null,
+    processor: null,
+    silentGain: null,
+    wavChunks: [],
+    wavSampleRate: 44100,
+    onBlob: null,
+    stopping: false,
+    cancelled: false,
   };
 
   function stopVoiceTracks() {
@@ -4544,23 +5448,129 @@ html.dark .msg-action-btn.recall {
   function resetVoiceBtn(btn) {
     if (!btn) return;
     btn.classList.remove('recording');
+    btn.removeAttribute('data-recording-seconds');
     btn.textContent = '🎤';
     btn.title = '按住或点击录制语音';
   }
 
-  function cancelVoiceRecording() {
-    if (_voiceRecordState.timer) {
-      clearInterval(_voiceRecordState.timer);
-      _voiceRecordState.timer = null;
+  function _disconnectVoiceGraph() {
+    const state = _voiceRecordState;
+    if (state.processor) {
+      state.processor.onaudioprocess = null;
+      try { state.processor.disconnect(); } catch (_) { /* ignore */ }
     }
-    if (_voiceRecordState.recorder && _voiceRecordState.recorder.state !== 'inactive') {
-      try { _voiceRecordState.recorder.onstop = null; _voiceRecordState.recorder.stop(); } catch (e) { /* ignore */ }
+    if (state.source) {
+      try { state.source.disconnect(); } catch (_) { /* ignore */ }
     }
-    _voiceRecordState.recorder = null;
-    _voiceRecordState.chunks = [];
+    if (state.silentGain) {
+      try { state.silentGain.disconnect(); } catch (_) { /* ignore */ }
+    }
+    state.processor = null;
+    state.source = null;
+    state.silentGain = null;
+    if (state.audioContext) {
+      try { state.audioContext.close(); } catch (_) { /* ignore */ }
+      state.audioContext = null;
+    }
+  }
+
+  function _writeWavString(view, offset, value) {
+    for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+  }
+
+  function _makeWavBlob(chunks, sampleRate) {
+    const totalSamples = chunks.reduce(function (sum, chunk) { return sum + chunk.length; }, 0);
+    const dataSize = totalSamples * 2;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+    _writeWavString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    _writeWavString(view, 8, 'WAVE');
+    _writeWavString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);       // PCM fmt chunk size
+    view.setUint16(20, 1, true);        // PCM
+    view.setUint16(22, 1, true);        // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); // byte rate
+    view.setUint16(32, 2, true);        // block align
+    view.setUint16(34, 16, true);       // bits per sample
+    _writeWavString(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
+    let offset = 44;
+    chunks.forEach(function (chunk) {
+      for (let i = 0; i < chunk.length; i++) {
+        view.setInt16(offset, chunk[i], true);
+        offset += 2;
+      }
+    });
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+
+  async function _stopWavRecording() {
+    const state = _voiceRecordState;
+    const recorder = state.recorder;
+    if (!recorder || state.stopping) return;
+    state.stopping = true;
+    recorder.state = 'stopping';
+    if (state.timer) {
+      clearInterval(state.timer);
+      state.timer = null;
+    }
+
+    const cancelled = state.cancelled;
+    if (state.processor) {
+      state.processor.onaudioprocess = null;
+      try { state.processor.disconnect(); } catch (_) { /* ignore */ }
+    }
     stopVoiceTracks();
-    resetVoiceBtn(_voiceRecordState.activeBtn);
-    _voiceRecordState.activeBtn = null;
+    _disconnectVoiceGraph();
+
+    const chunks = state.wavChunks.slice();
+    const sampleRate = state.wavSampleRate || 44100;
+    const btn = state.activeBtn;
+    const onBlob = state.onBlob;
+    state.recorder = null;
+    state.wavChunks = [];
+    state.wavSampleRate = 44100;
+    state.onBlob = null;
+    state.stopping = false;
+    state.cancelled = false;
+    resetVoiceBtn(btn);
+    state.activeBtn = null;
+
+    if (cancelled) return;
+    if (!chunks.length) {
+      showToast('⚠️ 未录到声音', 1800, false);
+      return;
+    }
+    const blob = _makeWavBlob(chunks, sampleRate);
+    if (blob.size < 256) {
+      showToast('⚠️ 录音太短', 1800, false);
+      return;
+    }
+    const file = new File([blob], 'voice_' + Date.now() + '.wav', { type: 'audio/wav' });
+    if (typeof onBlob === 'function') onBlob(file);
+  }
+
+  function cancelVoiceRecording() {
+    const state = _voiceRecordState;
+    if (state.timer) {
+      clearInterval(state.timer);
+      state.timer = null;
+    }
+    if (state.recorder && state.recorder.state !== 'inactive' && !state.stopping) {
+      state.cancelled = true;
+      try { state.recorder.stop(); } catch (_) { _disconnectVoiceGraph(); }
+      return;
+    }
+    state.recorder = null;
+    state.wavChunks = [];
+    state.wavSampleRate = 44100;
+    state.onBlob = null;
+    stopVoiceTracks();
+    _disconnectVoiceGraph();
+    resetVoiceBtn(state.activeBtn);
+    state.activeBtn = null;
   }
 
   async function startVoiceRecording(btn, onBlob) {
@@ -4568,98 +5578,102 @@ html.dark .msg-action-btn.recall {
       showToast('❌ 当前环境不支持录音', 2500, false);
       return;
     }
-    if (typeof MediaRecorder === 'undefined') {
-      showToast('❌ 浏览器不支持 MediaRecorder', 2500, false);
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      showToast('❌ 当前环境不支持 WAV 录音', 3000, false);
       return;
     }
-    // 已在录制：再次点击 → 停止并发送
+    // 已在录制：再次点击 → 停止并发送 WAV
     if (_voiceRecordState.recorder && _voiceRecordState.recorder.state === 'recording') {
       finishVoiceRecording(onBlob);
       return;
     }
     cancelVoiceRecording();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      const audioContext = new AudioContextCtor();
+      if (audioContext.resume) await audioContext.resume();
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor
+        ? audioContext.createScriptProcessor(4096, 1, 1)
+        : audioContext.createJavaScriptNode(4096, 1, 1);
+      const silentGain = audioContext.createGain();
+      silentGain.gain.value = 0;
+
       _voiceRecordState.stream = stream;
-      _voiceRecordState.chunks = [];
-      let mime = '';
-      const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
-      for (let i = 0; i < candidates.length; i++) {
-        if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidates[i])) {
-          mime = candidates[i];
-          break;
-        }
-      }
-      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      _voiceRecordState.recorder = recorder;
+      _voiceRecordState.audioContext = audioContext;
+      _voiceRecordState.source = source;
+      _voiceRecordState.processor = processor;
+      _voiceRecordState.silentGain = silentGain;
+      _voiceRecordState.wavChunks = [];
+      _voiceRecordState.wavSampleRate = Math.round(audioContext.sampleRate || 44100);
+      _voiceRecordState.onBlob = onBlob;
+      _voiceRecordState.cancelled = false;
+      _voiceRecordState.stopping = false;
       _voiceRecordState.activeBtn = btn;
       _voiceRecordState.startedAt = Date.now();
-      recorder.ondataavailable = function (ev) {
-        if (ev.data && ev.data.size > 0) _voiceRecordState.chunks.push(ev.data);
+
+      processor.onaudioprocess = function (event) {
+        if (_voiceRecordState.cancelled) return;
+        const input = event.inputBuffer.getChannelData(0);
+        const samples = new Int16Array(input.length);
+        for (let i = 0; i < input.length; i++) {
+          const sample = Math.max(-1, Math.min(1, input[i]));
+          samples[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        }
+        _voiceRecordState.wavChunks.push(samples);
       };
-      recorder.onstop = async function () {
-        if (_voiceRecordState.timer) {
-          clearInterval(_voiceRecordState.timer);
-          _voiceRecordState.timer = null;
-        }
-        const chunks = _voiceRecordState.chunks.slice();
-        const usedMime = recorder.mimeType || mime || 'audio/webm';
-        stopVoiceTracks();
-        resetVoiceBtn(btn);
-        _voiceRecordState.recorder = null;
-        _voiceRecordState.activeBtn = null;
-        if (!chunks.length) {
-          showToast('⚠️ 未录到声音', 1500, false);
-          return;
-        }
-        const blob = new Blob(chunks, { type: usedMime });
-        if (blob.size < 256) {
-          showToast('⚠️ 录音太短', 1500, false);
-          return;
-        }
-        const ext = usedMime.indexOf('mp4') >= 0 ? 'm4a' : (usedMime.indexOf('ogg') >= 0 ? 'ogg' : 'webm');
-        const file = new File([blob], 'voice_' + Date.now() + '.' + ext, { type: usedMime });
-        if (typeof onBlob === 'function') onBlob(file);
+      source.connect(processor);
+      // 静音输出保证 ScriptProcessor 在 Android WebView 中持续工作，避免麦克风回放啸叫。
+      processor.connect(silentGain);
+      silentGain.connect(audioContext.destination);
+
+      _voiceRecordState.recorder = {
+        state: 'recording',
+        stop: function () { _stopWavRecording(); },
       };
-      recorder.start(200);
       btn.classList.add('recording');
       btn.textContent = '⏹';
-      btn.title = '点击停止并发送';
-      showToast('🎙 正在录音… 再次点击停止发送', 2000, true);
+      btn.dataset.recordingSeconds = '0';
+      btn.title = '点击停止并发送 WAV 语音';
+      showToast('🎙 正在录制 WAV… 再次点击停止发送', 2000, true);
       _voiceRecordState.timer = setInterval(function () {
         const sec = Math.floor((Date.now() - _voiceRecordState.startedAt) / 1000);
-        btn.textContent = '⏹' + sec + 's';
+        btn.textContent = '⏹';
+        btn.dataset.recordingSeconds = String(sec);
+        btn.title = '点击停止并发送 WAV 语音（' + sec + ' 秒）';
         if (sec >= 60) finishVoiceRecording(onBlob);
       }, 500);
     } catch (e) {
-      console.warn('录音失败', e);
+      console.warn('WAV 录音失败', e);
       cancelVoiceRecording();
-      showToast('❌ 无法开始录音：' + (e.message || '权限被拒绝'), 3000, false);
+      showToast('❌ 无法录制 WAV：' + (e.message || '请检查录音权限'), 3500, false);
     }
   }
 
   function finishVoiceRecording(onBlob) {
     const recorder = _voiceRecordState.recorder;
-    if (!recorder || recorder.state === 'inactive') {
+    if (!recorder || recorder.state === 'inactive' || recorder.state === 'stopping') {
       cancelVoiceRecording();
       return;
     }
-    try {
-      recorder.stop();
-    } catch (e) {
-      cancelVoiceRecording();
-    }
+    _voiceRecordState.onBlob = onBlob || _voiceRecordState.onBlob;
+    try { recorder.stop(); } catch (e) { cancelVoiceRecording(); }
   }
 
   // 语音上传后进入待发送状态，由发送按钮统一发送。
 
   // ---- 链接识别（URL、域名、IPv4、IPv6）- 不追加协议头 ----
+  // 根据 URL 末段扩展名判断是文件还是网站,给 chat-link 加 data-type
   function linkifyText(text) {
     if (!text) return '';
     const urlRegex = /(https?:\/\/[^\s]+|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?|\b(?:(?:[0-9]{1,3}\.){3}[0-9]{1,3}|(?:[0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}|::[0-9a-fA-F]{1,4}|[0-9a-fA-F]{1,4}::)\b)/g;
     return text.replace(urlRegex, function(match) {
       const cleaned = match.replace(/[.,;:!?]+$/, '');
-      return `<span class="chat-link" data-url="${esc(cleaned)}">${esc(match)}</span>`;
+      const cls = _classifyLink(cleaned);
+      return `<span class="chat-link" data-url="${esc(cleaned)}" data-type="${cls.type}">${esc(match)}</span>`;
     });
   }
 
@@ -4684,10 +5698,10 @@ html.dark .msg-action-btn.recall {
     if (text.startsWith('[文件]')) {
       const rest = text.substring(4);
       const parts = rest.split('|');
-      let fname = _restoreBlockedExt(parts[1] || '文件');
-      // .dlp 后缀表示 XOR 加密文件
-      const isXor = fname.toLowerCase().endsWith('.dlp');
-      if (isXor) fname = fname.replace(/\.dlp$/i, '');
+      const rawName = parts[1] || '文件';
+      // .dlp 后缀表示 XOR 加密文件，先判断再去掉后缀。
+      const isXor = rawName.toLowerCase().endsWith('.dlp');
+      const fname = _restoreBlockedExt(rawName);
       return {
         mediaType: 'file',
         url: (parts[0] || '').trim(),
@@ -4699,24 +5713,399 @@ html.dark .msg-action-btn.recall {
     return null;
   }
 
-  function openImageLightbox(url) {
-    let overlay = document.getElementById('chatImageLightbox');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'chatImageLightbox';
-      overlay.className = 'chat-lightbox';
-      overlay.innerHTML = '<img class="chat-lightbox-img" alt="预览"><button type="button" class="chat-lightbox-close" aria-label="关闭">✕</button>';
-      document.body.appendChild(overlay);
-      overlay.addEventListener('click', function (e) {
-        if (e.target === overlay || e.target.classList.contains('chat-lightbox-close')) {
-          overlay.classList.remove('open');
-        }
-      });
-    }
-    const img = overlay.querySelector('.chat-lightbox-img');
-    if (img) img.src = url;
-    overlay.classList.add('open');
+  // ===== 图片预览：鼠标滚轮 / 双击缩放，拖拽平移，移动端双指缩放 =====
+  const _imageLightboxState = {
+    overlay: null,
+    stage: null,
+    img: null,
+    scale: 1,
+    minScale: 1,
+    maxScale: 4,
+    x: 0,
+    y: 0,
+    baseWidth: 0,
+    baseHeight: 0,
+    pointers: new Map(),
+    dragPointerId: null,
+    dragStartX: 0,
+    dragStartY: 0,
+    dragOriginX: 0,
+    dragOriginY: 0,
+    pinching: false,
+    pinchStartDistance: 0,
+    pinchStartScale: 1,
+    pinchAnchorX: 0,
+    pinchAnchorY: 0,
+    moved: false,
+  };
+
+  const _videoLightboxState = {
+    overlay: null,
+    stage: null,
+    video: null,
+    pendingStartTime: 0,
+  };
+
+  function _clampPreview(value, min, max) {
+    return Math.min(max, Math.max(min, value));
   }
+
+  function _getImageStageCenter() {
+    const s = _imageLightboxState;
+    const rect = s.stage.getBoundingClientRect();
+    return {
+      rect,
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+  }
+
+  function _updateImageLightboxTransform() {
+    const s = _imageLightboxState;
+    if (!s.img) return;
+    s.img.style.transform = `translate3d(-50%, -50%, 0) translate3d(${s.x}px, ${s.y}px, 0) scale(${s.scale})`;
+  }
+
+  function _clampImageLightboxPan() {
+    const s = _imageLightboxState;
+    if (!s.stage || !s.baseWidth || !s.baseHeight) return;
+    const rect = s.stage.getBoundingClientRect();
+    // 图片缩小时不允许被拖出视口；放大后允许平移到图片边缘。
+    const maxX = Math.max(0, (s.baseWidth * s.scale - rect.width) / 2);
+    const maxY = Math.max(0, (s.baseHeight * s.scale - rect.height) / 2);
+    s.x = _clampPreview(s.x, -maxX, maxX);
+    s.y = _clampPreview(s.y, -maxY, maxY);
+  }
+
+  function _imagePointAt(clientX, clientY) {
+    const s = _imageLightboxState;
+    const center = _getImageStageCenter();
+    return {
+      x: (clientX - center.x - s.x) / s.scale,
+      y: (clientY - center.y - s.y) / s.scale,
+    };
+  }
+
+  function _fitImageLightbox() {
+    const s = _imageLightboxState;
+    if (!s.img || !s.stage) return;
+    const naturalWidth = s.img.naturalWidth || 0;
+    const naturalHeight = s.img.naturalHeight || 0;
+    if (!naturalWidth || !naturalHeight) return;
+
+    const rect = s.stage.getBoundingClientRect();
+    const availableWidth = Math.max(1, rect.width - 32);
+    const availableHeight = Math.max(1, rect.height - 64);
+    const fitScale = Math.min(1, availableWidth / naturalWidth, availableHeight / naturalHeight);
+    s.baseWidth = Math.max(1, Math.round(naturalWidth * fitScale));
+    s.baseHeight = Math.max(1, Math.round(naturalHeight * fitScale));
+    s.img.style.width = s.baseWidth + 'px';
+    s.img.style.height = s.baseHeight + 'px';
+    s.scale = s.minScale;
+    s.x = 0;
+    s.y = 0;
+    s.moved = false;
+    _updateImageLightboxTransform();
+  }
+
+  function _setImageLightboxScaleAt(clientX, clientY, nextScale) {
+    const s = _imageLightboxState;
+    if (!s.stage || !s.baseWidth) return;
+    const imagePoint = _imagePointAt(clientX, clientY);
+    s.scale = _clampPreview(nextScale, s.minScale, s.maxScale);
+    const center = _getImageStageCenter();
+    s.x = clientX - center.x - imagePoint.x * s.scale;
+    s.y = clientY - center.y - imagePoint.y * s.scale;
+    _clampImageLightboxPan();
+    _updateImageLightboxTransform();
+  }
+
+  function _getPointerPair() {
+    const s = _imageLightboxState;
+    return Array.from(s.pointers.values()).slice(0, 2);
+  }
+
+  function _pointerDistance(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  function _pointerCenter(a, b) {
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  function _beginImagePinch() {
+    const s = _imageLightboxState;
+    const pair = _getPointerPair();
+    if (pair.length < 2) return;
+    const center = _pointerCenter(pair[0], pair[1]);
+    s.pinching = true;
+    s.dragPointerId = null;
+    s.pinchStartDistance = Math.max(1, _pointerDistance(pair[0], pair[1]));
+    s.pinchStartScale = s.scale;
+    const imagePoint = _imagePointAt(center.x, center.y);
+    s.pinchAnchorX = imagePoint.x;
+    s.pinchAnchorY = imagePoint.y;
+  }
+
+  function _onImagePointerDown(e) {
+    const s = _imageLightboxState;
+    if (!s.overlay || !s.overlay.classList.contains('open')) return;
+    if (e.target && e.target.closest && e.target.closest('.chat-lightbox-close')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    s.pointers.set(e.pointerId, { id: e.pointerId, x: e.clientX, y: e.clientY });
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+
+    if (s.pointers.size >= 2) {
+      _beginImagePinch();
+    } else {
+      s.pinching = false;
+      s.dragPointerId = e.pointerId;
+      s.dragStartX = e.clientX;
+      s.dragStartY = e.clientY;
+      s.dragOriginX = s.x;
+      s.dragOriginY = s.y;
+      s.moved = false;
+      if (s.img) s.img.classList.add('is-dragging');
+    }
+    e.preventDefault();
+  }
+
+  function _onImagePointerMove(e) {
+    const s = _imageLightboxState;
+    if (!s.pointers.has(e.pointerId)) return;
+    s.pointers.set(e.pointerId, { id: e.pointerId, x: e.clientX, y: e.clientY });
+
+    if (s.pointers.size >= 2) {
+      if (!s.pinching) _beginImagePinch();
+      const pair = _getPointerPair();
+      const center = _pointerCenter(pair[0], pair[1]);
+      const distance = Math.max(1, _pointerDistance(pair[0], pair[1]));
+      const nextScale = _clampPreview(
+        s.pinchStartScale * distance / Math.max(1, s.pinchStartDistance),
+        s.minScale,
+        s.maxScale
+      );
+      const stageCenter = _getImageStageCenter();
+      s.scale = nextScale;
+      s.x = center.x - stageCenter.x - s.pinchAnchorX * nextScale;
+      s.y = center.y - stageCenter.y - s.pinchAnchorY * nextScale;
+      s.moved = true;
+      _clampImageLightboxPan();
+      _updateImageLightboxTransform();
+      e.preventDefault();
+      return;
+    }
+
+    if (!s.pinching && s.dragPointerId === e.pointerId) {
+      const dx = e.clientX - s.dragStartX;
+      const dy = e.clientY - s.dragStartY;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) s.moved = true;
+      s.x = s.dragOriginX + dx;
+      s.y = s.dragOriginY + dy;
+      _clampImageLightboxPan();
+      _updateImageLightboxTransform();
+      if (s.moved) e.preventDefault();
+    }
+  }
+
+  function _onImagePointerUp(e) {
+    const s = _imageLightboxState;
+    s.pointers.delete(e.pointerId);
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+
+    if (s.pointers.size >= 2) {
+      _beginImagePinch();
+    } else if (s.pinching) {
+      s.pinching = false;
+      const remaining = _getPointerPair()[0];
+      if (remaining) {
+        s.dragPointerId = remaining.id;
+        s.dragStartX = remaining.x;
+        s.dragStartY = remaining.y;
+        s.dragOriginX = s.x;
+        s.dragOriginY = s.y;
+      } else {
+        s.dragPointerId = null;
+      }
+    } else if (s.dragPointerId === e.pointerId) {
+      s.dragPointerId = null;
+    }
+    if (!s.pointers.size && s.img) s.img.classList.remove('is-dragging');
+  }
+
+  function _closeImageLightbox() {
+    const s = _imageLightboxState;
+    if (!s.overlay) return;
+    s.overlay.classList.remove('open');
+    s.pointers.clear();
+    s.dragPointerId = null;
+    s.pinching = false;
+    if (s.img) s.img.classList.remove('is-dragging');
+  }
+
+  function _ensureImageLightbox() {
+    const s = _imageLightboxState;
+    if (s.overlay) return s;
+    const overlay = document.createElement('div');
+    overlay.id = 'chatImageLightbox';
+    overlay.className = 'chat-lightbox';
+    overlay.innerHTML = '<div class="chat-lightbox-stage"><img class="chat-lightbox-img" alt="预览" draggable="false"><button type="button" class="chat-lightbox-close" aria-label="关闭">✕</button></div>';
+    document.body.appendChild(overlay);
+    s.overlay = overlay;
+    s.stage = overlay.querySelector('.chat-lightbox-stage');
+    s.img = overlay.querySelector('.chat-lightbox-img');
+    const closeBtn = overlay.querySelector('.chat-lightbox-close');
+
+    s.img.addEventListener('load', function () {
+      if (s.overlay.classList.contains('open')) _fitImageLightbox();
+    });
+    s.stage.addEventListener('wheel', function (e) {
+      if (!s.overlay.classList.contains('open')) return;
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      _setImageLightboxScaleAt(e.clientX, e.clientY, s.scale * factor);
+    }, { passive: false });
+    s.stage.addEventListener('pointerdown', _onImagePointerDown, { passive: false });
+    s.stage.addEventListener('pointermove', _onImagePointerMove, { passive: false });
+    s.stage.addEventListener('pointerup', _onImagePointerUp, { passive: true });
+    s.stage.addEventListener('pointercancel', _onImagePointerUp, { passive: true });
+    s.stage.addEventListener('lostpointercapture', function (e) {
+      if (s.pointers.has(e.pointerId)) _onImagePointerUp(e);
+    });
+    s.stage.addEventListener('dblclick', function (e) {
+      if (e.target !== s.img) return;
+      e.preventDefault();
+      const next = s.scale > s.minScale + 0.05 ? s.minScale : 2;
+      _setImageLightboxScaleAt(e.clientX, e.clientY, next);
+    });
+    s.stage.addEventListener('click', function (e) {
+      const wasMoved = s.moved;
+      s.moved = false;
+      if (e.target === s.stage && !wasMoved) _closeImageLightbox();
+    });
+    closeBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      _closeImageLightbox();
+    });
+    return s;
+  }
+
+  function openImageLightbox(url) {
+    if (!url) return;
+    const s = _ensureImageLightbox();
+    s.overlay.classList.add('open');
+    s.pointers.clear();
+    s.dragPointerId = null;
+    s.pinching = false;
+    s.scale = s.minScale;
+    s.x = 0;
+    s.y = 0;
+    s.moved = false;
+    s.img.style.width = '';
+    s.img.style.height = '';
+    if (s.img.getAttribute('src') !== url) s.img.src = url;
+    if (s.img.complete && s.img.naturalWidth) _fitImageLightbox();
+  }
+
+  function _videoControlsHTML() {
+    return '<button type="button" class="chat-video-control-btn chat-video-play-toggle" aria-label="播放或暂停">▶</button>' +
+      '<span class="chat-video-time chat-video-current">0:00</span>' +
+      '<input class="chat-video-progress" type="range" min="0" max="100" value="0" step="0.1" aria-label="视频进度">' +
+      '<span class="chat-video-time chat-video-duration">0:00</span>' +
+      '<button type="button" class="chat-video-control-btn chat-video-mute-toggle" aria-label="静音">🔊</button>' +
+      '<button type="button" class="chat-video-control-btn chat-video-fullscreen-toggle" aria-label="全屏播放">⛶</button>';
+  }
+
+  function _closeVideoLightbox() {
+    const s = _videoLightboxState;
+    if (!s.overlay) return;
+    s.overlay.classList.remove('open');
+    if (s.video) {
+      s.video.pause();
+      s.video.onloadedmetadata = null;
+      s.video.removeAttribute('src');
+      s.video.load();
+    }
+  }
+
+  function _ensureVideoLightbox() {
+    const s = _videoLightboxState;
+    if (s.overlay) return s;
+    const overlay = document.createElement('div');
+    overlay.id = 'chatVideoLightbox';
+    overlay.className = 'chat-video-lightbox';
+    overlay.innerHTML =
+      '<div class="chat-video-lightbox-stage">' +
+        '<div class="chat-video-player chat-video-lightbox-player">' +
+          '<video class="chat-lightbox-video" playsinline="true" webkit-playsinline="true" preload="metadata"></video>' +
+          '<button type="button" class="chat-video-center-play" aria-label="播放视频">▶</button>' +
+          '<div class="chat-video-controls">' + _videoControlsHTML() + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<button type="button" class="chat-lightbox-close chat-video-lightbox-close" aria-label="关闭">✕</button>';
+    document.body.appendChild(overlay);
+    s.overlay = overlay;
+    s.stage = overlay.querySelector('.chat-video-lightbox-stage');
+    s.video = overlay.querySelector('.chat-lightbox-video');
+    const closeBtn = overlay.querySelector('.chat-video-lightbox-close');
+
+    s.stage.addEventListener('click', function (e) {
+      if (e.target === s.stage) _closeVideoLightbox();
+    });
+    s.video.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    closeBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      _closeVideoLightbox();
+    });
+    return s;
+  }
+
+  function openVideoLightbox(url, startTime) {
+    if (!url) return;
+    const s = _ensureVideoLightbox();
+    s.pendingStartTime = Number.isFinite(Number(startTime)) ? Math.max(0, Number(startTime)) : 0;
+    s.overlay.classList.add('open');
+    s.video.onloadedmetadata = function () {
+      if (s.pendingStartTime > 0 && isFinite(s.video.duration)) {
+        s.video.currentTime = Math.min(s.pendingStartTime, Math.max(0, s.video.duration - 0.05));
+      }
+      _syncCustomVideoUI(s.video);
+      const playPromise = s.video.play();
+      if (playPromise && typeof playPromise.catch === 'function') playPromise.catch(() => {});
+    };
+    s.video.src = url;
+    s.video.load();
+    _syncCustomVideoUI(s.video);
+    const immediatePlay = s.video.play();
+    if (immediatePlay && typeof immediatePlay.catch === 'function') immediatePlay.catch(() => {});
+  }
+
+  document.addEventListener('keydown', function (e) {
+    const imageOpen = _imageLightboxState.overlay && _imageLightboxState.overlay.classList.contains('open');
+    const videoOpen = _videoLightboxState.overlay && _videoLightboxState.overlay.classList.contains('open');
+    if (e.key === 'Escape') {
+      if (imageOpen) _closeImageLightbox();
+      if (videoOpen) _closeVideoLightbox();
+      return;
+    }
+    if (imageOpen && (e.key === '+' || e.key === '=' || e.key === '-' || e.key === '0')) {
+      e.preventDefault();
+      const center = _getImageStageCenter();
+      if (e.key === '0') _setImageLightboxScaleAt(center.x, center.y, 1);
+      else _setImageLightboxScaleAt(center.x, center.y, _imageLightboxState.scale * (e.key === '-' ? 0.8 : 1.25));
+    }
+  });
+
+  window.addEventListener('resize', function () {
+    if (_imageLightboxState.overlay && _imageLightboxState.overlay.classList.contains('open')) {
+      _fitImageLightbox();
+    }
+  });
 
   // ---- 渲染消息内容：图片缩略图 / 视频播放器 / 语音控件 / 文件下载 ----
   function renderMessageContent(msg) {
@@ -4739,10 +6128,10 @@ html.dark .msg-action-btn.recall {
       const url = info.url;
       const type = info.mediaType;
       if (type === 'image') {
-        return `<span class="chat-image-wrap"><img class="chat-media-img" src="${esc(url)}" alt="图片" loading="lazy" data-full="${esc(url)}" title="点击放大"></span>`;
+        return `<span class="chat-image-wrap"><img class="chat-media-img" src="${esc(url)}" alt="图片" loading="lazy" draggable="false" data-full="${esc(url)}" title="点击放大"></span>`;
       }
       if (type === 'video') {
-        return `<span class="chat-video-wrap"><video class="chat-media-video" src="${esc(url)}" controls playsinline preload="metadata"></video></span>`;
+        return `<div class="chat-video-wrap chat-video-player"><video class="chat-media-video" src="${esc(url)}" playsinline="true" webkit-playsinline="true" x5-playsinline="true" preload="metadata" title="点击播放"></video><button type="button" class="chat-video-center-play" aria-label="播放视频">▶</button><div class="chat-video-controls">${_videoControlsHTML()}</div></div>`;
       }
       if (type === 'audio') {
         return `<div class="chat-media-audio">
@@ -4798,6 +6187,8 @@ html.dark .msg-action-btn.recall {
   let pressStartX = 0;
   let pressStartY = 0;
   let longPressingMsg = false;
+  let _suppressMessageClickUntil = 0;
+  let _suppressMessageClickRow = null;
   // 长按气泡时临时移除父卡片 draggable，防止浏览器在 500ms 前抢先启动拖拽幽灵
   let touchedDraggableEl = null;
 
@@ -4817,6 +6208,31 @@ html.dark .msg-action-btn.recall {
     }
   }
 
+  function _allowMsgLongPressAt(row, x, y, target) {
+    if (!row) return false;
+    const video = row.querySelector('.chat-media-video');
+    // 普通文字/文件消息保持原来的整条气泡长按；视频消息只允许按视频本体。
+    if (!video) return true;
+    return _videoAtPoint(x, y, target) === video;
+  }
+
+  function _markMessageClickSuppressed(row) {
+    _suppressMessageClickRow = row;
+    _suppressMessageClickUntil = Date.now() + 900;
+  }
+  function _consumeSuppressedMessageClick(target) {
+    if (!_suppressMessageClickRow || Date.now() > _suppressMessageClickUntil) {
+      _suppressMessageClickRow = null;
+      _suppressMessageClickUntil = 0;
+      return false;
+    }
+    const row = target && target.closest ? target.closest('.chat-msg') : null;
+    if (row !== _suppressMessageClickRow) return false;
+    _suppressMessageClickRow = null;
+    _suppressMessageClickUntil = 0;
+    return true;
+  }
+
   function startMsgLongPress(row, x, y) {
     cancelMsgLongPress();
     longPressingMsg = true;
@@ -4826,6 +6242,7 @@ html.dark .msg-action-btn.recall {
       pressTimer = null;
       const id = row.dataset.msgId;
       if (!id) return;
+      _markMessageClickSuppressed(row);
       const isMine = row.classList.contains('chat-msg-mine');
       showMsgActionMenu(id, isMine, row);
     }, 500);
@@ -4838,6 +6255,7 @@ html.dark .msg-action-btn.recall {
   // pointer 事件（桌面）
   document.addEventListener('pointerdown', e => {
     const row = e.target.closest('.chat-msg'); if (!row) return;
+    if (!_allowMsgLongPressAt(row, e.clientX, e.clientY, e.target)) return;
     disableCardDragForLongPress(row);
     startMsgLongPress(row, e.clientX, e.clientY);
   });
@@ -4858,7 +6276,7 @@ html.dark .msg-action-btn.recall {
     const touch = e.touches[0];
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     const row = el && el.closest('.chat-msg');
-    if (!row) return;
+    if (!row || !_allowMsgLongPressAt(row, touch.clientX, touch.clientY, el)) return;
     touchPressRow = row;
     // 临时移除父卡片 draggable，阻止浏览器启动拖拽幽灵
     disableCardDragForLongPress(row);
@@ -4894,7 +6312,10 @@ html.dark .msg-action-btn.recall {
   function showMsgActionMenu(msgId, isMine, rowEl) {
     // 移除旧菜单
     const old = document.getElementById('msgActionMenu');
-    if (old) old.remove();
+    if (old) {
+      if (typeof old._close === 'function') old._close();
+      else old.remove();
+    }
 
     const menu = document.createElement('div');
     menu.id = 'msgActionMenu';
@@ -4910,16 +6331,23 @@ html.dark .msg-action-btn.recall {
     document.body.appendChild(menu);
     requestAnimationFrame(() => menu.classList.add('open'));
 
+    let menuClosed = false;
     function close() {
-      // 立即重置长按状态，恢复卡片可拖动
+      if (menuClosed) return;
+      menuClosed = true;
+      // 立即重置长按状态，恢复卡片可拖动并彻底移除遮罩。
       longPressingMsg = false;
       restoreCardDrag();
-      // 立即移除遮罩 DOM，彻底杜绝 transition 残留灰色遮罩
-      const mask = menu.querySelector('.msg-action-mask');
-      if (mask) mask.remove();
-      menu.classList.remove('open');
-      setTimeout(() => { if (menu.parentElement) menu.remove(); }, 200);
+      document.removeEventListener('pointerdown', closeWhenOutside, true);
+      document.removeEventListener('touchstart', closeWhenOutside, true);
+      if (menu.parentElement) menu.remove();
     }
+    function closeWhenOutside(e) {
+      if (!menu.contains(e.target)) close();
+    }
+    document.addEventListener('pointerdown', closeWhenOutside, true);
+    document.addEventListener('touchstart', closeWhenOutside, true);
+    menu._close = close;
 
     menu.querySelector('.msg-action-mask').addEventListener('click', close);
     menu.querySelector('.cancel').addEventListener('click', close);
@@ -4960,15 +6388,269 @@ html.dark .msg-action-btn.recall {
     }
   });
 
-  // 委托：聊天图片点击放大
+  // 所有带 download 属性的聊天附件都交给内置下载器，避免落到浏览器默认目录。
+  // 注意：必须先 e.preventDefault() 再做 URL 校验，
+  // 否则 WebView 看到非 https:// 的链接(比如只有域名的 "cos.svf.dpdns.org")
+  // 会自动用 Intent.parseUri 包装成 intent://cos.svf.dpdns.org#Intent;scheme=https;... 的形式
+  // 然后在系统层弹"无法打开 ERR_UNKNOWN_URL_SCHEDULE"错误。
+  document.addEventListener('click', function (e) {
+    const link = e.target.closest('a[download]');
+    if (!link) return;
+    // ① 先无条件拦截默认行为，杜绝 WebView 自己用 intent:// 跳系统浏览器
+    e.preventDefault();
+    e.stopPropagation();
+    const rawUrl = link.getAttribute('href') || '';
+    if (!rawUrl || rawUrl.startsWith('blob:') || rawUrl.startsWith('data:')) return;
+    // ② 协议白名单：只允许 http/https，其他全部拒绝
+    if (!/^https?:\/\//i.test(rawUrl)) {
+      try {
+        const u = new URL(rawUrl, window.location.href);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+          console.warn('[下载] 非 http(s) 协议，拒绝:', rawUrl);
+          if (typeof showToast === 'function') {
+            showToast('❌ 不支持下载该链接(' + u.protocol.replace(':', '') + ')', 2500, false);
+          }
+          return;
+        }
+      } catch (e2) {
+        console.warn('[下载] URL 解析失败:', rawUrl, e2);
+        return;
+      }
+    }
+    let downloadUrl = rawUrl;
+    try { downloadUrl = new URL(rawUrl, window.location.href).href; } catch (_) { /* 使用原始地址 */ }
+    const mediaName = link.querySelector('.chat-media-file-name');
+    const fileName = link.getAttribute('download') || (mediaName && mediaName.textContent.trim()) || '';
+    _builtInDownload(downloadUrl, fileName, false);
+  });
+
+  // 委托：聊天图片点击放大（支持拖动、滚轮/双指缩放）
   document.addEventListener('click', function (e) {
     const img = e.target.closest('.chat-media-img');
     if (img && img.dataset.full) {
       e.preventDefault();
+      if (_consumeSuppressedMessageClick(img)) {
+        e.stopImmediatePropagation();
+        return;
+      }
       e.stopPropagation();
       openImageLightbox(img.dataset.full);
     }
   });
+
+  // 只认视频播放器本体的可见矩形；自定义控制栏也属于当前视频区域。
+  function _videoAtPoint(x, y, fallbackTarget) {
+    function findVideo(el) {
+      if (!el || !el.closest) return null;
+      const direct = el.closest('.chat-media-video');
+      if (direct) return direct;
+      const player = el.closest('.chat-video-player');
+      return player ? player.querySelector('.chat-media-video') : null;
+    }
+    const pointTarget = document.elementFromPoint(x, y);
+    const video = findVideo(pointTarget) || findVideo(fallbackTarget);
+    if (!video) return null;
+    const rect = video.getBoundingClientRect();
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return null;
+    return video;
+  }
+
+  function _videoPlayerFor(video) {
+    return video && video.closest ? video.closest('.chat-video-player') : null;
+  }
+
+  function _formatVideoTime(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return '0:00';
+    const total = Math.floor(seconds);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    if (hours > 0) return hours + ':' + String(minutes).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+    return minutes + ':' + String(secs).padStart(2, '0');
+  }
+
+  function _syncCustomVideoUI(video) {
+    const player = _videoPlayerFor(video);
+    if (!player || !video) return;
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      player.classList.toggle('is-portrait', video.videoHeight > video.videoWidth);
+    }
+    const duration = Number(video.duration);
+    const current = Number(video.currentTime) || 0;
+    const progress = player.querySelector('.chat-video-progress');
+    const currentEl = player.querySelector('.chat-video-current');
+    const durationEl = player.querySelector('.chat-video-duration');
+    const playBtn = player.querySelector('.chat-video-play-toggle');
+    const centerBtn = player.querySelector('.chat-video-center-play');
+    const muteBtn = player.querySelector('.chat-video-mute-toggle');
+
+    if (currentEl) currentEl.textContent = _formatVideoTime(current);
+    if (durationEl) durationEl.textContent = _formatVideoTime(duration);
+    if (progress) {
+      const max = isFinite(duration) && duration > 0 ? duration : 100;
+      const value = isFinite(duration) && duration > 0 ? Math.min(current, duration) : 0;
+      const percent = max > 0 ? (value / max) * 100 : 0;
+      progress.max = String(max);
+      progress.value = String(value);
+      progress.style.setProperty('--video-progress', percent + '%');
+    }
+    if (playBtn) {
+      playBtn.textContent = video.paused || video.ended ? '▶' : '❚❚';
+      playBtn.title = video.paused || video.ended ? '播放' : '暂停';
+    }
+    if (centerBtn) {
+      centerBtn.classList.toggle('is-hidden', !video.paused && !video.ended);
+    }
+    if (muteBtn) {
+      muteBtn.textContent = video.muted || video.volume === 0 ? '🔇' : '🔊';
+      muteBtn.title = video.muted || video.volume === 0 ? '取消静音' : '静音';
+    }
+  }
+
+  function _playCustomVideo(video) {
+    if (!video) return;
+    const promise = video.play();
+    if (promise && typeof promise.catch === 'function') promise.catch(() => {});
+  }
+
+  // 自定义播放器按钮：播放/暂停、静音、进度和页面内全屏。
+  document.addEventListener('click', function (e) {
+    const control = e.target && e.target.closest
+      ? e.target.closest('.chat-video-play-toggle, .chat-video-center-play, .chat-video-mute-toggle, .chat-video-fullscreen-toggle')
+      : null;
+    if (control) {
+      const player = control.closest('.chat-video-player');
+      const video = player && player.querySelector('video');
+      if (!video) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (control.classList.contains('chat-video-fullscreen-toggle')) {
+        // 只打开网页内播放器，不调用 Android 原生全屏接口。
+        if (!player.closest('#chatVideoLightbox')) {
+          openVideoLightbox(video.currentSrc || video.src, video.currentTime || 0);
+        }
+        return;
+      }
+      if (control.classList.contains('chat-video-mute-toggle')) {
+        video.muted = !video.muted;
+        _syncCustomVideoUI(video);
+        return;
+      }
+      if (video.paused || video.ended) _playCustomVideo(video);
+      else video.pause();
+      return;
+    }
+
+    const video = e.target && e.target.closest
+      ? e.target.closest('.chat-media-video, .chat-lightbox-video')
+      : null;
+    if (video && _videoPlayerFor(video)) {
+      e.preventDefault();
+      if (_consumeSuppressedMessageClick(video)) {
+        e.stopImmediatePropagation();
+        return;
+      }
+      if (Date.now() < _suppressCustomVideoClickUntil) {
+        e.stopPropagation();
+        return;
+      }
+      if (video.paused || video.ended) _playCustomVideo(video);
+      else video.pause();
+    }
+  });
+
+  // 全屏播放器内左右滑动视频画面调节进度，控制栏/按钮区域不参与滑动。
+  let _videoSeekGesture = null;
+  let _suppressCustomVideoClickUntil = 0;
+  function _startVideoSeekGesture(e) {
+    const player = e.target && e.target.closest
+      ? e.target.closest('#chatVideoLightbox .chat-video-player')
+      : null;
+    if (!player || e.target.closest('.chat-video-controls') || e.target.closest('button, input')) return;
+    const video = player.querySelector('video');
+    if (!video) return;
+    _videoSeekGesture = {
+      pointerId: e.pointerId,
+      player,
+      video,
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: Number(video.currentTime) || 0,
+      moved: false,
+    };
+  }
+  function _moveVideoSeekGesture(e) {
+    const g = _videoSeekGesture;
+    if (!g || g.pointerId !== e.pointerId) return;
+    const dx = e.clientX - g.startX;
+    const dy = e.clientY - g.startY;
+    if (Math.abs(dx) < 8 || Math.abs(dx) <= Math.abs(dy)) return;
+    const duration = Number(g.video.duration);
+    if (!isFinite(duration) || duration <= 0) return;
+    g.moved = true;
+    const width = Math.max(1, g.player.clientWidth);
+    const nextTime = Math.max(0, Math.min(duration, g.startTime + (dx / width) * duration));
+    g.video.currentTime = nextTime;
+    _syncCustomVideoUI(g.video);
+    _suppressCustomVideoClickUntil = Date.now() + 350;
+    e.preventDefault();
+  }
+  function _endVideoSeekGesture(e) {
+    if (!_videoSeekGesture || _videoSeekGesture.pointerId !== e.pointerId) return;
+    if (_videoSeekGesture.moved) _suppressCustomVideoClickUntil = Date.now() + 350;
+    _videoSeekGesture = null;
+  }
+  document.addEventListener('pointerdown', _startVideoSeekGesture, { capture: true, passive: true });
+  document.addEventListener('pointermove', _moveVideoSeekGesture, { capture: true, passive: false });
+  document.addEventListener('pointerup', _endVideoSeekGesture, { capture: true, passive: true });
+  document.addEventListener('pointercancel', _endVideoSeekGesture, { capture: true, passive: true });
+  // 兼容不支持 PointerEvent 的旧 Android WebView。
+  if (!window.PointerEvent) {
+    document.addEventListener('touchstart', function (e) {
+      if (!e.touches || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      _startVideoSeekGesture({ target: e.target, pointerId: 'touch', clientX: t.clientX, clientY: t.clientY });
+    }, { capture: true, passive: true });
+    document.addEventListener('touchmove', function (e) {
+      if (!e.touches || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      _moveVideoSeekGesture({ target: e.target, pointerId: 'touch', clientX: t.clientX, clientY: t.clientY, preventDefault: () => e.preventDefault() });
+    }, { capture: true, passive: false });
+    document.addEventListener('touchend', function () {
+      _endVideoSeekGesture({ pointerId: 'touch' });
+    }, { capture: true, passive: true });
+    document.addEventListener('touchcancel', function () {
+      _endVideoSeekGesture({ pointerId: 'touch' });
+    }, { capture: true, passive: true });
+  }
+
+  document.addEventListener('input', function (e) {
+    const progress = e.target && e.target.closest ? e.target.closest('.chat-video-progress') : null;
+    if (!progress) return;
+    const player = progress.closest('.chat-video-player');
+    const video = player && player.querySelector('video');
+    if (!video || !isFinite(Number(progress.value))) return;
+    video.currentTime = Number(progress.value);
+    _syncCustomVideoUI(video);
+  });
+
+  ['loadedmetadata', 'durationchange', 'timeupdate', 'progress', 'volumechange', 'play', 'pause', 'ended'].forEach(function (eventName) {
+    document.addEventListener(eventName, function (e) {
+      if (e.target && e.target.tagName === 'VIDEO') _syncCustomVideoUI(e.target);
+    }, true);
+  });
+
+  // 播放当前视频时，自动暂停页面中其它正在播放的视频。
+  document.addEventListener('play', function (e) {
+    const currentVideo = e.target;
+    if (!currentVideo || currentVideo.tagName !== 'VIDEO') return;
+    document.querySelectorAll('video').forEach(function (video) {
+      if (video !== currentVideo && !video.paused) {
+        try { video.pause(); } catch (_) { /* ignore */ }
+      }
+    });
+    _syncCustomVideoUI(currentVideo);
+  }, true);
 
   function formatAudioDuration(seconds) {
     if (!isFinite(seconds) || seconds < 0) return '--:--';
@@ -6424,15 +8106,43 @@ html.dark .msg-action-btn.recall {
     }
   });
 
-  // ---- 聊天链接点击复制 ----
-  document.addEventListener('click', function(e) {
+  // ---- 聊天链接点击：智能识别文件/网站 ----
+  // - 文件(含 chat-media-download):直接调用内置下载器
+  // - 网站:弹窗让用户选「系统 WebView」或「外部浏览器」
+  // - 外部浏览器走 Java 原生 Intent(绕开 WebView intent:// 包装 bug,避免 ERR_UNKNOWN_URL_SCHEME)
+  document.addEventListener('click', async function(e) {
     const link = e.target.closest('.chat-link');
-    if (link) {
-      e.stopPropagation();
-      const url = link.dataset.url;
-      if (url) {
-        copyWithMessage(url, '✅ 已复制：' + url);
-      }
+    if (!link) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const url = link.dataset.url;
+    if (!url) return;
+    // 优先以 data-type 为准,缺失时即时判定
+    const declared = link.dataset.type;
+    const cls = declared ? { type: declared } : _classifyLink(url);
+    if (cls.type === 'file') {
+      // 抓文件名:有聊天文件卡片则用卡片名,否则用 URL 末段
+      const fromCard = link.closest('.chat-media-file');
+      const fileName = (fromCard && (fromCard.dataset.fileName || (fromCard.querySelector('.chat-media-file-name') || {}).textContent || '').trim())
+        || (() => {
+          try {
+            const u = new URL(url, window.location.href);
+            const last = (u.pathname || '').split('/').pop() || '';
+            return last || '文件';
+          } catch (_) { return '文件'; }
+        })();
+      await _builtInDownload(url, fileName, false);
+      return;
+    }
+    // 网站域名:弹选择弹窗
+    const choice = await _showLinkOpenChooser(url);
+    if (choice === 'webview') {
+      // 在当前 WebView 中打开(直接跳转)
+      try { window.location.href = String(url); } catch (_) { showToast('❌ 打开失败', 2000, false); }
+    } else if (choice === 'external') {
+      // 走 Java 原生 Intent 启动外部浏览器
+      const ok = _openExternalBrowser(url);
+      if (!ok) showToast('❌ 无法启动外部浏览器', 2500, false);
     }
   });
 
@@ -6779,9 +8489,81 @@ html.dark .msg-action-btn.recall {
   const closeUpdateModalBtn = document.getElementById('closeUpdateModalBtn');
   function openUpdateModal(){ if(updateModal) updateModal.classList.add('open'); checkRemoteUpdate(); }
   function closeUpdateModal(){ if(updateModal) updateModal.classList.remove('open'); }
-  if(manualUpdateBtn) manualUpdateBtn.addEventListener('click', openUpdateModal);
+  if(manualUpdateBtn) manualUpdateBtn.addEventListener('click', onManualUpdateIconClick);
+  // 长按 ⬆️ 图标 → 打开手动更新模态框（细看哈希 + 选择更新策略）
+  // 仅在原地按压（位移 < 10px）且按压时间达到 500ms 时触发，避免与导航栏拖拽手势冲突
+  if (manualUpdateBtn) {
+    let _upLongPressTimer = null;
+    let _upLongPressed = false;
+    let _upStartX = 0, _upStartY = 0;
+    const cancelUpLongPress = () => {
+      if (_upLongPressTimer) { clearTimeout(_upLongPressTimer); _upLongPressTimer = null; }
+    };
+    manualUpdateBtn.addEventListener('pointerdown', (e) => {
+      if (e.button != null && e.button !== 0) return;
+      _upLongPressed = false;
+      _upStartX = e.clientX;
+      _upStartY = e.clientY;
+      cancelUpLongPress();
+      _upLongPressTimer = setTimeout(() => {
+        _upLongPressed = true;
+        cancelUpLongPress();
+        openUpdateModal();
+      }, 500);
+    });
+    manualUpdateBtn.addEventListener('pointermove', (e) => {
+      if (!_upLongPressTimer) return;
+      const dx = e.clientX - _upStartX;
+      const dy = e.clientY - _upStartY;
+      if (dx * dx + dy * dy > 100) cancelUpLongPress(); // 位移 > 10px 视为拖拽
+    }, { passive: true });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => manualUpdateBtn.addEventListener(ev, cancelUpLongPress, { passive: true }));
+    manualUpdateBtn.addEventListener('click', (e) => {
+      if (_upLongPressed) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        _upLongPressed = false;
+      }
+    }, true);
+  }
   if(closeUpdateModalBtn) closeUpdateModalBtn.addEventListener('click', closeUpdateModal);
   if(updateModal) updateModal.addEventListener('click', e=>{ if(e.target===updateModal) closeUpdateModal(); });
+  // 导航栏 ⬆️ 图标点击：直接拉取远程哈希，若两端都需要更新则优先更新前端
+  async function onManualUpdateIconClick() {
+    if (!manualUpdateBtn || manualUpdateBtn.disabled) return;
+    manualUpdateBtn.disabled = true;
+    showToast('⏳ 正在检查前端和后端是否有更新…', 60000, true);
+    try {
+      const d = await getJSON('/api/update/check?_=' + Date.now());
+      if (!d || d.ok === false) throw new Error((d && d.error) || '检查失败');
+      const fe = d.frontend || {};
+      const be = d.backend || {};
+      const feNeed = !!fe.need_update;
+      const beNeed = !!be.need_update;
+      if (!feNeed && !beNeed) {
+        showToast('✅ 前后端已是最新', 1800, true);
+        return;
+      }
+      if (feNeed && beNeed) {
+        // 两端都需更新：按需求优先更新前端
+        showToast('🔔 前端和后端都有更新，优先更新前端', 2800, true);
+        await doUpdate('frontend');
+        return;
+      }
+      if (feNeed) {
+        showToast('🔔 检测到前端有更新，正在更新…', 2000, true);
+        await doUpdate('frontend');
+        return;
+      }
+      // beNeed only
+      showToast('🔔 检测到后端有更新，正在更新…', 2000, true);
+      await doUpdate('backend');
+    } catch (e) {
+      showToast('❌ 更新检查失败：' + (e && e.message ? e.message : e), 3000, false);
+    } finally {
+      if (manualUpdateBtn) manualUpdateBtn.disabled = false;
+    }
+  }
   async function checkRemoteUpdate(){
     if(!updateStatus) return;
     updateStatus.textContent = '⏳ 正在对比本地与远程哈希…';

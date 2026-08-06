@@ -69,11 +69,33 @@ log_capturer = LogCapturer()
 sys.stdout = log_capturer
 sys.stderr = log_capturer
 
+# ============================================================
+# 原生桥接：沉浸式状态栏 + 电池优化 + 主题同步 + WebView 文件选择
+# (整合自原 android_filechooser.py，统一入口)
+# ============================================================
 try:
-    import android_filechooser
-    android_filechooser.install()
-except Exception as e:
-    print("[文件选择] 初始化跳过:", repr(e))
+    import android_native
+    android_native_ok = android_native.install()
+except Exception as _native_exc:
+    print("[原生桥接] 初始化失败:", repr(_native_exc))
+    android_native_ok = False
+
+
+def _request_ignore_battery_optimizations_once() -> None:
+    if not android_native_ok:
+        return
+    try:
+        android_native.request_ignore_battery_optimizations()
+    except Exception as _exc:
+        print("[电池优化] 请求失败:", repr(_exc))
+
+
+import threading as _threading_battery
+_threading_battery.Thread(
+    target=_request_ignore_battery_optimizations_once,
+    daemon=True,
+    name="battery-opt-request",
+).start()
 
 info = lambda *a, **k: print("[INFO]", *a, **k)
 warn = lambda *a, **k: print("[WARN]", *a, **k)
@@ -195,6 +217,13 @@ COS_BUCKET = os.getenv("COS_BUCKET", "lan-play-monitor-1377695862").strip()
 COS_CDN_BASE = os.getenv("COS_CDN_BASE", "https://cos.svf.dpdns.org").rstrip("/")
 COS_MAX_UPLOAD_BYTES = int(os.getenv("COS_MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))  # 200MB
 
+# 内置下载器：Android 默认公共下载目录，可通过 DOWNLOAD_DIR 覆盖
+DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/storage/emulated/0/Download")).expanduser()
+DOWNLOAD_MAX_BYTES = int(os.getenv("DOWNLOAD_MAX_BYTES", str(2 * 1024 * 1024 * 1024)))  # 2GB
+DOWNLOAD_TIMEOUT = max(10, float(os.getenv("DOWNLOAD_TIMEOUT", "300")))
+DOWNLOAD_XOR_KEY = 0x5A
+_download_path_lock = threading.Lock()
+
 
 def _cos_guess_file_type(filename: str, content_type: str) -> str:
     ct = (content_type or "").lower()
@@ -215,6 +244,120 @@ def _cos_safe_filename(name: str) -> str:
     base = base.replace(" ", "_")
     base = re.sub(r"[^\w.\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\-]+", "", base, flags=re.UNICODE)
     return (base[:120] or "file")
+
+
+def _download_filename_from_headers(headers: Any) -> str:
+    """从 Content-Disposition 中读取下载文件名，兼容 filename*。"""
+    value = str(headers.get("Content-Disposition", "") or "")
+    match = re.search(r"filename\*\s*=\s*UTF-8''([^;]+)", value, re.I)
+    if match:
+        return urllib.parse.unquote(match.group(1).strip().strip('"'))
+    match = re.search(r"filename\s*=\s*\"([^\"]+)\"", value, re.I)
+    if match:
+        return match.group(1)
+    match = re.search(r"filename\s*=\s*([^;]+)", value, re.I)
+    return match.group(1).strip().strip('"') if match else ""
+
+
+def _download_unique_path(directory: Path, filename: str) -> Path:
+    """在下载目录中生成不覆盖旧文件的目标路径。"""
+    safe_name = _cos_safe_filename(filename or "download")
+    stem = Path(safe_name).stem or "download"
+    suffix = Path(safe_name).suffix
+    with _download_path_lock:
+        candidate = directory / safe_name
+        index = 1
+        while candidate.exists():
+            candidate = directory / f"{stem} ({index}){suffix}"
+            index += 1
+        return candidate
+
+
+def download_url_to_android(url: str, filename: str = "", xor: bool = False) -> dict[str, Any]:
+    """将远程文件流式下载到 Android 公共 Download 目录。
+
+    xor=True 用于下载上传时为绕过 COS 检测而 XOR 加密的文件，并在写入本地时还原。
+    不把整个文件读入内存，适合视频、大文件和安装包。
+    """
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("只支持 http/https 文件地址")
+
+    try:
+        DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        raise RuntimeError(f"无法创建下载目录 {DOWNLOAD_DIR}: {exc}") from exc
+    if not DOWNLOAD_DIR.is_dir():
+        raise RuntimeError(f"下载目录不可用：{DOWNLOAD_DIR}")
+
+    req = urllib.request.Request(
+        parsed.geturl(),
+        headers={"User-Agent": f"{APP_NAME}/1.0", "Accept": "*/*"},
+    )
+    ctx_ssl = ssl.create_default_context()
+    ctx_ssl.check_hostname = False
+    ctx_ssl.verify_mode = ssl.CERT_NONE
+    temp_path: Path | None = None
+    try:
+        with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT, context=ctx_ssl) as resp:
+            status = int(getattr(resp, "status", 200) or 200)
+            if not 200 <= status < 400:
+                raise RuntimeError(f"下载失败 HTTP {status}")
+
+            header_name = _download_filename_from_headers(resp.headers)
+            url_name = urllib.parse.unquote(Path(parsed.path).name)
+            final_name = _cos_safe_filename(filename or header_name or url_name or "download")
+            target_path = _download_unique_path(DOWNLOAD_DIR, final_name)
+            temp_path = DOWNLOAD_DIR / f".{target_path.name}.{uuid.uuid4().hex[:8]}.part"
+
+            content_length = 0
+            try:
+                content_length = int(resp.headers.get("Content-Length", "0") or 0)
+            except (TypeError, ValueError):
+                content_length = 0
+            if content_length > DOWNLOAD_MAX_BYTES:
+                raise ValueError(f"文件过大，最大允许 {DOWNLOAD_MAX_BYTES // (1024 * 1024)}MB")
+
+            written = 0
+            with open(temp_path, "wb") as out:
+                while True:
+                    chunk = resp.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    if written > DOWNLOAD_MAX_BYTES:
+                        raise ValueError(f"文件过大，最大允许 {DOWNLOAD_MAX_BYTES // (1024 * 1024)}MB")
+                    if xor:
+                        chunk = bytes(byte ^ DOWNLOAD_XOR_KEY for byte in chunk)
+                    out.write(chunk)
+                out.flush()
+                try:
+                    os.fsync(out.fileno())
+                except OSError:
+                    pass
+
+            os.replace(temp_path, target_path)
+            temp_path = None
+            return {
+                "file_name": target_path.name,
+                "file_path": str(target_path),
+                "directory": str(DOWNLOAD_DIR),
+                "file_size": written,
+                "mime_type": resp.headers.get("Content-Type", "application/octet-stream"),
+                "xor_restored": bool(xor),
+            }
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(256).decode("utf-8", errors="replace") if exc.fp else ""
+        raise RuntimeError(f"下载失败 HTTP {exc.code}{(': ' + detail[:120]) if detail else ''}") from exc
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise RuntimeError(f"下载失败：{reason}") from exc
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _cos_authorization(method: str, object_key: str, headers: dict[str, str],
@@ -1610,7 +1753,7 @@ def build_html() -> str:
   <title>LAN-Play 房间监控</title>
 </head>
 <body>
-<script src="/static/script.js?v=20260806"></script>
+<script src="/static/script.js?v=20260806_5"></script>
 </body>
 </html>"""
 
@@ -1713,6 +1856,21 @@ class MonitorHandler(BaseHTTPRequestHandler):
                 self._send(body, headers, status)
                 return
 
+            if path == "/api/native-info":
+                try:
+                    try:
+                        import android_native
+                        info = android_native.get_native_info()
+                    except Exception:
+                        info = {"available": False, "error": "android_native not loaded"}
+                    data = {"ok": True, **info}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=500)
+                self._send(body, headers, status)
+                return
+
             if path == "/api/update/check":
                 try:
                     st = check_update_status()
@@ -1732,9 +1890,20 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     log_lines = list(logs)
                     
                     # ★ 拼接常驻日志，确保可以在 App 查看状态
+                    # (原 android_filechooser 日志已整合到 android_native.get_status_logs() 中)
                     try:
-                        import android_filechooser
-                        log_lines.extend(android_filechooser.get_status_logs())
+                        import android_native
+                        log_lines.extend(android_native.get_status_logs())
+                    except Exception:
+                        pass
+
+                    # 新增：把"是否已加入电池白名单"也展示出来
+                    try:
+                        import android_native
+                        if android_native.is_ignoring_battery_optimizations():
+                            log_lines.append("[电池优化] ✅ 已在白名单(应用不会被系统杀进程)")
+                        else:
+                            log_lines.append("[电池优化] ⚠️ 仍在电池优化名单中(建议在系统设置里放行)")
                     except Exception:
                         pass
 
@@ -1838,6 +2007,28 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     req_json = {}
             except Exception:
                 req_json = {}
+
+            # ---- 内置下载器：流式下载到 Android /Download ----
+            if path == "/api/download":
+                try:
+                    download_url = str(req_json.get("url", "")).strip()
+                    download_name = str(req_json.get("filename", req_json.get("file_name", ""))).strip()
+                    restore_xor = bool(req_json.get("xor", False))
+                    if not download_url:
+                        raise ValueError("缺少下载地址")
+                    result = download_url_to_android(download_url, download_name, restore_xor)
+                    info(
+                        f"[下载器] 下载完成 name={result['file_name']} size={result['file_size']} "
+                        f"path={result['file_path']} xor={restore_xor}"
+                    )
+                    data = {"ok": True, **result}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    err(f"[下载器] 下载失败: {e}")
+                    data = {"ok": False, "error": str(e), "directory": str(DOWNLOAD_DIR)}
+                    body, headers, status = make_json_response(data, status=400)
+                self._send(body, headers, status)
+                return
 
             if path == "/api/servers/add":
                 try:
