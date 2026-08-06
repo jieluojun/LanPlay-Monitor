@@ -8,7 +8,7 @@ source.include_patterns = image/*
 version = 1.0.0
 
 icon.filename = icon.png
-# presplash.filename = presplash.png
+presplash.filename = presplash.png
 fullscreen = 0
 orientation = portrait
 entrypoint = main.py
