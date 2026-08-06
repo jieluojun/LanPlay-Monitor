@@ -144,8 +144,23 @@ CACHE_TTL = max(1, float(os.getenv("CACHE_TTL", "1")))
 REQUEST_TIMEOUT = max(1, float(os.getenv("REQUEST_TIMEOUT", "1")))
 MAX_WORKERS = 32
 
-REMOTE_CHINESE_DB_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/chinese_db.json"
-REMOTE_SERVERS_URL = "https://v6.gh-proxy.org/https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/servers.json"
+# 可选代理前缀（为空则直连，失败自动重试直连）# 例：https://v6.gh-proxy.org 或 https://gh-proxy.com
+REMOTE_UPDATE_PROXY = os.getenv("REMOTE_UPDATE_PROXY", "https://v6.gh-proxy.org").strip().rstrip("/")
+# 远程资源原始地址（直连）；实际请求时若 REMOTE_UPDATE_PROXY 非空则优先走 代理/原始URL
+REMOTE_CHINESE_DB_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/chinese_db.json"
+REMOTE_SERVERS_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/servers.json"
+
+# 前后端远程更新地址（同上，直连原始地址）
+REMOTE_FRONTEND_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/script.js"
+REMOTE_BACKEND_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/main.py"
+LOCAL_FRONTEND_FILE = str(SCRIPT_DIR / "script.js")
+LOCAL_BACKEND_FILE = str(Path(__file__).resolve())
+
+def _remote_candidate_urls(url: str) -> list[str]:
+    """根据 REMOTE_UPDATE_PROXY 生成候选 URL 列表：优先代理，失败自动重试直连。"""
+    if REMOTE_UPDATE_PROXY:
+        return [f"{REMOTE_UPDATE_PROXY}/{url}", url]
+    return [url]
 
 LOCAL_CHINESE_DB_FILE = str(SCRIPT_DIR / "chinese_db.json")
 
@@ -165,6 +180,187 @@ BUILTIN_GAME_TITLES: dict[str, str] = {
 }
 
 # ============================================================================
+# SECTION 3.5 · 腾讯云 COS（聊天媒体上传）
+# ============================================================================
+
+import hashlib
+import hmac
+import mimetypes
+
+# 优先读环境变量；未设置时使用内置默认（勿把密钥提交到公开仓库）
+COS_SECRET_ID = os.getenv("COS_SECRET_ID", "AKIDcu2wfDajgQq69zc1FGyiQ0X6WjlaDj29").strip()
+COS_SECRET_KEY = os.getenv("COS_SECRET_KEY", "ynNl02tFOJ3czBGBwVq34tVIiz62nNn2").strip()
+COS_REGION = os.getenv("COS_REGION", "ap-beijing").strip()
+COS_BUCKET = os.getenv("COS_BUCKET", "lan-play-monitor-1377695862").strip()
+COS_CDN_BASE = os.getenv("COS_CDN_BASE", "https://cos.svf.dpdns.org").rstrip("/")
+COS_MAX_UPLOAD_BYTES = int(os.getenv("COS_MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))  # 200MB
+
+
+def _cos_guess_file_type(filename: str, content_type: str) -> str:
+    ct = (content_type or "").lower()
+    name = (filename or "").lower()
+    if ct.startswith("image/") or any(name.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic")):
+        return "image"
+    if ct.startswith("video/") or any(name.endswith(ext) for ext in (".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v")):
+        return "video"
+    if ct.startswith("audio/") or any(name.endswith(ext) for ext in (".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".amr", ".opus")):
+        return "audio"
+    return "file"
+
+
+def _cos_safe_filename(name: str) -> str:
+    """生成 COS 安全文件名：保留中文、字母、数字、点、短横、下划线、空格用下划线替换。"""
+    base = Path(name or "file").name
+    # 替换空格为下划线，移除路径不安全字符（保留中文、日文、韩文等 CJK、字母数字点短横下划线）
+    base = base.replace(" ", "_")
+    base = re.sub(r"[^\w.\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\-]+", "", base, flags=re.UNICODE)
+    return (base[:120] or "file")
+
+
+def _cos_authorization(method: str, object_key: str, headers: dict[str, str],
+                       params: dict[str, str] | None = None) -> str:
+    """腾讯云 COS 签名 v5（零第三方依赖）。"""
+    params = params or {}
+    start = int(time.time()) - 60
+    end = start + 3600
+    key_time = f"{start};{end}"
+    sign_key = hmac.new(
+        COS_SECRET_KEY.encode("utf-8"),
+        key_time.encode("utf-8"),
+        hashlib.sha1,
+    ).hexdigest()
+
+    header_map = {k.lower(): str(v) for k, v in headers.items()}
+    header_list = sorted(header_map.keys())
+    http_headers = "&".join(
+        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(header_map[k], safe='')}"
+        for k in header_list
+    )
+
+    param_list = sorted(params.keys())
+    http_params = "&".join(
+        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(params[k]), safe='')}"
+        for k in param_list
+    )
+
+    http_string = (
+        f"{method.lower()}\n"
+        f"/{object_key}\n"
+        f"{http_params}\n"
+        f"{http_headers}\n"
+    )
+    string_to_sign = (
+        "sha1\n"
+        f"{key_time}\n"
+        f"{hashlib.sha1(http_string.encode('utf-8')).hexdigest()}\n"
+    )
+    signature = hmac.new(
+        sign_key.encode("utf-8"),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha1,
+    ).hexdigest()
+
+    return (
+        f"q-sign-algorithm=sha1"
+        f"&q-ak={COS_SECRET_ID}"
+        f"&q-sign-time={key_time}"
+        f"&q-key-time={key_time}"
+        f"&q-header-list={';'.join(header_list)}"
+        f"&q-url-param-list={';'.join(param_list)}"
+        f"&q-signature={signature}"
+    )
+
+
+def cos_put_object(data: bytes, object_key: str, content_type: str = "application/octet-stream") -> str:
+    """上传对象到 COS，返回 CDN/自定义域名 URL。"""
+    if not COS_SECRET_ID or not COS_SECRET_KEY or not COS_BUCKET:
+        raise RuntimeError("COS 未配置")
+    object_key = object_key.lstrip("/")
+    host = f"{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com"
+    headers = {
+        "Host": host,
+        "Content-Type": content_type or "application/octet-stream",
+        "Content-Length": str(len(data)),
+        # 聊天媒体需可匿名读取（缩略图 / 播放 / 下载）
+        "x-cos-acl": "public-read",
+    }
+    auth = _cos_authorization("put", object_key, headers)
+    headers["Authorization"] = auth
+
+    url = f"https://{host}/{object_key}"
+    req = urllib.request.Request(url, data=data, method="PUT", headers=headers)
+    # 与项目其它外网请求一致：关闭证书校验，避免 Android/代理环境自签证书导致失败
+    ctx_ssl = ssl.create_default_context()
+    ctx_ssl.check_hostname = False
+    ctx_ssl.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=ctx_ssl) as resp:
+            if resp.status not in (200, 201):
+                body = resp.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"COS 上传失败 HTTP {resp.status}: {body[:200]}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+        raise RuntimeError(f"COS 上传失败 HTTP {e.code}: {body[:300]}") from e
+
+    return f"{COS_CDN_BASE}/{object_key}"
+
+
+def parse_multipart(body: bytes, content_type: str) -> list[dict[str, Any]]:
+    """简易 multipart/form-data 解析，返回 parts: name/filename/content_type/data。"""
+    m = re.search(r"boundary=([^;]+)", content_type or "", re.I)
+    if not m:
+        raise ValueError("缺少 multipart boundary")
+    boundary = m.group(1).strip().strip('"').encode("utf-8")
+    delimiter = b"--" + boundary
+    parts: list[dict[str, Any]] = []
+    chunks = body.split(delimiter)
+    for chunk in chunks:
+        if not chunk or chunk in (b"--", b"--\r\n", b"\r\n", b"--\r\n--"):
+            continue
+        if chunk.startswith(b"--"):
+            continue
+        if chunk.startswith(b"\r\n"):
+            chunk = chunk[2:]
+        if chunk.endswith(b"\r\n"):
+            chunk = chunk[:-2]
+        if chunk.endswith(b"--"):
+            chunk = chunk[:-2]
+            if chunk.endswith(b"\r\n"):
+                chunk = chunk[:-2]
+        sep = chunk.find(b"\r\n\r\n")
+        if sep < 0:
+            continue
+        header_blob = chunk[:sep].decode("utf-8", errors="replace")
+        data = chunk[sep + 4:]
+        if data.endswith(b"\r\n"):
+            data = data[:-2]
+        name = ""
+        filename = ""
+        ctype = "application/octet-stream"
+        for line in header_blob.split("\r\n"):
+            if line.lower().startswith("content-disposition:"):
+                nm = re.search(r'name="([^"]*)"', line)
+                fn = re.search(r'filename="([^"]*)"', line)
+                # RFC 5987: filename*=UTF-8''encoded_name
+                fn_star = re.search(r"filename\*=?UTF-8''([^\";\s]+)", line, re.I) if not fn else None
+                if nm:
+                    name = nm.group(1)
+                if fn:
+                    filename = fn.group(1)
+                elif fn_star:
+                    filename = urllib.parse.unquote(fn_star.group(1))
+            elif line.lower().startswith("content-type:"):
+                ctype = line.split(":", 1)[1].strip()
+        parts.append({
+            "name": name,
+            "filename": filename,
+            "content_type": ctype,
+            "data": data,
+        })
+    return parts
+
+
+# ============================================================================
 # SECTION 4 · 远程文件下载
 # ============================================================================
 
@@ -180,29 +376,33 @@ _download_status: dict[str, Any] = {
 
 def _download_remote_file(url: str, dest_path: str) -> bool:
     tmp_path = f"{dest_path}.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp"
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": f"{APP_NAME}/1.0", "Accept": "application/json"}
-        )
-        ctx_ssl = ssl.create_default_context()
-        ctx_ssl.check_hostname = False
-        ctx_ssl.verify_mode = ssl.CERT_NONE
-        with urllib.request.urlopen(req, timeout=10, context=ctx_ssl) as resp:
-            data = resp.read()
-            json.loads(data.decode("utf-8-sig"))
-            with open(tmp_path, "wb") as f:
-                f.write(data)
-            os.replace(tmp_path, dest_path)
-            return True
-    except Exception as exc:
-        warn(f"[远程下载] 下载失败 {url} -> {dest_path}: {exc}")
+    for cand_url in _remote_candidate_urls(url):
         try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except OSError:
-            pass
-        return False
+            req = urllib.request.Request(
+                cand_url,
+                headers={"User-Agent": f"{APP_NAME}/1.0", "Accept": "application/json"}
+            )
+            ctx_ssl = ssl.create_default_context()
+            ctx_ssl.check_hostname = False
+            ctx_ssl.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=10, context=ctx_ssl) as resp:
+                data = resp.read()
+                json.loads(data.decode("utf-8-sig"))
+                with open(tmp_path, "wb") as f:
+                    f.write(data)
+                os.replace(tmp_path, dest_path)
+                if cand_url != url:
+                    info(f"[远程下载] 经代理成功 {cand_url}")
+                return True
+        except Exception as exc:
+            warn(f"[远程下载] 下载失败 {cand_url} -> {dest_path}: {exc}")
+            continue
+    try:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    except OSError:
+        pass
+    return False
 
 
 def remote_download_worker():
@@ -234,6 +434,113 @@ def remote_download_worker():
             err(f"[远程下载] 意外错误: {exc}")
         time.sleep(REMOTE_DOWNLOAD_INTERVAL)
 
+
+# ============================================================================
+# SECTION 4.5 · 前后端远程更新（哈希对比手动更新 + 启动时前端缺失自动下载）
+# ============================================================================
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+def _sha256_file(path: Path) -> str | None:
+    try:
+        if not path.is_file():
+            return None
+        return _sha256_bytes(path.read_bytes())
+    except Exception:
+        return None
+
+def _fetch_remote_bytes(url: str, timeout: float = 15) -> bytes | None:
+    urls = _remote_candidate_urls(url)
+    for u in urls:
+        try:
+            req = urllib.request.Request(u, headers={"User-Agent": f"{APP_NAME}/1.0"})
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                if 200 <= resp.status < 300:
+                    return resp.read()
+        except Exception as e:
+            warn(f"[更新] 拉取远程失败 {u}: {e}")
+            continue
+    return None
+
+def ensure_frontend_exists() -> None:
+    fp = Path(LOCAL_FRONTEND_FILE)
+    if fp.is_file() and fp.stat().st_size > 0:
+        return
+    info("[更新] 未检测到前端文件 script.js，尝试从远程下载…")
+    data = _fetch_remote_bytes(REMOTE_FRONTEND_URL)
+    if data and len(data) > 100:
+        try:
+            tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
+            Path(tmp).write_bytes(data)
+            os.replace(tmp, str(fp))
+            info(f"[更新] ✅ 前端已自动下载 {len(data)} bytes hash={_sha256_bytes(data)[:8]}")
+        except Exception as e:
+            err(f"[更新] 前端自动下载写入失败: {e}")
+    else:
+        warn("[更新] 前端自动下载失败（远程无数据）")
+
+def check_update_status() -> dict[str, Any]:
+    frontend_local = _sha256_file(Path(LOCAL_FRONTEND_FILE))
+    backend_local = _sha256_file(Path(LOCAL_BACKEND_FILE))
+    fe_data = _fetch_remote_bytes(REMOTE_FRONTEND_URL)
+    be_data = _fetch_remote_bytes(REMOTE_BACKEND_URL)
+    fe_remote = _sha256_bytes(fe_data) if fe_data else None
+    be_remote = _sha256_bytes(be_data) if be_data else None
+    return {
+        "frontend": {
+            "local_hash": frontend_local,
+            "remote_hash": fe_remote,
+            "need_update": bool(fe_remote and frontend_local != fe_remote),
+            "local_exists": frontend_local is not None,
+            "remote_available": fe_remote is not None,
+        },
+        "backend": {
+            "local_hash": backend_local,
+            "remote_hash": be_remote,
+            "need_update": bool(be_remote and backend_local != be_remote),
+            "remote_available": be_remote is not None,
+        },
+    }
+
+def do_update_frontend() -> dict[str, Any]:
+    fp = Path(LOCAL_FRONTEND_FILE)
+    local_hash = _sha256_file(fp)
+    data = _fetch_remote_bytes(REMOTE_FRONTEND_URL)
+    if not data:
+        return {"ok": False, "error": "远程前端获取失败", "skipped": False}
+    remote_hash = _sha256_bytes(data)
+    if local_hash == remote_hash:
+        return {"ok": True, "skipped": True, "message": "前端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash}
+    try:
+        tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
+        Path(tmp).write_bytes(data)
+        os.replace(tmp, str(fp))
+        info(f"[更新] ✅ 前端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash[:8]}")
+        return {"ok": True, "skipped": False, "message": "前端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "skipped": False}
+
+def do_update_backend() -> dict[str, Any]:
+    fp = Path(LOCAL_BACKEND_FILE)
+    local_hash = _sha256_file(fp)
+    data = _fetch_remote_bytes(REMOTE_BACKEND_URL)
+    if not data:
+        return {"ok": False, "error": "远程后端获取失败", "skipped": False}
+    remote_hash = _sha256_bytes(data)
+    if local_hash == remote_hash:
+        return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash}
+    try:
+        tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
+        Path(tmp).write_bytes(data)
+        os.replace(tmp, str(fp))
+        info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash[:8]}")
+        return {"ok": True, "skipped": False, "message": "后端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "skipped": False}
 
 def start_remote_download_thread():
     def _first_then_loop():
@@ -1286,28 +1593,16 @@ def get_static_file(filename: str) -> str:
 
 
 def build_html() -> str:
-    html = get_static_file("index.html")
-    css = get_static_file("styles.css")
-    js = get_static_file("script.js")
-    
-    if html:
-        html = html.replace('{{STYLES}}', css)
-        html = html.replace('{{SCRIPTS}}', js)
-        return html
-    
-    return f"""<!doctype html>
+    """页面壳：前端 UI（HTML 结构 + CSS + JS）已全部合并进 script.js，
+    此壳不再依赖任何 index.html 文件，只负责加载合并后的脚本。"""
+    return """<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#dff3ff" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0f1923" media="(prefers-color-scheme: dark)">
   <title>LAN-Play 房间监控</title>
-  <style>{css}</style>
 </head>
 <body>
-  {html}
-  <script>{js}</script>
+<script src="/static/script.js?v=20260806"></script>
 </body>
 </html>"""
 
@@ -1342,10 +1637,9 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     self.end_headers()
                     return
                 file_path = SCRIPT_DIR / filename
-                if file_path.is_file() and filename in ("index.html", "styles.css", "script.js", "goeasy.min.js"):
+                # 单文件版：前端只保留 script.js（含全部 HTML/CSS）与 GoEasy SDK
+                if file_path.is_file() and filename in ("script.js", "goeasy.min.js"):
                     content_type = {
-                        "index.html": "text/html; charset=utf-8",
-                        "styles.css": "text/css; charset=utf-8",
                         "script.js": "application/javascript; charset=utf-8",
                         "goeasy.min.js": "application/javascript; charset=utf-8",
                     }.get(filename, "application/octet-stream")
@@ -1354,8 +1648,8 @@ class MonitorHandler(BaseHTTPRequestHandler):
                         self.send_response(200)
                         self.send_header("Content-Type", content_type)
                         self.send_header("Content-Length", str(len(body)))
-                        # JS/CSS 禁止缓存，确保在线成员等前端逻辑能及时生效
-                        if filename in ("script.js", "styles.css", "index.html"):
+                        # script.js 禁止缓存，确保前端逻辑能及时生效
+                        if filename == "script.js":
                             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
                             self.send_header("Pragma", "no-cache")
                         self.end_headers()
@@ -1404,6 +1698,17 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     force_check = wants_refresh(query)
                     net_status = get_network_status(force=force_check)
                     data = {"ok": True, "online": net_status["online"]}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=500)
+                self._send(body, headers, status)
+                return
+
+            if path == "/api/update/check":
+                try:
+                    st = check_update_status()
+                    data = {"ok": True, **st}
                     body, headers, status = make_json_response(data)
                 except Exception as e:
                     data = {"ok": False, "error": str(e)}
@@ -1461,8 +1766,63 @@ class MonitorHandler(BaseHTTPRequestHandler):
             parsed_url = urllib.parse.urlparse(self.path)
             path = parsed_url.path
             content_length = int(self.headers.get("Content-Length", 0))
+            content_type = self.headers.get("Content-Type", "") or ""
 
-            # POST 接口统一使用 JSON body（媒体文件一律走 GoEasy IM 原生上传，后端不再提供本地上传）
+            # ---- 聊天媒体上传 → 腾讯云 COS ----
+            if path == "/api/upload":
+                try:
+                    if content_length <= 0:
+                        raise ValueError("空请求体")
+                    if content_length > COS_MAX_UPLOAD_BYTES + 1024 * 1024:
+                        raise ValueError(f"文件过大，最大允许 {COS_MAX_UPLOAD_BYTES // (1024 * 1024)}MB")
+                    raw_body = self.rfile.read(content_length)
+                    if "multipart/form-data" not in content_type.lower():
+                        raise ValueError("请使用 multipart/form-data 上传")
+                    parts = parse_multipart(raw_body, content_type)
+                    file_part = None
+                    for p in parts:
+                        if p.get("filename") or p.get("name") in ("file", "media", "upload"):
+                            file_part = p
+                            if p.get("filename"):
+                                break
+                    if not file_part or not file_part.get("data"):
+                        raise ValueError("未找到上传文件字段（name=file）")
+                    data = file_part["data"]
+                    if len(data) > COS_MAX_UPLOAD_BYTES:
+                        raise ValueError(f"文件过大，最大允许 {COS_MAX_UPLOAD_BYTES // (1024 * 1024)}MB")
+                    # 原始文件名（含中文），返回给前端显示
+                    original_filename = file_part.get("filename") or "file"
+                    # object_key 只用 UUID+ASCII扩展名，避免中文导致 COS 签名/URL 问题
+                    filename = _cos_safe_filename(original_filename)
+                    ctype = file_part.get("content_type") or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+                    file_type = _cos_guess_file_type(filename, ctype)
+                    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+                    # 从安全文件名提取纯 ASCII 扩展名
+                    safe_base = re.sub(r"[^a-zA-Z0-9._-]", "", filename)
+                    ext_match = re.search(r"(\.[a-zA-Z0-9_.-]+)$", safe_base)
+                    ext = ext_match.group(1) if ext_match else ""
+                    object_key = f"chat/{file_type}/{day}/{uuid.uuid4().hex}{ext}"
+                    url = cos_put_object(data, object_key, ctype)
+                    info(f"[COS] 上传成功 type={file_type} size={len(data)} key={object_key}")
+                    resp = {
+                        "ok": True,
+                        "url": url,
+                        "file_type": file_type,
+                        "file_name": original_filename,
+                        "file_size": len(data),
+                        "mime_type": ctype,
+                        "object_key": object_key,
+                    }
+                    body, headers, status = make_json_response(resp)
+                except Exception as e:
+                    err(f"[COS] 上传失败: {e}")
+                    body, headers, status = make_json_response(
+                        {"ok": False, "error": str(e)}, status=400
+                    )
+                self._send(body, headers, status)
+                return
+
+            # 其余 POST 接口使用 JSON body
             try:
                 raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
                 req_json = json.loads(raw_body.decode("utf-8") or "{}")
@@ -1588,6 +1948,54 @@ class MonitorHandler(BaseHTTPRequestHandler):
                 self._send(body, headers, status)
                 return
 
+            if path == "/api/update/frontend":
+                try:
+                    result = do_update_frontend()
+                    if result.get("ok"):
+                        if result.get("skipped"):
+                            data = {"ok": True, "skipped": True, "message": result.get("message"), "target": "frontend"}
+                        else:
+                            data = {"ok": True, "skipped": False, "message": result.get("message", "前端更新完成请重启应用"), "target": "frontend"}
+                        body, headers, status = make_json_response(data)
+                    else:
+                        data = {"ok": False, "error": result.get("error", "更新失败"), "target": "frontend"}
+                        body, headers, status = make_json_response(data, status=500)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e), "target": "frontend"}
+                    body, headers, status = make_json_response(data, status=500)
+                self._send(body, headers, status)
+                return
+
+            if path == "/api/update/backend":
+                try:
+                    result = do_update_backend()
+                    if result.get("ok"):
+                        if result.get("skipped"):
+                            data = {"ok": True, "skipped": True, "message": result.get("message"), "target": "backend"}
+                        else:
+                            data = {"ok": True, "skipped": False, "message": result.get("message", "后端更新完成请重启应用"), "target": "backend"}
+                        body, headers, status = make_json_response(data)
+                    else:
+                        data = {"ok": False, "error": result.get("error", "更新失败"), "target": "backend"}
+                        body, headers, status = make_json_response(data, status=500)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e), "target": "backend"}
+                    body, headers, status = make_json_response(data, status=500)
+                self._send(body, headers, status)
+                return
+
+            if path == "/api/update/all":
+                try:
+                    fe = do_update_frontend()
+                    be = do_update_backend()
+                    data = {"ok": True, "frontend": fe, "backend": be}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=500)
+                self._send(body, headers, status)
+                return
+
             if path == "/api/servers/reorder":
                 try:
                     order = req_json.get("order", [])
@@ -1659,6 +2067,7 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
 
 def main() -> None:
+    ensure_frontend_exists()
     ctx.refresh_config()
     info(f"[配置] 初始服务器数: {len(ctx.servers)}")
     info(f"[配置] 远程文件下载间隔: {REMOTE_DOWNLOAD_INTERVAL} 秒")
