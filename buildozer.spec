@@ -9,7 +9,7 @@ version = 1.0.0
 
 icon.filename = icon.png
 presplash.filename = presplash.png
-fullscreen = 0
+fullscreen = 1
 orientation = portrait
 entrypoint = main.py
 
