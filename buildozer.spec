@@ -44,12 +44,8 @@ p4a.port = 5000
 # ========================
 
 # ★ 改动 3：禁止构建时将 py 编译为 pyc，APK 内保留 py 源码
-# 配合你现在的远程更新（py源码对比+清理旧__pycache__）可彻底避免 3.14 vs 3.13 Bad magic 白屏
-# 需配合本地 fork 的 python-for-android 使用，见下方说明
-# p4a.source_dir = ./python-for-android
-# p4a 的新参数，旧版可用 android.no-byte-compile-python = True 兼容
-android.no-byte-compile-python = True
-p4a.args = --no-compile-pyo
+# android.no-byte-compile-python = True
+# p4a.args = --no-compile-pyo
 
 exclude_patterns = **/test/*, **/tests/*
 android.aab = False
