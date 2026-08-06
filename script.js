@@ -1,15 +1,2398 @@
 (() => {
   'use strict';
 
-  document.addEventListener('contextmenu', (e) => e.preventDefault());
+  function __lanPlayInit() {
+
+  'use strict';
+
+    // ============================================================
+    // ★ 单文件版：HTML + CSS 已合并进本 JS（由 build_merged.py 生成）
+    // ============================================================
+
+    // ---------- 页面元信息（对应原 index.html <head>） ----------
+    document.title = 'LAN-Play 房间监控';
+    if (document.documentElement) {
+      document.documentElement.setAttribute('lang', 'zh-CN');
+    }
+    if (!document.querySelector('meta[name="viewport"]')) {
+      const __vpMeta = document.createElement('meta');
+      __vpMeta.name = 'viewport';
+      __vpMeta.content = 'width=device-width,initial-scale=1,viewport-fit=cover';
+      document.head.appendChild(__vpMeta);
+    }
+
+    // ---------- 注入 CSS（原 styles.css 全文） ----------
+    const __styleEl = document.createElement('style');
+    __styleEl.id = 'lanplay-injected-style';
+    __styleEl.textContent = `/* ===== 全局禁用长按选中/复制文字 ===== */
+* {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* 允许输入框等可交互元素正常选择 */
+input, textarea, select, button {
+  -webkit-user-select: auto;
+  -moz-user-select: auto;
+  -ms-user-select: auto;
+  user-select: auto;
+}
+
+/* 日志内容允许复制 */
+.log-content {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+:root{
+  --bg:#dff3ff;--card:rgba(255,255,255,.82);--white:#fff;--ink:#0c3154;--muted:#50728d;
+  --blue:#d8effd;--cyan:#19c8ae;--red:#dc3048;--line:rgba(55,130,175,.12);
+  --shadow:0 16px 44px rgba(65,136,178,.11);
+  --green:#178a78;--green-bg:#dcf6f1;--orange:#e8820c;
+  --radius-lg:28px;--radius-md:20px;--radius-sm:14px;
+  --font:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --transition:all .25s cubic-bezier(.4,0,.2,1);
+}
+html.dark{
+  --bg:#0f1923;--card:rgba(22,34,46,.85);--white:#16222e;--ink:#e0eef8;
+  --muted:#7a9bb5;--blue:#1a3344;--cyan:#2ee6c8;--red:#ff5a6e;
+  --line:rgba(255,255,255,.06);--shadow:0 16px 44px rgba(0,0,0,.4);
+  --green:#3dd9b8;--green-bg:rgba(61,217,184,.12);--orange:#ffb347;
+}
+@media (prefers-color-scheme: dark){
+  :root:not(.light){
+    --bg:#0f1923;--card:rgba(22,34,46,.85);--white:#16222e;--ink:#e0eef8;
+    --muted:#7a9bb5;--blue:#1a3344;--cyan:#2ee6c8;--red:#ff5a6e;
+    --line:rgba(255,255,255,.06);--shadow:0 16px 44px rgba(0,0,0,.4);
+    --green:#3dd9b8;--green-bg:rgba(61,217,184,.12);--orange:#ffb347;
+  }
+}
+*,*::before,*::after{box-sizing:border-box}
+html{
+  background:var(--bg);
+  scroll-behavior:smooth;
+}
+body{
+  margin:0;min-height:100vh;color:var(--ink);font-family:var(--font);
+  background:var(--bg);
+  transition:background .4s ease,color .4s ease;
+  -webkit-tap-highlight-color:transparent;overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+button{font:inherit}
+::selection{background:var(--cyan);color:#fff}
+.page{width:min(1100px,calc(100%-32px));margin:auto;padding:24px 0 24px;animation:fadeIn .5s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.glass{border:1px solid rgba(255,255,255,.8);background:var(--card);box-shadow:var(--shadow);backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);transition:var(--transition)}
+html.dark .glass{border-color:rgba(255,255,255,.05)}
+@media (prefers-color-scheme: dark){:root:not(.light) .glass{border-color:rgba(255,255,255,.05)}}
+
+.hero{margin-top:0;min-height:68px;border-radius:var(--radius-lg);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:12px;z-index:100}
+.brand-area{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  flex:1 1 auto;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-x;
+}
+.brand-area::-webkit-scrollbar{display:none}
+.brand-area > *{flex-shrink:0}
+.brand{display:flex;align-items:center;gap:12px;min-width:0;cursor:pointer}
+.logo{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(145deg,#fff970,#ffd626);box-shadow:inset 0 0 0 2px rgba(255,255,255,.7),0 4px 12px rgba(255,200,40,.25);font-size:16px;animation:pulse 3s ease-in-out infinite;flex-shrink:0}
+.plugin-toast{
+  position:fixed;left:50%;top:90px;transform:translateX(-50%) translateY(-16px);
+  background:linear-gradient(135deg,#19c8ae,#14a891);color:#fff;
+  padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;
+  box-shadow:0 8px 28px rgba(25,200,174,.35);z-index:9999;
+  opacity:0;pointer-events:none;transition:opacity .3s ease,transform .3s ease;
+  white-space:nowrap;
+}
+.plugin-toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+html.dark .plugin-toast{background:linear-gradient(135deg,#2ee6c8,#1ab89a);color:#0f1923}
+@media (prefers-color-scheme: dark){:root:not(.light) .plugin-toast{background:linear-gradient(135deg,#2ee6c8,#1ab89a);color:#0f1923}}
+@media (max-width:600px){
+  .plugin-toast{font-size:12.5px;padding:10px 18px;top:80px;white-space:normal;text-align:center;max-width:calc(100% - 32px)}
+}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+
+.hero-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.theme-toggle,.icon-btn{border:0;width:38px;height:38px;border-radius:12px;background:#e1f1fa;color:var(--ink);cursor:pointer;display:grid;place-items:center;font-size:16px;transition:var(--transition);flex-shrink:0}
+.theme-toggle:hover,.icon-btn:hover{background:#cce9f9;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.08)}
+html.dark .theme-toggle,html.dark .icon-btn{background:rgba(255,255,255,.08);color:var(--cyan)}
+html.dark .theme-toggle:hover,html.dark .icon-btn:hover{background:rgba(255,255,255,.15)}
+@media (prefers-color-scheme: dark){
+  :root:not(.light) .theme-toggle,:root:not(.light) .icon-btn{background:rgba(255,255,255,.08);color:var(--cyan)}
+  :root:not(.light) .theme-toggle:hover,:root:not(.light) .icon-btn:hover{background:rgba(255,255,255,.15)}
+}
+
+/* ===== 公共聊天数字角标（与在线成员一致） ===== */
+.public-chat-btn {
+  position: relative;
+  overflow: hidden;
+}
+.public-chat-btn .public-chat-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+#publicUnreadBadge.zero {
+  display: none;
+}
+
+/* ===== 在线成员按钮 ===== */
+.online-members-btn {
+  position: relative;
+  overflow: hidden; /* 角标限制在图标内 */
+}
+.online-members-btn .online-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.online-count-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--cyan);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: none;
+  pointer-events: none;
+  z-index: 2;
+  transition: transform .2s ease, opacity .2s ease;
+}
+.online-count-badge.zero {
+  opacity: 0.55;
+  background: var(--muted);
+  box-shadow: none;
+}
+html.dark .online-count-badge {
+  color: #0f1923;
+}
+html.dark .online-count-badge.zero {
+  color: #fff;
+  background: rgba(255,255,255,.25);
+}
+
+/* ===== 在线成员列表 ===== */
+.online-members-list {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.online-member-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(125,175,210,.06);
+  transition: background .2s;
+}
+.online-member-item:hover {
+  background: rgba(125,175,210,.12);
+}
+.online-member-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--cyan), #14a891);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.online-member-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.online-member-name {
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.online-member-id {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.online-member-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(25,200,174,.15);
+  flex-shrink: 0;
+}
+.online-members-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 28px 12px;
+}
+html.dark .online-member-item {
+  background: rgba(255,255,255,.04);
+}
+html.dark .online-member-item:hover {
+  background: rgba(255,255,255,.08);
+}
+
+.dot{width:12px;height:12px;border-radius:50%;background:#19c8ae;box-shadow:0 0 0 6px rgba(25,200,174,.13);animation:pulse-dot 2s ease-in-out infinite;flex-shrink:0}
+.dot.online{background:#19c8ae;box-shadow:0 0 0 6px rgba(25,200,174,.15)}
+.dot.offline{background:#dc3048;box-shadow:0 0 0 6px rgba(220,48,72,.15);animation:none}
+.dot.checking{background:#e8820c;box-shadow:0 0 0 6px rgba(232,130,12,.12)}
+@keyframes pulse-dot{0%,100%{box-shadow:0 0 0 6px rgba(25,200,174,.13)}50%{box-shadow:0 0 0 10px rgba(25,200,174,.06)}}
+
+.scan{display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700;font-size:13px;flex-shrink:0;justify-content:flex-end}
+.refresh{border:0;border-radius:12px;padding:10px 18px;background:#e1f1fa;color:var(--ink);font-weight:750;cursor:pointer;font-size:13.5px;transition:var(--transition);display:inline-flex;align-items:center;gap:6px}
+.refresh:hover{background:#cce9f9;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.refresh:active{transform:translateY(0)}
+.refresh.loading{pointer-events:none;opacity:.7}
+.refresh .spinner{width:14px;height:14px;border:2.5px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;display:none}
+.refresh.loading .spinner{display:block}
+.refresh.loading .refresh-text::before{content:'刷新中'}
+.refresh.loading .refresh-text span{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+html.dark .refresh{background:rgba(255,255,255,.08);color:var(--ink)}
+html.dark .refresh:hover{background:rgba(255,255,255,.15)}
+@media (prefers-color-scheme: dark){:root:not(.light) .refresh{background:rgba(255,255,255,.08);color:var(--ink)}:root:not(.light) .refresh:hover{background:rgba(255,255,255,.15)}}
+
+.log-modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(5px);display:none;align-items:center;justify-content:center;z-index:1000}
+.log-modal.open{display:flex}
+.log-box{background:var(--white);width:min(800px,calc(100% - 32px));height:500px;border-radius:var(--radius-md);box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line)}
+.log-header{padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);font-weight:800;font-size:15px}
+.log-close{background:none;border:0;font-size:18px;cursor:pointer;color:var(--muted)}
+.log-content{flex:1;padding:16px;background:#0b131a;color:#3dd9b8;font-family:monospace;font-size:12.5px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.5}
+
+.overview{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.ov-card{padding:18px 10px;background:var(--white);border-radius:var(--radius-md);box-shadow:0 6px 20px rgba(82,142,178,.06);text-align:center;transition:var(--transition);min-width:0}
+.ov-card:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(82,142,178,.1)}
+.ov-card span{display:block;color:var(--muted);font-size:11.5px;font-weight:600;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ov-card b{font-size:24px;font-weight:900}
+.ov-card.online b{color:#2b8a6f}.ov-card.idle b{color:#b8860b}.ov-card.rooms b{color:#1a73c0}.ov-card.servers b{color:#6f42c1}
+html.dark .ov-card.online b{color:#3dd9b8}html.dark .ov-card.idle b{color:#ffb347}html.dark .ov-card.rooms b{color:#7ab8ff}html.dark .ov-card.servers b{color:#c4a7ff}
+@media (prefers-color-scheme: dark){
+  :root:not(.light) .ov-card.online b{color:#3dd9b8}
+  :root:not(.light) .ov-card.idle b{color:#ffb347}
+  :root:not(.light) .ov-card.rooms b{color:#7ab8ff}
+  :root:not(.light) .ov-card.servers b{color:#c4a7ff}
+}
+
+.server-list{margin-top:18px;display:grid;gap:12px;contain:layout style}
+
+/* ===== 服务器卡片（含滑动） ===== */
+.server-group{
+  position: relative;
+  background:var(--white);
+  border-radius:var(--radius-md);
+  filter: drop-shadow(0 6px 20px rgba(82,142,178,.06));
+  overflow:hidden;
+  will-change:auto;
+  contain:layout style paint;
+  cursor:grab;
+  transition: filter 0.25s ease;
+  touch-action:pan-y;
+}
+.server-group:active{cursor:grabbing}
+.server-group:hover {
+  filter: drop-shadow(0 10px 30px rgba(82,142,178,.1));
+}
+.server-group.dragging{
+  opacity:0.4;
+  transform:scale(0.98);
+  filter: drop-shadow(0 20px 40px rgba(0,0,0,0.15));
+  border-radius:var(--radius-md) !important;
+  overflow:hidden;
+}
+.server-group.drag-over{border:2px dashed var(--cyan);background:rgba(25,200,174,.05)}
+
+html.dark .server-group {
+  filter: drop-shadow(0 6px 20px rgba(0,0,0,0.5));
+}
+html.dark .server-group:hover {
+  filter: drop-shadow(0 10px 30px rgba(0,0,0,0.6));
+}
+html.dark .server-group.dragging {
+  filter: drop-shadow(0 20px 40px rgba(0,0,0,0.7));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .server-group {
+    filter: drop-shadow(0 6px 20px rgba(0,0,0,0.5));
+  }
+  :root:not(.light) .server-group:hover {
+    filter: drop-shadow(0 10px 30px rgba(0,0,0,0.6));
+  }
+  :root:not(.light) .server-group.dragging {
+    filter: drop-shadow(0 20px 40px rgba(0,0,0,0.7));
+  }
+}
+
+/* 动作层（右侧按钮） - 默认隐藏，滑动后显示 */
+.server-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 160px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(100%);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.server-group.swipe-open .server-actions {
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.action-btn {
+  flex: 1;
+  border: 0;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  touch-action: manipulation;
+}
+.action-btn:active {
+  opacity: 0.8;
+}
+.action-edit {
+  background: #1a73c0;
+}
+.action-edit:hover {
+  background: #155a9b;
+}
+.action-delete {
+  background: var(--red);
+}
+.action-delete:hover {
+  background: #b0243a;
+}
+
+/* 卡片内容容器 */
+.server-card-inner {
+  position: relative;
+  background: var(--white);
+  border-radius: var(--radius-md);
+  transition: transform 0.3s cubic-bezier(.4,0,.2,1);
+  will-change: transform;
+  z-index: 1;
+  touch-action: pan-y;
+}
+.server-group.swipe-open .server-card-inner {
+  transform: translateX(-160px);
+}
+
+/* ===== 地区 / 类型标签：左侧与名称、地址上下对齐 ===== */
+.card-region {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  line-height: 1.35;
+  margin: 1px 0 0;
+  pointer-events: none;
+}
+
+.server-type-badge {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  line-height: 1.35;
+  margin: 1px 0 0;
+  pointer-events: none;
+}
+.server-type-badge.builtin {
+  color: var(--orange);
+}
+.server-type-badge.remote {
+  color: #1a73c0;
+}
+.server-type-badge.manual {
+  color: var(--cyan);
+}
+
+/* ===== 服务器卡片头部 ===== */
+.server-head{
+  position: relative;
+  display:flex;
+  align-items:stretch;
+  gap:14px;
+  padding:22px 22px 18px;
+  cursor:pointer;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation
+}
+.server-head:hover{background:rgba(125,175,210,.06)}
+html.dark .server-head:hover{background:rgba(255,255,255,.03)}
+@media (prefers-color-scheme: dark){:root:not(.light) .server-head:hover{background:rgba(255,255,255,.03)}}
+
+.server-status-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;position:relative;align-self:center;display:block;margin:0}
+.server-status-dot.online{background:#19c8ae;box-shadow:0 0 0 4px rgba(25,200,174,.15);animation:server-pulse-online 2s ease-in-out infinite}
+.server-status-dot.offline{background:#dc3048;box-shadow:0 0 0 4px rgba(220,48,72,.12);animation:none}
+.server-status-dot.checking{background:#e8820c;box-shadow:0 0 0 4px rgba(232,130,12,.12);animation:pulse-dot 1.5s ease-in-out infinite}
+@keyframes server-pulse-online{0%,100%{box-shadow:0 0 0 4px rgba(25,200,174,.15),0 0 0 0 rgba(25,200,174,.25)}50%{box-shadow:0 0 0 8px rgba(25,200,174,.08),0 0 12px 4px rgba(25,200,174,.2)}}
+
+.server-info {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  align-self: stretch;
+  padding: 0;
+}
+
+/* ========== 新增省略号通用类 ========== */
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.server-name,
+.server-address,
+.game-name,
+.host-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+/* 移除旧的双副本滚动相关样式 */
+.scroll-wrapper,
+.server-name .scroll-wrapper,
+.server-address .scroll-wrapper,
+.game-name .scroll-wrapper,
+.host-name .scroll-wrapper {
+  display: none !important;
+}
+
+/* ===== 原有服务器名称和地址样式（继承 ellipsis） ===== */
+.server-name {
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  user-select: text;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  transition: var(--transition);
+  line-height: 1.4;
+}
+.server-name:hover {
+  background: rgba(125,175,210,.08);
+  border-radius: 6px;
+  padding: 0 8px;
+  margin: 0 -8px;
+}
+
+.server-address {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  user-select: text;
+  border-radius: 6px;
+  transition: var(--transition);
+  line-height: 1.4;
+}
+.server-address:hover {
+  background: rgba(125,175,210,.08);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 0 8px;
+  margin: 0 -8px;
+}
+.server-address:active {
+  background: rgba(25,200,174,.15);
+  border-radius: 6px;
+  padding: 0 8px;
+  margin: 0 -8px;
+}
+
+.server-stats{display:grid;grid-template-columns:repeat(4,1fr);width:280px;gap:8px;align-items:center;flex-shrink:0}
+.stat-item{display:flex;flex-direction:column;align-items:center;text-align:center;min-width:0}
+.stat-item span{display:block;font-size:10.5px;color:var(--muted);font-weight:600;margin-bottom:2px;line-height:1.3}
+.stat-item b{font-size:18px;font-weight:900;line-height:1.3;height:auto;display:flex;align-items:center;justify-content:center}
+.stat-item.online b{color:#2b8a6f} .stat-item.idle b{color:#b8860b} .stat-item.rooms b{color:#1a73c0}
+html.dark .stat-item.online b{color:#3dd9b8}html.dark .stat-item.idle b{color:#ffb347}html.dark .stat-item.rooms b{color:#7ab8ff}
+@media (prefers-color-scheme: dark){
+  :root:not(.light) .stat-item.online b{color:#3dd9b8}
+  :root:not(.light) .stat-item.idle b{color:#ffb347}
+  :root:not(.light) .stat-item.rooms b{color:#7ab8ff}
+}
+/* 延迟与其它统计项对齐，数字字号一致 */
+.stat-item.latency{
+  align-items:center;
+  justify-content:center;
+}
+.stat-item.latency b,
+.stat-item.latency .latency-badge{
+  font-size:18px;
+  font-weight:900;
+  line-height:1.3;
+  height:auto;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:transparent!important;
+}
+.latency-badge.fast{color:#17776b}
+.latency-badge.normal{color:var(--muted)}
+.latency-badge.slow{color:#a52639}
+.latency-badge.error{color:var(--muted);font-weight:900}
+html.dark .latency-badge.fast{color:#3dd9b8}
+html.dark .latency-badge.slow{color:#ff5a6e}
+@media (prefers-color-scheme: dark){
+  :root:not(.light) .latency-badge.fast{color:#3dd9b8}
+  :root:not(.light) .latency-badge.slow{color:#ff5a6e}
+}
+
+/* ===== 服务器卡片新消息数字角标：卡片右上角 ===== */
+.unread-indicator {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--cyan);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: none;
+  flex-shrink: 0;
+  display: none;
+  pointer-events: none;
+  z-index: 3;
+}
+html.dark .unread-indicator {
+  color: #0f1923;
+}
+
+.server-body{display:grid;grid-template-rows:0fr;overflow:hidden;transition:none}
+.server-body > .body-inner{overflow:hidden;min-height:0}
+.server-group.open .server-body{grid-template-rows:1fr;overflow:visible}
+/* 展开区内边距缩小，房间更贴近卡片边缘；顶部分割线与收起态边线一致 */
+.server-group.open .server-body > .body-inner{padding:0 10px 10px;overflow:visible}
+
+/* 服务器错误角标：卡片顶部居中，无背景，红色文字 */
+.server-error-badge {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(70%, 280px);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: none;
+  pointer-events: none;
+  z-index: 4;
+  display: none;
+}
+.server-error-badge.show {
+  display: block;
+}
+html.dark .server-error-badge {
+  color: #ff5a6e;
+  background: transparent;
+  box-shadow: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .server-error-badge {
+    color: #ff5a6e;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+@media (max-width:600px) {
+  .server-error-badge {
+    top: 4px;
+    max-width: min(72%, 220px);
+    height: 16px;
+    line-height: 16px;
+    font-size: 10px;
+    padding: 0 2px;
+  }
+}
+/* 兼容旧版横幅错误（若残留则隐藏） */
+.server-error { display: none !important; }
+
+.room-list{display:grid;gap:10px;margin-top:6px;margin-bottom:0}
+.room-item{padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:0 4px 14px rgba(82,142,178,.05);transition:transform .15s ease,box-shadow .15s ease;contain:layout style paint;max-width:100%;overflow:hidden}
+.room-item:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(82,142,178,.09)}
+
+.room-top {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+
+.room-game-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.room-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #34495e;
+}
+
+.game-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #e9f5fb;
+  color: #326887;
+  /* 继承 ellipsis 特性，已用 .ellipsis 类 */
+}
+.game-name.copy-game-id {
+  cursor: pointer;
+  border: 1px dashed var(--red);
+  transition: var(--transition);
+}
+.game-name.copy-game-id:hover {
+  background: rgba(220,48,72,.15);
+  transform: scale(1.02);
+}
+.game-name.no-copy {
+  cursor: default;
+  border: 1px solid var(--line);
+  opacity: 0.7;
+}
+html.dark .game-name {
+  background: rgba(97,194,233,.12);
+  color: #7dd3fc;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .game-name {
+    background: rgba(97,194,233,.12);
+    color: #7dd3fc;
+  }
+}
+
+.room-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #376482;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+}
+.room-meta > * {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.room-meta .green {
+  color: var(--green);
+  font-weight: 750;
+}
+.room-meta .red {
+  color: var(--red);
+  font-weight: 800;
+}
+
+.room-host-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 120px;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  flex-shrink: 1;
+  flex-grow: 0;
+  min-width: 0;
+}
+.host-icon-fixed {
+  flex-shrink: 0;
+  font-size: 15px;
+}
+.host-name {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* 移除旧的滚动动画 */
+@keyframes marquee-dual {
+  /* 已废弃 */
+}
+
+/* 其他原有样式保持不变... */
+.room-players{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.room-players .player{
+  padding:3px 10px;border-radius:999px;background:var(--green-bg);color:#17776b;
+  font-size:11.5px;font-weight:600;
+  white-space:normal;
+  word-break:break-word;
+  flex-shrink:0;
+}
+html.dark .room-players .player{background:rgba(61,217,184,.12);color:#3dd9b8}
+@media (prefers-color-scheme: dark){:root:not(.light) .room-players .player{background:rgba(61,217,184,.12);color:#3dd9b8}}
+
+.no-rooms{padding:20px;text-align:center;color:var(--muted);font-size:13px;background:rgba(125,175,210,.04);border-radius:14px;margin-top:8px}
+.skeleton{height:60px;border-radius:14px;background:linear-gradient(100deg,#f0f6fa 20%,#e2eef5 38%,#f0f6fa 56%);background-size:300% 100%;animation:shine 1.4s infinite;margin-top:8px}
+html.dark .skeleton{background:linear-gradient(100deg,#1a2530 20%,#243240 38%,#1a2530 56%);background-size:300% 100%}
+@media (prefers-color-scheme: dark){:root:not(.light) .skeleton{background:linear-gradient(100deg,#1a2530 20%,#243240 38%,#1a2530 56%);background-size:300% 100%}}
+@keyframes shine{to{background-position-x:-100%}}
+
+.filters{display:flex;gap:8px;overflow-x:auto;padding:14px 0 4px;scrollbar-width:none}
+.filters::-webkit-scrollbar{display:none}
+.filter-tab{flex:0 0 auto;border:0;border-radius:999px;padding:9px 18px;background:#e8f3f9;color:var(--ink);font-weight:700;cursor:pointer;font-size:13px;transition:var(--transition);white-space:nowrap}
+.filter-tab:hover{background:#d8eaf3}
+.filter-tab.active{
+  background:#cde9fa;
+  color:#0c5d91;
+  font-weight:800;
+  filter: drop-shadow(0 2px 8px rgba(97,194,233,.25));
+}
+html.dark .filter-tab{background:rgba(255,255,255,.06)}
+html.dark .filter-tab:hover{background:rgba(255,255,255,.10)}
+html.dark .filter-tab.active{
+  background:rgba(97,194,233,.20);
+  color:#7dd3fc;
+  filter: drop-shadow(0 2px 8px rgba(97,194,233,.3));
+}
+@media (prefers-color-scheme: dark){
+  :root:not(.light) .filter-tab{background:rgba(255,255,255,.06)}
+  :root:not(.light) .filter-tab:hover{background:rgba(255,255,255,.10)}
+  :root:not(.light) .filter-tab.active{
+    background:rgba(97,194,233,.20);
+    color:#7dd3fc;
+    filter: drop-shadow(0 2px 8px rgba(97,194,233,.3));
+  }
+}
+
+.custom-modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(5px);display:none;align-items:center;justify-content:center;z-index:1000}
+.custom-modal.open{display:flex}
+.custom-modal-box{background:var(--white);width:min(450px,calc(100% - 32px));border-radius:var(--radius-md);box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--line);animation:fadeIn .25s ease}
+.custom-modal-header{padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);font-weight:800;font-size:15px}
+.custom-modal-close{background:none;border:0;font-size:18px;cursor:pointer;color:var(--muted)}
+.custom-modal-body{padding:20px}
+.form-grid{display:grid;gap:12px;margin-top:4px}
+.form-row input,.form-row select{width:100%;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:13.5px;outline:none;transition:var(--transition)}
+.form-row input:focus,.form-row select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(25,200,174,.15)}
+.form-row-group{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.submit-btn{width:100%;border:0;border-radius:12px;padding:12px;background:var(--cyan);color:#fff;font-weight:800;cursor:pointer;font-size:14px;transition:var(--transition);margin-top:4px;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.submit-btn:hover{opacity:.9;transform:translateY(-1px)}
+.submit-btn:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.submit-btn .spinner{width:14px;height:14px;border:2.5px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;display:none}
+.submit-btn.loading .spinner{display:block}
+
+/* ===== Toast ===== */
+.global-copy-toast {
+  position: fixed;
+  left: 50%;
+  top: 80px;
+  transform: translateX(-50%) translateY(-12px);
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .25s ease, transform .25s ease;
+  background: linear-gradient(135deg, #19c8ae, #14a891);
+  color: #fff;
+  padding: 10px 22px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 8px 28px rgba(25, 200, 174, .35);
+  white-space: normal;
+  max-width: min(90vw, 400px);
+  word-wrap: break-word;
+  text-align: center;
+}
+.global-copy-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.global-copy-toast.success {
+  background: linear-gradient(135deg, #19c8ae, #14a891);
+}
+.global-copy-toast.error {
+  background: linear-gradient(135deg, #dc3048, #b0243a);
+  box-shadow: 0 8px 28px rgba(220, 48, 72, .35);
+}
+html.dark .global-copy-toast {
+  background: linear-gradient(135deg, #2ee6c8, #1ab89a);
+  color: #0f1923;
+}
+html.dark .global-copy-toast.error {
+  background: linear-gradient(135deg, #ff5a6e, #cc3048);
+  color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .global-copy-toast {
+    background: linear-gradient(135deg, #2ee6c8, #1ab89a);
+    color: #0f1923;
+  }
+  :root:not(.light) .global-copy-toast.error {
+    background: linear-gradient(135deg, #ff5a6e, #cc3048);
+    color: #fff;
+  }
+}
+@media (max-width:600px) {
+  .global-copy-toast {
+    font-size: 12.5px;
+    padding: 8px 16px;
+    top: 72px;
+    max-width: 92vw;
+  }
+}
+
+footer{text-align:center;padding:24px 16px 8px;color:#55758c;font-size:12px;line-height:1.9;margin-top:12px}
+html.dark footer{color:var(--muted)}
+@media (prefers-color-scheme: dark){:root:not(.light) footer{color:var(--muted)}}
+
+/* ===== DPI 调节模态框 ===== */
+.dpi-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.dpi-modal.open {
+  display: flex;
+}
+.dpi-modal-box {
+  background: var(--white);
+  width: min(320px, calc(100% - 32px));
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  animation: fadeIn .2s ease;
+}
+.dpi-modal-header {
+  padding: 14px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  font-weight: 800;
+  font-size: 15px;
+}
+.dpi-modal-close {
+  background: none;
+  border: 0;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.dpi-modal-body {
+  padding: 24px 20px 20px;
+}
+.dpi-slider-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+#dpiLabel {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--cyan);
+}
+#dpiSlider {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--line);
+  border-radius: 3px;
+  outline: none;
+  transition: background .2s;
+}
+#dpiSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--cyan);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(25,200,174,.3);
+}
+#dpiSlider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--cyan);
+  cursor: pointer;
+  border: 0;
+}
+html.dark #dpiSlider {
+  background: rgba(255,255,255,.15);
+}
+html.dark #dpiSlider::-webkit-slider-thumb {
+  background: var(--cyan);
+}
+html.dark #dpiSlider::-moz-range-thumb {
+  background: var(--cyan);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) #dpiSlider {
+    background: rgba(255,255,255,.15);
+  }
+  :root:not(.light) #dpiSlider::-webkit-slider-thumb {
+    background: var(--cyan);
+  }
+  :root:not(.light) #dpiSlider::-moz-range-thumb {
+    background: var(--cyan);
+  }
+}
+
+.dpi-reset-btn {
+  margin-top: 4px;
+  padding: 8px 20px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--cyan);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition);
+  width: 100%;
+  max-width: 200px;
+}
+.dpi-reset-btn:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+.dpi-reset-btn:active {
+  transform: scale(0.97);
+}
+html.dark .dpi-reset-btn {
+  background: var(--cyan);
+  color: #0f1923;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .dpi-reset-btn {
+    background: var(--cyan);
+    color: #0f1923;
+  }
+}
+
+/* ===== 响应式 ===== */
+@media (max-width:900px){
+  .page{width:calc(100% - 20px);padding-top:14px}
+  .hero{border-radius:20px;padding:10px 14px;gap:10px}
+  .brand-area{min-width:0;flex:1 1 auto}
+  .scan{font-size:12px;flex-shrink:0}
+  .ov-card{padding:14px 6px}
+  .ov-card b{font-size:20px}
+  .server-head{padding:14px 16px;gap:10px}
+  .server-stats{width:250px;gap:6px;align-items:center}
+  .server-info{align-self:stretch;padding:0}
+  .server-name{font-size:14.5px}
+  .server-address{font-size:11.5px}
+  .stat-item b{height:auto;line-height:1.3}
+}
+@media (max-width:600px){
+  .page{width:calc(100% - 14px);padding:10px 0 16px}
+  .hero{border-radius:16px;padding:8px 10px;gap:6px;position:sticky;top:6px}
+  .brand-area{min-width:0;flex:1 1 auto;gap:6px}
+  .brand strong{font-size:15px}
+  .brand small{display:none}
+  .logo{width:34px;height:34px;border-radius:10px;font-size:16px}
+  .theme-toggle,.icon-btn{width:34px;height:34px;border-radius:10px;font-size:14px}
+  .scan{margin-top:0;font-size:11.5px;flex-shrink:0}
+  .scan .refresh{flex:0 0 auto;padding:7px 12px;font-size:12px}
+  .overview{grid-template-columns:repeat(4,1fr);gap:5px;margin-top:14px}
+  .ov-card{padding:10px 2px;border-radius:12px}
+  .ov-card b{font-size:16px}
+  .ov-card span{font-size:10px}
+  .server-list{margin-top:14px;gap:10px}
+  .server-head{padding:12px 14px;gap:8px;flex-wrap:nowrap}
+  .server-status-dot{width:10px;height:10px;align-self:center;display:block;flex-shrink:0}
+  .server-info{align-self:stretch;padding:0}
+  .server-name{font-size:13.5px}
+  .server-address{font-size:11px}
+  .server-stats{width:210px;gap:4px;align-items:center}
+  .server-stats .stat-item span{font-size:9.5px}
+  .server-stats .stat-item b,
+  .server-stats .stat-item.latency b,
+  .server-stats .stat-item.latency .latency-badge{
+    font-size:15px;
+    height:auto;
+    line-height:1.3;
+  }
+  .server-group.open .server-body{padding:0}
+  .server-group.open .server-body > .body-inner{padding:0 8px 8px}
+  .room-list{gap:8px;margin-top:6px}
+  .room-item{padding:14px;border-radius:14px}
+  .room-game-left .game-name{font-size:11px;padding:3px 10px;flex:0 1 auto;max-width:100%}
+  .room-host-meta{max-width:100px;flex-shrink:1}
+  .room-meta{font-size:12px;gap:6px;flex-wrap:nowrap}
+  .room-players{gap:4px}
+  .room-players .player{font-size:10.5px;padding:2px 8px;white-space:normal;word-break:break-word}
+  .filters{padding:10px 0 2px}
+  .filter-tab{padding:7px 14px;font-size:12px}
+}
+@media (max-width:380px){
+  .brand strong{font-size:14px}
+  .logo{width:30px;height:30px;font-size:14px}
+  .theme-toggle,.icon-btn{width:30px;height:30px;font-size:12px}
+  .scan{font-size:10.5px;gap:6px}
+  .scan .refresh{padding:6px 10px;font-size:11px}
+  .server-stats{grid-template-columns:repeat(3,1fr);width:150px;align-items:center}
+  .server-stats .stat-item.idle{display:none}
+  .server-name{font-size:12.5px}
+  .server-address{font-size:10px}
+  .room-game-left .game-name{font-size:10.5px;padding:2px 8px}
+  .room-host-meta{max-width:80px;flex-shrink:1}
+  .room-meta{font-size:11px;gap:4px;flex-wrap:nowrap}
+  .room-players .player{font-size:10px;padding:2px 6px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
+
+/* ===== 聊天模块样式 ===== */
+.chat-wrapper {
+    margin-top: 0;
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+    padding-bottom: 4px;
+}
+.chat-messages {
+    max-height: 120px;
+    overflow-y: auto;
+    background: var(--card);
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.chat-msg {
+    padding: 4px 10px;
+    border-radius: 12px;
+    max-width: 80%;
+    word-break: break-word;
+    background: rgba(125,175,210,.08);
+    align-self: flex-start;
+}
+.chat-msg-mine {
+    background: #fff;
+    color: #17344d;
+    align-self: flex-end;
+}
+/* QQ 风格时间分割线 */
+.chat-time-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    align-self: stretch;
+    margin: 8px 0 4px;
+    pointer-events: none;
+    user-select: none;
+}
+.chat-time-divider span {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    background: transparent;
+    padding: 2px 10px;
+    border-radius: 999px;
+    letter-spacing: 0.2px;
+    opacity: 0.9;
+}
+html.dark .chat-time-divider span {
+    color: var(--muted);
+    opacity: 0.85;
+}
+.chat-input-area {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+.chat-input {
+    flex: 1;
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    font-size: 13px;
+    outline: none;
+}
+.chat-input:focus {
+    border-color: var(--cyan);
+}
+.chat-send-btn {
+    padding: 6px 16px;
+    border: 0;
+    border-radius: 20px;
+    background: var(--cyan);
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.chat-send-btn:hover {
+    opacity: 0.85;
+}
+html.dark .chat-msg {
+    background: rgba(255,255,255,.06);
+}
+html.dark .chat-msg-mine {
+    background: var(--cyan);
+    color: #0f1923;
+}
+
+.image-upload-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 12px;
+  transition: var(--transition);
+  color: var(--muted);
+}
+.image-upload-btn:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+
+/* ===== 聊天链接 - 无背景，纯亮蓝色 ===== */
+.chat-link {
+    color: #1e90ff;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 2px;
+    text-decoration-color: #1e90ff;
+    cursor: pointer;
+    user-select: text;
+    transition: color 0.2s, transform 0.1s;
+    font-weight: 600;
+}
+.chat-link:hover {
+    color: #0077ea;
+    transform: scale(1.02);
+}
+
+html.dark .chat-link,
+@media (prefers-color-scheme: dark) {
+    :root:not(.light) .chat-link {
+        color: #4fc3f7;
+        text-decoration-color: #4fc3f7;
+    }
+    html.dark .chat-link:hover,
+    :root:not(.light) .chat-link:hover {
+        color: #81d4fa;
+    }
+}
+/* ===== 聊天多媒体消息 ===== */
+.chat-messages {
+  max-height: 220px;
+}
+.chat-media-img {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 10px;
+  display: block;
+  margin-top: 4px;
+  cursor: zoom-in;
+  object-fit: cover;
+  background: rgba(0,0,0,.06);
+}
+.chat-media-video {
+  max-width: 240px;
+  max-height: 200px;
+  border-radius: 10px;
+  display: block;
+  margin-top: 4px;
+  background: #000;
+}
+.chat-media-audio {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  min-width: 200px;
+  max-width: 260px;
+}
+.chat-media-audio-el {
+  display: none;
+}
+.chat-media-audio-label {
+  display: none;
+}
+/* ===== 自定义音频播放器 ===== */
+.audio-player-ui {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.audio-play-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--cyan);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+  transition: opacity .2s, transform .2s;
+}
+.audio-play-btn:hover {
+  opacity: .85;
+  transform: scale(1.06);
+}
+.audio-play-btn:active {
+  transform: scale(.95);
+}
+/* 进度条：浅色气泡(白底)用深色轨道 */
+.audio-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(0,40,60,.25);
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+  min-width: 60px;
+  overflow: hidden;
+  border: 1px solid rgba(0,40,60,.08);
+}
+.audio-progress-fill {
+  height: 100%;
+  background: #19c8ae;
+  border-radius: 3px;
+  width: 0%;
+  pointer-events: none;
+  box-shadow: 0 0 4px rgba(25,200,174,.50);
+}
+.audio-time-display {
+  font-size: 12px;
+  font-weight: 600;
+  color: #08786e;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* 自己发的气泡(cyan底)：深色轨道 + 深色填充 */
+/* 浅色：自己气泡(白底，与对方一致) */
+.chat-msg-mine .audio-progress-bar {
+  background: rgba(0,40,60,.18);
+}
+.chat-msg-mine .audio-progress-fill {
+  background: #19c8ae;
+  box-shadow: 0 0 4px rgba(25,200,174,.50);
+}
+.chat-msg-mine .audio-time-display {
+  color: #08786e;
+}
+
+/* ===== 深色模式：深色气泡(深蓝灰底 #263746) ===== */
+html.dark .audio-play-btn,
+:root:not(.light) .audio-play-btn {
+  background: var(--cyan);
+  color: #0f1923;
+}
+/* 轨道大幅提亮，在 #263746 背景上清晰可见 */
+html.dark .audio-progress-bar,
+:root:not(.light) .audio-progress-bar {
+  background: rgba(255,255,255,.35);
+}
+html.dark .audio-progress-fill,
+:root:not(.light) .audio-progress-fill {
+  background: #2ee6c8;
+  box-shadow: 0 0 8px rgba(46,230,200,.65);
+}
+html.dark .audio-time-display,
+:root:not(.light) .audio-time-display {
+  color: #70ddff;
+}
+/* 深色模式下别人气泡内：轨道更亮 */
+html.dark .chat-msg .audio-progress-bar,
+:root:not(.light) .chat-msg .audio-progress-bar {
+  background: rgba(255,255,255,.35);
+}
+html.dark .chat-msg .audio-progress-fill,
+:root:not(.light) .chat-msg .audio-progress-fill {
+  background: #2ee6c8;
+  box-shadow: 0 0 8px rgba(46,230,200,.65);
+}
+/* 深色模式下自己气泡(与对方一致 #263746 底) */
+html.dark .chat-msg-mine .audio-progress-bar,
+:root:not(.light) .chat-msg-mine .audio-progress-bar {
+  background: rgba(255,255,255,.35);
+}
+html.dark .chat-msg-mine .audio-progress-fill,
+:root:not(.light) .chat-msg-mine .audio-progress-fill {
+  background: #2ee6c8;
+  box-shadow: 0 0 8px rgba(46,230,200,.65);
+}
+html.dark .chat-msg-mine .audio-time-display,
+:root:not(.light) .chat-msg-mine .audio-time-display {
+  color: #70ddff;
+}
+.chat-media-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(125,175,210,.10);
+  color: var(--ink);
+  text-decoration: none;
+  max-width: 260px;
+  transition: background .2s;
+}
+.chat-media-file:hover {
+  background: rgba(125,175,210,.18);
+}
+.chat-media-file-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.chat-media-file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.chat-media-file-name {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-media-file-size {
+  font-size: 11px;
+  color: var(--muted);
+}
+html.dark .chat-media-file {
+  background: rgba(255,255,255,.06);
+}
+html.dark .chat-media-file:hover {
+  background: rgba(255,255,255,.10);
+}
+
+/* 图片放大灯箱 */
+.chat-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0,0,0,.82);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
+}
+.chat-lightbox.open {
+  display: flex;
+}
+.chat-lightbox-img {
+  max-width: min(96vw, 1100px);
+  max-height: 90vh;
+  border-radius: 8px;
+  object-fit: contain;
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  cursor: default;
+}
+.chat-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,.15);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+}
+.chat-lightbox-close:hover {
+  background: rgba(255,255,255,.28);
+}
+
+.chat-input-area .image-upload-btn {
+  font-size: 18px;
+  padding: 4px 6px;
+}
+
+/* ===== 聊天输入区：+ 菜单 + 语音按钮 ===== */
+.chat-input-area {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+  position: relative;
+}
+.chat-plus-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.chat-plus-btn,
+.chat-voice-btn {
+  border: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(125,175,210,.12);
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: var(--transition);
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+}
+.chat-plus-btn:hover,
+.chat-voice-btn:hover {
+  background: rgba(125,175,210,.22);
+  transform: translateY(-1px);
+}
+.chat-voice-btn.recording {
+  background: var(--red);
+  color: #fff;
+  animation: voice-pulse 1s ease-in-out infinite;
+  font-size: 12px;
+  font-weight: 800;
+}
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220,48,72,.35); }
+  50% { box-shadow: 0 0 0 8px rgba(220,48,72,.08); }
+}
+.chat-plus-panel {
+  display: none;
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  min-width: 132px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  z-index: 20;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-plus-panel.open {
+  display: flex;
+}
+.chat-plus-panel button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chat-plus-panel button:hover {
+  background: rgba(125,175,210,.12);
+}
+html.dark .chat-plus-btn,
+html.dark .chat-voice-btn {
+  background: rgba(255,255,255,.08);
+  color: var(--cyan);
+}
+html.dark .chat-plus-btn:hover,
+html.dark .chat-voice-btn:hover {
+  background: rgba(255,255,255,.14);
+}
+html.dark .chat-plus-panel {
+  background: var(--white);
+  border-color: var(--line);
+}
+.chat-input-area .chat-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 聊天身份、长文本与待发送附件 */
+.chat-msg .msg-content { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 4px; line-height:1.5; }
+.chat-msg .msg-content strong { display:inline-block; }
+.msg-sender-id { flex-basis:100%; display:block; margin-top:-2px; color:var(--muted); font-size:10px; font-weight:500; line-height:1.1; }
+.chat-msg-mine .msg-sender-id { color:rgba(100,130,150,.72); }
+.msg-separator { white-space:pre; }
+.chat-input { min-height:36px; max-height:120px; resize:none; overflow-y:auto; line-height:1.45; }
+.chat-pending { flex:0 1 auto; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border-radius:12px; padding:7px 8px; background:rgba(25,200,174,.14); color:var(--ink); font-size:11px; }
+.chat-pending button { border:0; background:none; color:var(--red); cursor:pointer; font-size:15px; padding:0 0 0 4px; }
+@media (max-width:600px) {
+  .chat-msg { max-width:92%; }
+  .chat-pending { max-width:120px; }
+}
+
+/* ===== 手机 QQ 风格聊天重制 ===== */
+.chat-wrapper {
+  margin: 8px -2px 2px;
+  padding: 10px 8px 6px;
+  border-top: 1px solid rgba(255,255,255,.07);
+  background: linear-gradient(180deg, rgba(10,22,33,.32), rgba(10,22,33,.08));
+  border-radius: 16px;
+}
+.chat-messages,
+#publicChatMessages {
+  max-height: 300px;
+  min-height: 78px;
+  overflow-y: auto;
+  padding: 12px 10px;
+  gap: 10px;
+  background: #101d29;
+  border: 1px solid rgba(255,255,255,.055);
+  border-radius: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(141,170,190,.35) transparent;
+}
+html.light .chat-messages,
+html.light #publicChatMessages {
+  background: #f3f7fa;
+  border-color: rgba(55,130,175,.10);
+}
+.chat-msg {
+  display: block;
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: min(82%, 360px);
+  padding: 8px 12px;
+  border-radius: 17px 17px 17px 5px;
+  background: #263746;
+  color: #e8f1f6;
+  box-shadow: 0 2px 5px rgba(0,0,0,.12);
+  font-size: 14px;
+  line-height: 1.45;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  position: relative;
+}
+/* 气泡内媒体元素不拦截长按：视频/音频/图片的 pointer-events 由气泡接管 */
+.chat-msg .chat-media-video,
+.chat-msg .chat-media-audio-el,
+.chat-msg .chat-media-img,
+.chat-msg .chat-media-audio,
+.chat-msg .audio-player-ui,
+.chat-msg .audio-play-btn,
+.chat-msg .audio-progress-bar,
+.chat-msg .chat-media-file,
+.chat-msg .msg-content strong,
+.chat-msg .msg-content .msg-body {
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+/* 视频和音频播放器的控件仍需可点击，但长按由气泡接管 */
+.chat-msg video::-webkit-media-controls {
+  -webkit-touch-callout: none;
+}
+/* 气泡内所有子元素禁用原生长按菜单 */
+.chat-msg * {
+  -webkit-touch-callout: none !important;
+}
+.chat-msg video,
+.chat-msg audio {
+  -webkit-touch-callout: none !important;
+  outline: none;
+}
+/* 防止视频/音频长按弹出系统菜单 */
+.chat-msg .chat-media-video,
+.chat-msg .chat-media-audio {
+  -webkit-touch-callout: none !important;
+  touch-callout: none;
+}
+html.light .chat-msg {
+  background: #fff;
+  color: #17344d;
+  box-shadow: 0 2px 8px rgba(39,91,120,.10);
+}
+.chat-msg-mine {
+  align-self: flex-end;
+  width: fit-content;
+  max-width: min(82%, 360px);
+  border-radius: 17px 17px 5px 17px;
+  background: #fff;
+  color: #17344d;
+}
+html.dark .chat-msg-mine { background: #263746; color: #e7f1f5; }
+.chat-msg .msg-content {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+}
+.chat-msg .msg-content strong {
+  display: block;
+  margin-bottom: 1px;
+  font-size: 13px;
+  line-height: 1.2;
+  color: #65d8ff;
+}
+.chat-msg-mine .msg-content strong { color: #08786e; }
+.chat-msg .msg-sender-id {
+  display: block;
+  margin: 0 0 5px;
+  color: #8ba5b6;
+  font-size: 10px;
+  line-height: 1.15;
+  opacity: .9;
+  overflow-wrap: anywhere;
+}
+.chat-msg-mine .msg-sender-id { color: rgba(100,130,150,.72); }
+.msg-separator { display: none; }
+.chat-media-audio { min-width: 200px; max-width: 255px; }
+.chat-media-video { max-width: 255px; max-height: 180px; }
+.chat-media-img { max-width: 220px; max-height: 220px; }
+.chat-media-file { max-width: 255px; background: rgba(0,0,0,.08); }
+.chat-time-divider { margin: 5px 0 1px; }
+.chat-time-divider span {
+  padding: 3px 10px;
+  color: #7891a2;
+  font-size: 10px;
+  background: rgba(125,175,210,.08);
+}
+.chat-input-area {
+  gap: 7px;
+  padding: 2px 0 0;
+}
+.chat-input-area .chat-input {
+  min-height: 42px;
+  padding: 9px 15px;
+  border-radius: 22px;
+  background: #172735;
+  border-color: rgba(255,255,255,.08);
+  color: #edf7fb;
+  font-size: 14px;
+}
+html.light .chat-input-area .chat-input {
+  background: #fff;
+  border-color: rgba(55,130,175,.14);
+  color: #17344d;
+}
+.chat-input-area .chat-input::placeholder { color: #7891a2; }
+.chat-plus-btn, .chat-voice-btn {
+  width: 42px;
+  height: 42px;
+  background: #253746;
+  color: #9cb6c5;
+  font-size: 21px;
+}
+html.light .chat-plus-btn,
+html.light .chat-voice-btn { background: #e8f0f4; color: #55768b; }
+.chat-send-btn {
+  min-width: 78px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 22px;
+  background: #25d8bd;
+  color: #062a2b;
+  font-size: 15px;
+  box-shadow: 0 4px 12px rgba(37,216,189,.20);
+}
+.chat-pending {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  max-width: 210px;
+  background: #263746;
+  color: #e8f1f6;
+  box-shadow: 0 6px 18px rgba(0,0,0,.22);
+}
+@media (max-width:600px) {
+  .chat-msg, .chat-msg-mine { max-width: 86%; }
+  .chat-media-audio { min-width: 180px; max-width: 235px; }
+  .chat-send-btn { min-width: 70px; padding: 0 14px; }
+}
+@media (prefers-color-scheme: light) {
+  .chat-messages, #publicChatMessages { background:#f3f7fa; border-color:rgba(55,130,175,.10); }
+  .chat-msg { background:#fff; color:#17344d; box-shadow:0 2px 8px rgba(39,91,120,.10); }
+  .chat-input-area .chat-input { background:#fff; border-color:rgba(55,130,175,.14); color:#17344d; }
+  .chat-plus-btn, .chat-voice-btn { background:#e8f0f4; color:#55768b; }
+}
+
+/* 恢复聊天区域原本的主题背景色，仅保留 QQ 气泡布局 */
+.chat-wrapper { background: transparent; }
+.chat-messages, #publicChatMessages { background: var(--card); }
+.chat-msg { background: rgba(125,175,210,.08); color: var(--ink); }
+html.dark .chat-msg { background: rgba(255,255,255,.06); color: var(--ink); }
+.chat-input-area .chat-input { background: var(--card); color: var(--ink); }
+.chat-plus-btn, .chat-voice-btn { background: rgba(125,175,210,.12); color: var(--ink); }
+html.dark .chat-plus-btn, html.dark .chat-voice-btn { background: rgba(255,255,255,.08); color: var(--cyan); }
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .chat-msg { background: rgba(255,255,255,.06); color: var(--ink); }
+  :root:not(.light) .chat-plus-btn, :root:not(.light) .chat-voice-btn { background: rgba(255,255,255,.08); color: var(--cyan); }
+}
+
+/* Telegram 风格消息时间：不显示用户 ID，时间放在气泡右下角 */
+.chat-msg .msg-sender-id { display: none !important; }
+.chat-msg .msg-content { position: relative; padding-bottom: 2px; }
+.chat-msg .msg-time {
+  display: inline-block;
+  margin-left: 8px;
+  color: rgba(145,169,181,.9);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.chat-msg-mine .msg-time { color: rgba(100,130,150,.72); }
+.chat-msg .msg-content strong { margin-right: 2px; }
+/* 聊天相关界面不展示用户 ID（在线成员列表也仅显示昵称） */
+.online-member-id { display: block; }
+.online-member-item { cursor: default; }
+
+/* ===== 聊天气泡可读性优化：浅色 / 深色高对比 ===== */
+/* 默认浅色 */
+.chat-messages, #publicChatMessages { color: #17344d; }
+.chat-msg {
+  background: #ffffff;
+  color: #17344d;
+  border: 1px solid rgba(42,91,119,.10);
+  box-shadow: 0 2px 8px rgba(37,82,108,.12);
+}
+.chat-msg .msg-content { color: #17344d; }
+.chat-msg .msg-content strong { color: #08786e; }
+.chat-msg .msg-time { color: #66808f; }
+.chat-msg-mine {
+  background: #fff;
+  color: #17344d;
+  border-color: rgba(42,91,119,.10);
+  box-shadow: 0 2px 8px rgba(37,82,108,.12);
+}
+.chat-msg-mine .msg-content,
+.chat-msg-mine .msg-content strong { color: #17344d; }
+.chat-msg-mine .msg-time { color: #66808f; }
+.chat-msg .chat-media-audio-label,
+.chat-msg .chat-media-file-size { color: #5c7888; }
+.chat-msg-mine .chat-media-audio-label,
+.chat-msg-mine .chat-media-file-size { color: #5c7888; }
+.chat-link { color: #075fc4; text-decoration-color: #075fc4; }
+
+/* 深色模式 */
+html.dark .chat-messages, html.dark #publicChatMessages,
+:root:not(.light) .chat-messages, :root:not(.light) #publicChatMessages { color: #e7f1f5; }
+html.dark .chat-msg,
+:root:not(.light) .chat-msg {
+  background: #263746;
+  color: #e7f1f5;
+  border-color: rgba(255,255,255,.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,.22);
+}
+html.dark .chat-msg .msg-content,
+:root:not(.light) .chat-msg .msg-content { color: #e7f1f5; }
+html.dark .chat-msg .msg-content strong,
+:root:not(.light) .chat-msg .msg-content strong { color: #70ddff; }
+html.dark .chat-msg .msg-time,
+:root:not(.light) .chat-msg .msg-time { color: #a8bfca; }
+html.dark .chat-msg-mine,
+:root:not(.light) .chat-msg-mine {
+  background: #263746;
+  color: #e7f1f5;
+  border-color: rgba(255,255,255,.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,.22);
+}
+html.dark .chat-msg-mine .msg-content,
+html.dark .chat-msg-mine .msg-content strong,
+:root:not(.light) .chat-msg-mine .msg-content,
+:root:not(.light) .chat-msg-mine .msg-content strong { color: #e7f1f5; }
+html.dark .chat-msg-mine .msg-time,
+:root:not(.light) .chat-msg-mine .msg-time { color: #a8bfca; }
+html.dark .chat-msg .chat-media-audio-label,
+html.dark .chat-msg .chat-media-file-size,
+:root:not(.light) .chat-msg .chat-media-audio-label,
+:root:not(.light) .chat-msg .chat-media-file-size { color: #b5c8d1; }
+html.dark .chat-msg-mine .chat-media-audio-label,
+html.dark .chat-msg-mine .chat-media-file-size,
+:root:not(.light) .chat-msg-mine .chat-media-audio-label,
+:root:not(.light) .chat-msg-mine .chat-media-file-size { color: #b5c8d1; }
+html.dark .chat-link,
+:root:not(.light) .chat-link { color: #72cfff; text-decoration-color: #72cfff; }
+
+@media (prefers-color-scheme: light) {
+  :root:not(.dark) .chat-msg { background:#fff; color:#17344d; border-color:rgba(42,91,119,.10); }
+  :root:not(.dark) .chat-msg .msg-content { color:#17344d; }
+  :root:not(.dark) .chat-msg .msg-content strong { color:#08786e; }
+  :root:not(.dark) .chat-msg .msg-time { color:#66808f; }
+  :root:not(.dark) .chat-msg-mine { background:#fff; color:#17344d; }
+  :root:not(.dark) .chat-msg-mine .msg-content,
+  :root:not(.dark) .chat-msg-mine .msg-content strong { color:#17344d; }
+  :root:not(.dark) .chat-msg-mine .msg-time { color:#66808f; }
+  :root:not(.dark) .chat-link { color:#075fc4; text-decoration-color:#075fc4; }
+}
+
+/* 深色模式链接提高亮度，避免被深色气泡吞掉 */
+html.dark .chat-link,
+html.dark .chat-msg .chat-link,
+:root:not(.light) .chat-link,
+:root:not(.light) .chat-msg .chat-link { color:#8bdcff !important; text-decoration-color:#8bdcff !important; text-shadow:0 0 1px rgba(139,220,255,.25); }
+html.dark .chat-link:hover,
+:root:not(.light) .chat-link:hover { color:#c1efff !important; }
+.chat-audio-duration { display: none !important; }
+
+/* 待发送附件的取消按钮始终完整可见 */
+.chat-pending {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  padding-right: 5px;
+}
+.chat-pending-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-pending button {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  line-height: 1;
+  font-size: 18px;
+}
+
+/* 图片消息支持下载 */
+.chat-image-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  max-width: 100%;
+}
+.chat-image-download {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 8px;
+  color: #0876b8;
+  background: rgba(25,150,210,.10);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.chat-image-download:hover { background: rgba(25,150,210,.20); }
+html.dark .chat-image-download,
+:root:not(.light) .chat-image-download { color: #8bdcff; background: rgba(80,190,240,.14); }
+
+/* 媒体消息：时间放在媒体和下载按钮之间 */
+.chat-msg.media-message .msg-content { display:flex; flex-direction:column; align-items:flex-start; }
+.chat-msg.media-message .msg-content > strong { order:1; }
+.chat-msg.media-message .chat-image-wrap,
+.chat-msg.media-message .chat-video-wrap { order:2; }
+.chat-msg.media-message .msg-time { order:3; margin:4px 0 0; }
+.chat-msg.media-message .chat-image-download,
+.chat-msg.media-message .chat-video-download { order:4; }
+.chat-image-download, .chat-video-download {
+  display:inline-flex;
+  align-items:center;
+  margin-top:4px;
+  padding:4px 9px;
+  border-radius:8px;
+  color:#075d91;
+  background:rgba(25,150,210,.12);
+  font-size:11px;
+  font-weight:700;
+  text-decoration:none;
+}
+.chat-image-download:hover, .chat-video-download:hover { background:rgba(25,150,210,.22); }
+html.dark .chat-image-download, html.dark .chat-video-download,
+:root:not(.light) .chat-image-download, :root:not(.light) .chat-video-download {
+  color:#d7f5ff !important;
+  background:rgba(79,190,240,.24);
+  text-shadow:0 1px 2px rgba(0,0,0,.65);
+}
+.chat-video-wrap { display:inline-block; max-width:100%; }
+
+/* 最终消息格式：用户名： / 消息 / 时间 下载图片或下载视频 */
+.chat-msg .msg-content { display:block; width:fit-content; max-width:100%; }
+.chat-msg .msg-sender { display:block; margin:0 0 4px; line-height:1.25; }
+.chat-msg .msg-body { display:block; line-height:1.45; }
+.chat-msg .msg-footer { display:flex; align-items:center; gap:8px; margin-top:6px; min-height:14px; }
+.chat-msg .msg-footer .msg-time,
+.chat-msg .msg-footer .chat-media-download {
+  display:inline-flex;
+  align-items:center;
+  margin:0;
+  font-size:10px;
+  line-height:1.2;
+  white-space:nowrap;
+}
+.chat-media-download { text-decoration:none; font-weight:700; }
+.chat-msg .msg-footer .chat-media-download { color:#075d91; }
+.chat-msg-mine .msg-footer .chat-media-download { color:#075d91; }
+html.dark .chat-msg .msg-footer .chat-media-download,
+:root:not(.light) .chat-msg .msg-footer .chat-media-download { color:#d7f5ff !important; text-shadow:0 1px 2px rgba(0,0,0,.65); }
+/* 移除旧版媒体排序规则对新页脚的影响 */
+.chat-msg.media-message .msg-content { display:block; }
+.chat-msg.media-message .msg-time { order:initial; }
+
+/* 深色模式链接颜色与浅色模式统一 */
+html.dark .chat-link,
+html.dark .chat-msg .chat-link,
+:root:not(.light) .chat-link,
+:root:not(.light) .chat-msg .chat-link {
+  color: #075fc4 !important;
+  text-decoration-color: #075fc4 !important;
+  text-shadow: none !important;
+}
+html.dark .chat-link:hover,
+:root:not(.light) .chat-link:hover {
+  color: #075fc4 !important;
+}
+
+/* 气泡时间与用户名使用同等深度的文字颜色 */
+.chat-msg .msg-footer .msg-time { color:#08786e; opacity:1; }
+.chat-msg-mine .msg-footer .msg-time { color:#66808f; opacity:1; }
+html.dark .chat-msg .msg-footer .msg-time,
+:root:not(.light) .chat-msg .msg-footer .msg-time { color:#70ddff; opacity:1; }
+html.dark .chat-msg-mine .msg-footer .msg-time,
+:root:not(.light) .chat-msg-mine .msg-footer .msg-time { color:#a8bfca; opacity:1; }
+@media (prefers-color-scheme: light) {
+  :root:not(.dark) .chat-msg .msg-footer .msg-time { color:#08786e; }
+  :root:not(.dark) .chat-msg-mine .msg-footer .msg-time { color:#66808f; }
+}
+
+.chat-audio-duration { display: none !important; }
+html.dark .chat-audio-duration,
+:root:not(.light) .chat-audio-duration { display: none !important; }
+.chat-msg-mine .chat-audio-duration { display: none !important; }
+
+/* ===== 消息操作菜单（撤回/删除） ===== */
+.msg-action-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.msg-action-menu.open {
+  pointer-events: auto;
+}
+.msg-action-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0);
+  transition: background .25s ease;
+}
+.msg-action-menu.open .msg-action-mask {
+  background: rgba(0,0,0,.35);
+}
+.msg-action-sheet {
+  position: relative;
+  z-index: 1;
+  width: min(280px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-radius: 18px;
+  background: var(--white);
+  box-shadow: 0 12px 40px rgba(0,0,0,.2);
+  overflow: hidden;
+  transform: scale(.85);
+  opacity: 0;
+  transition: transform .2s cubic-bezier(.4,0,.2,1), opacity .2s ease;
+}
+.msg-action-menu.open .msg-action-sheet {
+  transform: scale(1);
+  opacity: 1;
+}
+.msg-action-btn {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: center;
+  padding: 16px 20px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background .15s;
+}
+.msg-action-btn:hover {
+  background: rgba(125,175,210,.08);
+}
+.msg-action-btn:active {
+  background: rgba(125,175,210,.15);
+}
+.msg-action-btn.recall {
+  color: var(--red);
+}
+.msg-action-btn.delete {
+  color: var(--muted);
+}
+.msg-action-btn.cancel {
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-weight: 600;
+}
+html.dark .msg-action-sheet {
+  background: #1a2a38;
+  box-shadow: 0 12px 40px rgba(0,0,0,.5);
+}
+html.dark .msg-action-btn:hover {
+  background: rgba(255,255,255,.06);
+}
+html.dark .msg-action-btn.recall {
+  color: #ff5a6e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .msg-action-sheet { background: #1a2a38; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  :root:not(.light) .msg-action-btn:hover { background: rgba(255,255,255,.06); }
+  :root:not(.light) .msg-action-btn.recall { color: #ff5a6e; }
+}
+`;
+    document.head.appendChild(__styleEl);
+
+    // ---------- 注入页面结构（原 index.html 的 <body> 内容） ----------
+    document.body.innerHTML = `
+<div class="page">
+  <section class="hero glass">
+    <div class="brand-area" id="brandArea">
+      <!-- 顺序：主题切换 → 日志 → 复制插件 → 添加服务器 → 重置排序 → DPI → 自动展开 → 公共聊天 → 在线成员 -->
+      <button id="themeToggleBtn" class="theme-toggle" title="切换浅色/深色主题">🌙</button>
+      <button id="openLogModalBtn" class="icon-btn" title="查看运行日志">💻</button>
+      <button id="copyPluginBtn" class="icon-btn" title="点击复制最新版联机插件地址">🎮</button>
+      <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
+      <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
+      <button id="dpiToggleBtn" class="icon-btn" title="调节界面缩放 (DPI)">🔍</button>
+      <button id="manualUpdateBtn" class="icon-btn" title="检查并更新前后端">⬆️</button>
+      <button id="toggleAutoExpandBtn" class="icon-btn" title="切换自动展开房间">📂</button>
+      <button id="openPublicChatBtn" class="icon-btn public-chat-btn" title="公共聊天">
+        <span class="public-chat-icon">💬</span>
+        <span id="publicUnreadBadge" class="online-count-badge zero">0</span>
+      </button>
+      <button id="onlineMembersBtn" class="icon-btn online-members-btn" title="在线成员">
+        <span class="online-icon">👥</span>
+        <span id="onlineCountBadge" class="online-count-badge">0</span>
+      </button>
+    </div>
+    <div class="scan">
+      <i id="netDot" class="dot" title="检测网络连接中..."></i>
+    </div>
+  </section>
+
+  <!-- 在线成员模态框 -->
+  <div id="onlineMembersModal" class="custom-modal">
+    <div class="custom-modal-box" style="width:min(400px,calc(100% - 32px));">
+      <div class="custom-modal-header">
+        <span>👥 在线成员 <span id="onlineMembersTitleCount" style="color:var(--cyan);font-weight:700;">(0)</span></span>
+        <button id="closeOnlineMembersBtn" class="custom-modal-close">✕</button>
+      </div>
+      <div class="custom-modal-body" style="padding:12px 16px 16px;">
+        <div id="onlineMembersList" class="online-members-list">
+          <div class="online-members-empty">暂无在线成员</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 公共聊天模态框 -->
+  <div id="publicChatModal" class="custom-modal">
+    <div class="custom-modal-box" style="width:min(500px,calc(100% - 32px));">
+      <div class="custom-modal-header">
+        <span>💬 公共聊天</span>
+        <button id="closePublicChatBtn" class="custom-modal-close">✕</button>
+      </div>
+      <div class="custom-modal-body">
+        <div id="publicChatMessages" style="height:300px;overflow-y:auto;background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px;display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);">
+          <div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>
+        </div>
+        <div class="chat-input-area">
+          <div class="chat-plus-wrap">
+            <button type="button" id="publicChatPlusBtn" class="chat-plus-btn" title="添加附件">＋</button>
+            <div id="publicChatPlusPanel" class="chat-plus-panel">
+              <button type="button" data-plus-action="image">🖼️ 图片</button>
+              <button type="button" data-plus-action="video">🎬 视频</button>
+              <button type="button" data-plus-action="file">📎 文件</button>
+            </div>
+          </div>
+          <textarea id="publicChatInput" rows="1" placeholder="输入公共消息..." style="flex:1;min-width:120px;padding:8px 14px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:14px;outline:none;resize:none;overflow-y:hidden;line-height:1.45;max-height:120px;"></textarea>
+          <button type="button" id="publicChatVoiceBtn" class="chat-voice-btn" title="录制语音">🎤</button>
+          <button id="publicChatSendBtn" style="padding:8px 20px;border:0;border-radius:20px;background:var(--cyan);color:#fff;font-weight:700;cursor:pointer;transition:var(--transition);">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 日志模态框 -->
+  <div id="logModal" class="log-modal">
+    <div class="log-box">
+      <div class="log-header">
+        <span>🖥️ 实时运行日志</span>
+        <button id="closeLogBtn" class="log-close">✕</button>
+      </div>
+      <div id="logContent" class="log-content">正在加载日志...</div>
+    </div>
+  </div>
+
+  <!-- 添加服务器模态框 -->
+  <div id="addServerModal" class="custom-modal">
+    <div class="custom-modal-box">
+      <div class="custom-modal-header">
+        <span>➕ 添加自定义服务器</span>
+        <button id="closeAddModalBtn" class="custom-modal-close">✕</button>
+      </div>
+      <div class="custom-modal-body">
+        <form id="addServerForm" class="form-grid">
+          <div class="form-row">
+            <input type="text" id="addId" placeholder="服务器ID (可选，不填自动生成)" pattern="[A-Za-z0-9_ -]{1,64}" title="仅允许字母、数字、下划线、空格和连字符，长度1-64">
+          </div>
+          <div class="form-row">
+            <input type="text" id="addName" placeholder="服务器名称 (必填)" required>
+          </div>
+          <div class="form-row">
+            <input type="text" id="addHost" placeholder="主机地址 (例如: example.com 或 IP)" required>
+          </div>
+          <div class="form-row-group">
+            <input type="number" id="addPort" value="11451" placeholder="端口" required>
+            <select id="addType">
+              <option value="graphql">GraphQL</option>
+              <option value="rest">REST</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <input type="text" id="addRegion" placeholder="地区标签 (例如: 🇨🇳 中国 上海，不填默认 🌐 未知)">
+          </div>
+          <button type="submit" class="submit-btn">
+            <span class="spinner"></span>
+            <span class="btn-text">立即添加并保存</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除确认模态框 -->
+  <div id="deleteConfirmModal" class="custom-modal">
+    <div class="custom-modal-box" style="width:min(380px,calc(100% - 32px));">
+      <div class="custom-modal-header">
+        <span>⚠️ 确认删除</span>
+        <button id="closeDeleteModalBtn" class="custom-modal-close">✕</button>
+      </div>
+      <div class="custom-modal-body">
+        <p id="deleteConfirmText" style="margin:0 0 20px;font-size:14px;color:var(--ink);line-height:1.6;"></p>
+        <div style="display:flex;gap:10px;">
+          <button id="deleteCancelBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:rgba(125,175,210,.15);color:var(--ink);font-weight:700;cursor:pointer;font-size:14px;transition:var(--transition);">取消</button>
+          <button id="deleteConfirmBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:var(--red);color:#fff;font-weight:800;cursor:pointer;font-size:14px;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:6px;">确认删除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 恢复默认排序模态框 -->
+  <div id="resetOrderModal" class="custom-modal">
+    <div class="custom-modal-box" style="width:min(380px,calc(100% - 32px));">
+      <div class="custom-modal-header">
+        <span>🔄 恢复默认排序</span>
+        <button id="closeResetModalBtn" class="custom-modal-close">✕</button>
+      </div>
+      <div class="custom-modal-body">
+        <p style="margin:0 0 20px;font-size:14px;color:var(--ink);line-height:1.6;">确定要恢复默认排序吗？当前自定义排序将被清除。</p>
+        <div style="display:flex;gap:10px;">
+          <button id="resetCancelBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:rgba(125,175,210,.15);color:var(--ink);font-weight:700;cursor:pointer;font-size:14px;transition:var(--transition);">取消</button>
+          <button id="resetConfirmBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:var(--cyan);color:#fff;font-weight:800;cursor:pointer;font-size:14px;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:6px;">确认恢复</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DPI 调节模态框 -->
+  <div id="dpiModal" class="dpi-modal">
+    <div class="dpi-modal-box">
+      <div class="dpi-modal-header">
+        <span>🔍 缩放调节</span>
+        <button id="closeDpiModalBtn" class="dpi-modal-close">✕</button>
+      </div>
+      <div class="dpi-modal-body">
+        <div class="dpi-slider-container">
+          <span id="dpiLabel">100%</span>
+          <input type="range" id="dpiSlider" min="60" max="150" value="100" step="5">
+          <button id="dpiResetBtn" class="dpi-reset-btn">恢复默认 (100%)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 手动更新前后端模态框 -->
+  <div id="updateModal" class="custom-modal">
+    <div class="custom-modal-box" style="width:min(420px,calc(100% - 32px));">
+      <div class="custom-modal-header">
+        <span>⬆️ 手动远程更新</span>
+        <button id="closeUpdateModalBtn" class="custom-modal-close">✕</button>
+      </div>
+      <div class="custom-modal-body" style="display:grid;gap:12px;">
+        <p style="margin:0;color:var(--muted);font-size:13px;line-height:1.6;">对比本地与远程哈希值，哈希一致则跳过更新。更新完成后请重启应用。</p>
+        <div id="updateStatus" style="background:rgba(125,175,210,.08);border-radius:12px;padding:12px;font-size:12px;line-height:1.7;color:var(--ink);white-space:pre-wrap;word-break:break-all;">点击下方按钮检查更新…</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <button id="updateFrontendBtn" style="border:0;border-radius:12px;padding:11px;background:var(--cyan);color:#fff;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;">🖼️ 更新前端</button>
+          <button id="updateBackendBtn" style="border:0;border-radius:12px;padding:11px;background:#1a73c0;color:#fff;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;">⚙️ 更新后端</button>
+        </div>
+        <button id="updateAllBtn" style="border:0;border-radius:12px;padding:11px;background:linear-gradient(135deg,#19c8ae,#1a73c0);color:#fff;font-weight:800;cursor:pointer;">⬆️ 一键更新前后端</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 统计概览 -->
+  <div class="overview" id="overview">
+    <div class="ov-card servers"><span>在线服务器</span><b id="ovServers">—</b></div>
+    <div class="ov-card online"><span>总在线</span><b id="ovOnline">—</b></div>
+    <div class="ov-card idle"><span>空闲</span><b id="ovIdle">—</b></div>
+    <div class="ov-card rooms"><span>总房间</span><b id="ovRooms">—</b></div>
+  </div>
+
+  <div class="filters" id="filters"></div>
+  <div class="server-list" id="serverList">
+    <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+  </div>
+</div>
+`;
+
+    // ---------- 按需加载 GoEasy SDK（原 <head> 中的 goeasy.min.js） ----------
+    function ensureGoEasySdk(cb) {
+      if (typeof GoEasy !== 'undefined') { if (typeof cb === 'function') cb(); return; }
+      const __sdkEl = document.createElement('script');
+      __sdkEl.src = 'https://cdn.goeasy.io/goeasy-2.11.1.min.js';
+      __sdkEl.onload = function () { if (typeof cb === 'function') cb(); };
+      __sdkEl.onerror = function () { if (typeof cb === 'function') cb(); };
+      document.head.appendChild(__sdkEl);
+    }
+
+
+
+  document.addEventListener('contextmenu', (e) => {
+    // 始终阻止浏览器原生右键/长按菜单
+    e.preventDefault();
+    // 如果在气泡内，也阻止视频/音频/图片的默认长按行为
+    if (e.target.closest('.chat-msg')) {
+      e.stopPropagation();
+    }
+  });
   document.addEventListener('selectstart', (e) => e.preventDefault());
 
   const CHAT_STORAGE_KEY = 'lanplay_chat_messages';
   const PUBLIC_STORAGE_KEY = 'lanplay_public_messages';
   const USERNAME_KEY = 'lan_play_username';
+  const USER_ID_KEY = 'lan_play_user_id';
   const UNREAD_STORAGE_KEY = 'lanplay_unread_status';
   const PUBLIC_UNREAD_KEY = 'lanplay_public_unread';
   const AUTO_EXPAND_KEY = 'lan_play_auto_expand';
+  const HISTORY_LIMIT = 30;
 
   const state = {
     servers: [],
@@ -30,6 +2413,8 @@
     publicMessages: [],
     publicChatReady: false,
     username: '',
+    userId: '',
+    pendingAttachments: {},
     publicModalOpen: false,
     frozenCardId: null,
     unreadStatus: {},
@@ -253,14 +2638,10 @@
 
   function applyDpi(percent) {
     const clamped = Math.min(150, Math.max(60, percent));
-    const ratio = clamped / 100;
     const serverList = document.getElementById('serverList');
-    if (serverList) serverList.style.zoom = ratio;
-    // 公共聊天弹窗输入区与服务器卡片聊天区共用同一 DPI
-    const pubBox = document.querySelector('#publicChatModal .custom-modal-box');
-    if (pubBox) pubBox.style.zoom = ratio;
-    const onlineBox = document.querySelector('#onlineMembersModal .custom-modal-box');
-    if (onlineBox) onlineBox.style.zoom = ratio;
+    if (serverList) {
+      serverList.style.zoom = clamped / 100;
+    }
     dpiLabel.textContent = Math.round(clamped) + '%';
     dpiSlider.value = clamped;
     localStorage.setItem(DPI_STORAGE_KEY, String(clamped));
@@ -546,30 +2927,17 @@
     return `<b class="latency-badge slow">${lat}ms</b>`;
   }
 
-  function autoResizeChatInput(el) {
-    if (!el || el.tagName !== 'TEXTAREA') return;
-    el.style.height = 'auto';
-    const maxH = 120;
-    const newH = Math.min(el.scrollHeight, maxH);
-    el.style.height = newH + 'px';
-    el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
-  }
-
-  // ===== 手机 QQ 风格时间段格式化 =====
+  // ===== 时间格式化 =====
   function formatMessageTime(timestamp) {
-    const date = new Date(timestamp || Date.now());
+    const date = new Date(timestamp);
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    const weekAgo = new Date(today);
-    weekAgo.setDate(weekAgo.getDate() - 6);
 
     const hours = date.getHours();
     const minutes = date.getMinutes().toString().padStart(2, '0');
-    const seconds = date.getSeconds().toString().padStart(2, '0');
     const hour12 = hours % 12 || 12;
-    const timeStr = hour12 + ':' + minutes + ':' + seconds;
 
     let period;
     if (hours < 5) period = '凌晨';
@@ -579,16 +2947,13 @@
     else period = '晚上';
 
     if (date >= today) {
-      return period + ' ' + timeStr;
+      return `${period} ${hour12}:${minutes}`;
     } else if (date >= yesterday) {
-      return '昨天 ' + period + ' ' + timeStr;
-    } else if (date >= weekAgo) {
-      const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-      return weekdays[date.getDay()] + ' ' + period + ' ' + timeStr;
+      return `昨天 ${hour12}:${minutes}`;
     } else {
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
       const day = date.getDate().toString().padStart(2, '0');
-      return month + '-' + day + ' ' + period + ' ' + timeStr;
+      return `${month}/${day} ${hour12}:${minutes}`;
     }
   }
 
@@ -603,36 +2968,62 @@
     return Math.abs(b - a) >= CHAT_TIME_GAP_MS;
   }
 
-  function formatVoiceDuration(sec) {
-    const d = Math.round(Number(sec) || 0);
-    if (d <= 0) return '1"';
-    if (d < 60) return d + '"';
-    const m = Math.floor(d / 60);
-    const s = d % 60;
-    return m + "'" + (s < 10 ? '0' : '') + s + '"';
+  function formatChatTime(timestamp) {
+    const d = new Date(Number(timestamp) || Date.now());
+    const h = d.getHours();
+    let period;
+    if (h < 6) period = '凌晨';
+    else if (h < 9) period = '早上';
+    else if (h < 12) period = '上午';
+    else if (h < 14) period = '中午';
+    else if (h < 19) period = '下午';
+    else period = '晚上';
+    const hour12 = h % 12 || 12;
+    return period + ' ' + hour12 + ':' + String(d.getMinutes()).padStart(2, '0');
   }
 
   function buildChatMessagesHtml(messages) {
     if (!messages || !messages.length) return '';
     let html = '';
-    let prevTs = null;
+    let prevTime = null;
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
-      const t = msg.time || Date.now();
-      if (shouldShowTimeDivider(prevTs, t)) {
-        const dividerLabel = formatMessageTime(t);
-        html += '<div class="chat-time-divider"><span>' + esc(dividerLabel) + '</span></div>';
-        prevTs = t;
+      const t = msg.time || 0;
+      if (shouldShowTimeDivider(prevTime, t)) {
+        html += `<div class="chat-time-divider"><span>${esc(formatMessageTime(t))}</span></div>`;
       }
+      prevTime = t;
       const cls = msg.isMine ? 'chat-msg-mine' : 'chat-msg-other';
-      const sender = msg.sender || '匿名';
+      const sender = msg.senderName || msg.sender || '匿名';
       const contentHtml = renderMessageContent(msg);
-      const timeLabel = formatMessageTime(t);
-      html += '<div class="chat-msg ' + cls + '" data-id="' + esc(msg.id || '') + '" data-sender="' + esc(sender) + '" draggable="false">' +
-        '<div class="msg-sender">' + esc(sender) + '：</div>' +
-        '<div class="msg-body">' + contentHtml + '</div>' +
-        '<div class="msg-time">' + esc(timeLabel) + '</div>' +
-      '</div>';
+      const mediaType = msg.mediaType || '';
+      const url = msg.url || '';
+      let downloadHtml = '';
+      // 图片/视频直接走 COS CDN；文件/语音走后端代理绕过 COS 下载限制
+      if (url && mediaType === 'image') {
+        downloadHtml = `<a class="chat-media-download" href="${esc(url)}" download="${esc(msg.fileName || 'image')}" target="_blank" rel="noopener noreferrer">下载图片</a>`;
+      } else if (url && mediaType === 'video') {
+        downloadHtml = `<a class="chat-media-download" href="${esc(url)}" download target="_blank" rel="noopener noreferrer">下载视频</a>`;
+      } else if (url && mediaType === 'file') {
+        if (_isXorMsg(msg)) {
+          downloadHtml = `<a class="chat-media-download" data-xor-url="${esc(url)}" data-xor-name="${esc(msg.fileName || '文件')}" data-xor-mime="${esc(msg.mimeType || '')}">下载文件</a>`;
+        } else {
+          downloadHtml = `<a class="chat-media-download" href="${esc(url)}" download="${esc(msg.fileName || '文件')}" target="_blank" rel="noopener noreferrer">下载文件</a>`;
+        }
+      } else if (url && mediaType === 'audio') {
+        if (_isXorMsg(msg)) {
+          downloadHtml = `<a class="chat-media-download" data-xor-url="${esc(url)}" data-xor-name="${esc(msg.fileName || '语音')}" data-xor-mime="${esc(msg.mimeType || 'audio/mpeg')}">下载语音</a>`;
+        } else {
+          downloadHtml = `<a class="chat-media-download" href="${esc(url)}" download="${esc(msg.fileName || '语音')}" target="_blank" rel="noopener noreferrer">下载语音</a>`;
+        }
+      }
+      html += `<div class="chat-msg ${cls}" data-msg-id="${esc(msg.id || '')}">
+        <div class="msg-content">
+          <strong class="msg-sender">${esc(sender)}：</strong>
+          <div class="msg-body">${contentHtml}</div>
+          <div class="msg-footer"><span class="msg-time">${esc(formatChatTime(t))}</span>${downloadHtml}</div>
+        </div>
+      </div>`;
     }
     return html;
   }
@@ -844,7 +3235,6 @@
     }
 
     function onStart(e) {
-      if (e.target && (e.target.closest('.chat-wrapper') || e.target.closest('.chat-messages'))) return;
       const touch = e.touches ? e.touches[0] : e;
       startX = touch.clientX;
       currentX = startX;
@@ -1085,17 +3475,7 @@
   let draggedEl = null;
   function initDragAndDrop(div, s) {
     div.setAttribute('draggable', 'true');
-    div.addEventListener('dragstart', e => {
-      // 严禁从聊天模块、控制区域触发卡片拖动，避免移动端长按消息被浏览器当成卡片拖曳排序
-      if (e.target && (e.target.closest('.chat-wrapper') || e.target.closest('.chat-messages') || e.target.closest('.chat-msg') || e.target.closest('button') || e.target.closest('input') || e.target.closest('textarea') || e.target.closest('.server-actions'))) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-      draggedEl = div;
-      div.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-    });
+    div.addEventListener('dragstart', e => { draggedEl = div; div.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
     div.addEventListener('dragend', () => {
       div.classList.remove('dragging');
       draggedEl = null;
@@ -1288,68 +3668,86 @@
   }
 
   // ============================================================
-  // ========== GoEasy IM 即时通讯（纯 IM + 离线消息） ==========
+  // ========== GoEasy 聊天模块 ==========
   // ============================================================
   let goEasy = null;
   const CHAT_PREFIX = 'lanplay_chat_';
   const PUBLIC_CHANNEL = 'public_chat';
-  const PRESENCE_GROUP = 'lanplay_presence';
-  const PRESENCE_TTL_MS = 60 * 1000;        // 60 秒无心跳 → 判定下线
-  const PRESENCE_HEARTBEAT_MS = 20 * 1000;  // 每 20 秒发一次心跳
-  const PRESENCE_STALE_MS = 45 * 1000;      // 45 秒前发出的 presence 消息视为过期重投，直接忽略
-  const PRESENCE_SWEEP_MS = 5 * 1000;       // 每 5 秒扫描清理一次过期成员
-  const HISTORY_LIMIT = 30;
+  // 使用公共聊天频道做在线状态，所有已连上聊天的用户都会出现在列表中
+  const PRESENCE_CHANNEL = 'public_chat';
   let goEasyInitTimer = null;
-  let presenceHeartbeatTimer = null;
-  let presenceExpireTimer = null;
-  let _imListenersBound = false;
-  const _presenceMap = Object.create(null);
-  const _pendingReadByGroup = Object.create(null);
-  const _historySynced = Object.create(null);
-
-  function serverGroupId(serverId) { return CHAT_PREFIX + String(serverId); }
-  function groupToServerId(groupId) {
-    if (!groupId || groupId === PUBLIC_CHANNEL || groupId === PRESENCE_GROUP) return null;
-    const s = String(groupId);
-    return s.startsWith(CHAT_PREFIX) ? s.slice(CHAT_PREFIX.length) : null;
-  }
-  function imSceneGroup() {
-    try { if (typeof GoEasy !== 'undefined' && GoEasy.IM_SCENE) return GoEasy.IM_SCENE.GROUP; } catch (e) {}
-    return 'group';
-  }
-  function getIm() { return (goEasy && goEasy.im) ? goEasy.im : null; }
-  function buildGroupTo(groupId, label) {
-    return { type: imSceneGroup(), id: groupId, data: { nickname: label || groupId, avatar: '' } };
-  }
+  let presenceRefreshTimer = null;
 
   let usernameModalInstance = null;
-  function getStoredUsername() { return localStorage.getItem(USERNAME_KEY) || ''; }
 
+  function getStoredUsername() { return localStorage.getItem(USERNAME_KEY) || ''; }
+  function getStoredUserId() {
+    let id = localStorage.getItem(USER_ID_KEY);
+    if (!id) { id = 'u_' + generateMsgId(); localStorage.setItem(USER_ID_KEY, id); }
+    return id;
+  }
+
+  // ---- 消息持久化 ----
   function loadChatMessages() {
     try {
       const data = localStorage.getItem(CHAT_STORAGE_KEY);
       if (data) {
         const parsed = JSON.parse(data);
-        if (typeof parsed === 'object' && parsed !== null) { state.chatMessages = parsed; return; }
+        if (typeof parsed === 'object' && parsed !== null) {
+          // 过滤掉已删除的消息
+          const filtered = {};
+          Object.keys(parsed).forEach(k => {
+            const msgs = parsed[k];
+            if (Array.isArray(msgs)) {
+              filtered[k] = msgs.filter(m => !_deletedMsgIds.has(m.id));
+            } else {
+              filtered[k] = msgs;
+            }
+          });
+          state.chatMessages = filtered;
+          return;
+        }
       }
-    } catch (e) {}
+    } catch (e) { /* ignore */ }
     state.chatMessages = {};
   }
+
   function saveChatMessages() {
-    try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(state.chatMessages)); } catch (e) {}
+    try {
+      // 保存前再清理一次已删除消息
+      const cleaned = {};
+      Object.keys(state.chatMessages).forEach(k => {
+        const msgs = state.chatMessages[k];
+        if (Array.isArray(msgs)) {
+          cleaned[k] = msgs.filter(m => !_deletedMsgIds.has(m.id));
+        } else {
+          cleaned[k] = msgs;
+        }
+      });
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(cleaned));
+    } catch (e) { /* ignore */ }
   }
+
   function loadPublicMessages() {
     try {
       const data = localStorage.getItem(PUBLIC_STORAGE_KEY);
       if (data) {
         const parsed = JSON.parse(data);
-        if (Array.isArray(parsed)) { state.publicMessages = parsed; return; }
+        if (Array.isArray(parsed)) {
+          // 过滤掉已删除的消息
+          state.publicMessages = parsed.filter(m => !_deletedMsgIds.has(m.id));
+          return;
+        }
       }
-    } catch (e) {}
+    } catch (e) { /* ignore */ }
     state.publicMessages = [];
   }
+
   function savePublicMessages() {
-    try { localStorage.setItem(PUBLIC_STORAGE_KEY, JSON.stringify(state.publicMessages)); } catch (e) {}
+    try {
+      const cleaned = (state.publicMessages || []).filter(m => !_deletedMsgIds.has(m.id));
+      localStorage.setItem(PUBLIC_STORAGE_KEY, JSON.stringify(cleaned));
+    } catch (e) { /* ignore */ }
   }
 
   function updateAllMessagesIsMine() {
@@ -1357,12 +3755,16 @@
     Object.keys(state.chatMessages).forEach(serverId => {
       const msgs = state.chatMessages[serverId];
       if (msgs) {
-        msgs.forEach(msg => { msg.isMine = (msg.sender === currentUser); });
+        msgs.forEach(msg => {
+          msg.isMine = (msg.senderId && msg.senderId === state.userId) || msg.sender === currentUser || msg.sender === state.userId;
+        });
         renderChatMessages(serverId, false);
       }
     });
     if (state.publicMessages) {
-      state.publicMessages.forEach(msg => { msg.isMine = (msg.sender === currentUser); });
+      state.publicMessages.forEach(msg => {
+        msg.isMine = (msg.senderId && msg.senderId === state.userId) || msg.sender === currentUser || msg.sender === state.userId;
+      });
       renderPublicChat(false);
     }
     saveChatMessages();
@@ -1371,736 +3773,1105 @@
 
   function saveUsername(name) {
     const trimmed = name.trim();
-    if (!trimmed) return false;
-    localStorage.setItem(USERNAME_KEY, trimmed);
-    state.username = trimmed;
-    updateAllMessagesIsMine();
-    updateChatUI();
-    if (state.goEasyReady) sendPresenceAction('join');
-    return true;
+    if (trimmed) {
+      localStorage.setItem(USERNAME_KEY, trimmed);
+      state.username = trimmed;
+      updateAllMessagesIsMine();
+      updateChatUI();
+      return true;
+    }
+    return false;
   }
 
   function showUsernamePrompt(callback) {
     if (usernameModalInstance) {
-      try { document.body.removeChild(usernameModalInstance); } catch (e) {}
+      usernameModalInstance.remove();
       usernameModalInstance = null;
     }
-    const overlay = document.createElement('div');
-    overlay.className = 'custom-modal open';
-    overlay.innerHTML = `
+
+    const modal = document.createElement('div');
+    modal.className = 'custom-modal open';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
       <div class="custom-modal-box" style="width:min(380px,calc(100% - 32px));">
-        <div class="custom-modal-header"><span>设置聊天昵称</span>
-          <button class="custom-modal-close" type="button">✕</button></div>
-        <div class="custom-modal-body"><div class="form-grid">
+        <div class="custom-modal-header">
+          <span>👤 设置用户名</span>
+          <button class="custom-modal-close username-modal-close">✕</button>
+        </div>
+        <div class="custom-modal-body">
+          <p style="margin:0 0 16px;font-size:14px;color:var(--muted);">请输入您在聊天中显示的名称：</p>
           <div class="form-row">
-            <input type="text" id="usernamePromptInput" placeholder="请输入昵称（2-16字）" maxlength="16" value="${esc(state.username || '')}">
+            <input type="text" id="usernameInput" placeholder="输入用户名" value="${esc(getStoredUsername())}" maxlength="20" autofocus>
           </div>
-          <button type="button" class="submit-btn" id="usernamePromptConfirm">确认</button>
-        </div></div>
-      </div>`;
-    document.body.appendChild(overlay);
-    usernameModalInstance = overlay;
-    const input = overlay.querySelector('#usernamePromptInput');
-    const confirmBtn = overlay.querySelector('#usernamePromptConfirm');
-    const closeBtn = overlay.querySelector('.custom-modal-close');
-    function cleanup() {
-      try { document.body.removeChild(overlay); } catch (e) {}
-      usernameModalInstance = null;
-    }
+          <button id="usernameConfirmBtn" class="submit-btn" style="margin-top:12px;">
+            <span class="spinner"></span>
+            <span class="btn-text">确认</span>
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    usernameModalInstance = modal;
+
+    const closeBtn = modal.querySelector('.username-modal-close');
+    const confirmBtn = modal.querySelector('#usernameConfirmBtn');
+    const input = modal.querySelector('#usernameInput');
+
     function doConfirm() {
-      const v = (input.value || '').trim();
-      if (v.length < 2) { showToast('昵称至少 2 个字符', 1500, false); return; }
-      if (saveUsername(v)) { cleanup(); if (typeof callback === 'function') callback(v); }
+      const name = input.value.trim();
+      if (!name) {
+        showToast('⚠️ 用户名不能为空', 1500, false);
+        input.focus();
+        return;
+      }
+      if (saveUsername(name)) {
+        modal.remove();
+        usernameModalInstance = null;
+        showToast('✅ 用户名已设置为: ' + name, 1500, true);
+        if (callback) callback();
+        updateChatUI();
+      }
     }
+
+    closeBtn.addEventListener('click', () => {
+      modal.remove();
+      usernameModalInstance = null;
+      if (!state.username) {
+        setTimeout(() => showUsernamePrompt(callback), 300);
+      }
+    });
     confirmBtn.addEventListener('click', doConfirm);
-    closeBtn.addEventListener('click', cleanup);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doConfirm(); } });
-    setTimeout(() => input.focus(), 50);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doConfirm();
+      }
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+        usernameModalInstance = null;
+        if (!state.username) {
+          setTimeout(() => showUsernamePrompt(callback), 300);
+        }
+      }
+    });
+    setTimeout(() => input.focus(), 100);
   }
 
   function ensureUsername(callback) {
-    if (state.username && state.username.trim()) {
-      if (typeof callback === 'function') callback(state.username);
-      return;
+    if (state.username) {
+      if (callback) callback();
+      return true;
     }
     const stored = getStoredUsername();
     if (stored) {
       state.username = stored;
-      if (typeof callback === 'function') callback(stored);
-      return;
+      updateAllMessagesIsMine();
+      updateChatUI();
+      if (callback) callback();
+      return true;
     }
     showUsernamePrompt(callback);
+    return false;
   }
 
   function updateChatUI() {
-    const hasUsername = !!(state.username && state.username.trim());
+    const hasUsername = !!state.username;
     const ready = state.goEasyReady && hasUsername;
     document.querySelectorAll('.server-group .chat-input').forEach(inp => {
       inp.disabled = !ready;
       inp.placeholder = ready ? '输入聊天内容...' : (state.goEasyReady ? '请先设置用户名' : '聊天未连接');
     });
-    document.querySelectorAll('.server-group .chat-send-btn').forEach(btn => { btn.disabled = !ready; });
-    document.querySelectorAll('.server-group .chat-image-btn, .server-group .image-upload-btn').forEach(btn => { btn.disabled = !ready; });
+    document.querySelectorAll('.server-group .chat-send-btn').forEach(btn => {
+      btn.disabled = !ready;
+    });
     const pubInput = document.getElementById('publicChatInput');
     const pubSend = document.getElementById('publicChatSendBtn');
-    const pubImg = document.getElementById('publicChatImageBtn');
     if (pubInput) {
       pubInput.disabled = !ready;
       pubInput.placeholder = ready ? '输入公共消息...' : (state.goEasyReady ? '请先设置用户名' : '聊天未连接');
     }
     if (pubSend) pubSend.disabled = !ready;
-    if (pubImg) pubImg.disabled = !ready;
   }
 
-  function detectMediaKind(file) {
-    const t = (file && file.type) || '';
-    const name = (file && file.name) || '';
-    if (t.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp)$/i.test(name)) return 'image';
-    if (t.startsWith('video/') || /\.(mp4|mov|webm|avi|mkv)$/i.test(name)) return 'video';
-    if (t.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg|amr)$/i.test(name)) return 'audio';
+  // ===== 文件上传（腾讯云 COS，经后端 /api/upload） =====
+  function formatFileSize(bytes) {
+    const n = Number(bytes) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
+
+  function detectMediaTypeFromFile(file) {
+    const t = (file && file.type || '').toLowerCase();
+    const name = (file && file.name || '').toLowerCase();
+    if (t.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(name)) return 'image';
+    if (t.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|m4v)$/i.test(name)) return 'video';
+    if (t.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|amr|opus)$/i.test(name)) return 'audio';
     return 'file';
   }
 
-  const chatDrafts = Object.create(null);
-  const _sendingLock = Object.create(null);
-  const _recentMineMedia = [];
+  // 上传进度 Toast（0–100%）
+  // 0~89%: 上传到服务器；90~99%: 存入云存储；100%: 完成
+  var _cosSimTimer = null; // COS 阶段模拟进度定时器
+  function showUploadProgress(percent) {
+    const p = Math.max(0, Math.min(100, Math.round(percent)));
+    if (p >= 100) {
+      // 上传全部完成（含 COS）
+      showToast('✅ 上传成功', 1500, true);
+    } else if (p >= 90) {
+      showToast('⏳ 存入云存储 ' + p + '%', 60000, true);
+    } else {
+      showToast('⏳ 上传中 ' + p + '%', 60000, true);
+    }
+  }
+  // 浏览器上传完成后，模拟 COS 存储进度 90%→99%
+  var _cosSimLastP = -1; // 上次显示的整数百分比，避免重复
+  function _startCosSimProgress() {
+    _stopCosSimProgress();
+    var cosP = 90;
+    _cosSimLastP = 90;
+    showUploadProgress(90);
+    _cosSimTimer = setInterval(function () {
+      if (cosP >= 99) { _stopCosSimProgress(); return; }
+      // 越接近 99% 越慢，模拟真实上传感
+      var step = cosP < 94 ? 1 : (cosP < 97 ? 0.7 : 0.4);
+      cosP = Math.min(99, cosP + step);
+      var rp = Math.round(cosP);
+      if (rp !== _cosSimLastP) { _cosSimLastP = rp; showUploadProgress(rp); }
+    }, 600);
+  }
+  function _stopCosSimProgress() {
+    if (_cosSimTimer) { clearInterval(_cosSimTimer); _cosSimTimer = null; }
+  }
 
-  function draftKey(serverId, isPublic) { return isPublic ? 'public' : String(serverId || ''); }
+  // 腾讯 COS 屏蔽下载的文件后缀（COS 检测文件内容，改文件名无效）
+  const _cosBlockedExts = ['apk', 'ipa', 'exe', 'msi', 'bat', 'cmd', 'ps1', 'vbs', 'scr', 'dll', 'sys'];
+  function _isCosBlockedExt(name) {
+    const n = (name || '').toLowerCase();
+    return _cosBlockedExts.some(ext => n.endsWith('.' + ext));
+  }
 
-  function clearDraft(key) {
-    const d = chatDrafts[key];
-    if (d && d.items) {
-      d.items.forEach(function (it) {
-        if (it.previewUrl) { try { URL.revokeObjectURL(it.previewUrl); } catch (e) {} }
+  // ===== XOR 加密：绕过 COS 文件内容检测 =====
+  // 上传前 XOR 加密 → COS 无法识别文件格式 → 下载时 XOR 解密还原
+  const _XOR_KEY = 0x5A;
+  // 判断消息是否为 XOR 加密文件：优先用 isXor 标志，兜底检测 URL/.dlp 后缀
+  function _isXorMsg(msg) {
+    if (msg.isXor) return true;
+    const url = msg.url || '';
+    if (url.toLowerCase().endsWith('.dlp')) return true;
+    return false;
+  }
+  function _xorBuffer(buf) {
+    const arr = new Uint8Array(buf);
+    for (let i = 0; i < arr.length; i++) arr[i] ^= _XOR_KEY;
+    return arr.buffer;
+  }
+  async function _xorEncryptFile(file) {
+    const buf = await file.arrayBuffer();
+    _xorBuffer(buf);
+    const safeName = file.name + '.dlp';
+    return new File([buf], safeName, { type: 'application/octet-stream' });
+  }
+  // XOR 解密并下载：fetch → 解密 → Blob → 触发浏览器下载
+  async function _xorDecryptAndDownload(url, originalName, mimeType) {
+    try {
+      showToast('⏳ 正在下载…', 60000, true);
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error('下载失败 HTTP ' + resp.status);
+      const buf = await resp.arrayBuffer();
+      _xorBuffer(buf);
+      const blob = new Blob([buf], { type: mimeType || 'application/octet-stream' });
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = originalName || 'file';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+      showToast('✅ 下载完成', 1200, true);
+    } catch (e) {
+      showToast('❌ 下载失败：' + e.message, 3000, false);
+    }
+  }
+
+  function uploadFile(file) {
+    if (!file) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const formData = new FormData();
+      // 如果文件后缀被 COS 屏蔽下载，XOR 加密文件内容让 COS 无法识别格式
+      // 例: Arena_1.0.0.apk → XOR 加密 → 上传为 Arena_1.0.0.apk.dlp
+      const originalName = file.name || 'file';
+      const isBlocked = _isCosBlockedExt(originalName);
+      // blocked 文件：XOR 加密后上传；普通文件：原样上传
+      const encryptPromise = isBlocked ? _xorEncryptFile(file) : Promise.resolve(file);
+      encryptPromise.then(fileToUpload => {
+        formData.append('file', fileToUpload, fileToUpload.name);
+        _doUpload(formData, file, originalName, isBlocked, resolve);
       });
-    }
-    delete chatDrafts[key];
-    renderDraftPreview(key);
-  }
-
-  function setDraft(key, file, kind) {
-    // 兼容单文件：覆盖为单条草稿队列
-    clearDraft(key);
-    const item = { file: file, kind: kind, previewUrl: URL.createObjectURL(file), name: file.name || '' };
-    chatDrafts[key] = { items: [item], file: file, kind: kind, previewUrl: item.previewUrl, name: item.name };
-    renderDraftPreview(key);
-  }
-
-  function setDraftFiles(key, files) {
-    clearDraft(key);
-    const items = [];
-    Array.from(files || []).forEach(function (file) {
-      if (!file) return;
-      let fileObj = file;
-      // 针对腾讯云 COS 中国大陆地域对此类纯 .apk / .ipa 请求无论加速/CDN均统一 403 DownloadForbidden 的规则：
-      // 必须把后缀名称改为 _apk.rename / _ipa.rename 并采用 application/octet-stream 二进制形式，
-      // 这样既在自建无备案域 https://cos.svf.dpdns.org 下 100% 畅通无阻，也完美兼容酷安与手机 QQ 的直接应用包改名安装！
-      if (file.name && /\.(apk|ipa)$/i.test(file.name)) {
-        try {
-          const safeName = file.name.replace(/\.apk$/i, '_apk.rename').replace(/\.ipa$/i, '_ipa.rename');
-          fileObj = new File([file], safeName, { type: 'application/octet-stream' });
-        } catch (e) {}
-      }
-      const kind = detectMediaKind(fileObj);
-      items.push({ file: fileObj, kind: kind, previewUrl: URL.createObjectURL(fileObj), name: fileObj.name || '' });
+      return; // 不走下面的直接 upload
     });
-    if (!items.length) return;
-    const first = items[0];
-    chatDrafts[key] = { items: items, file: first.file, kind: first.kind, previewUrl: first.previewUrl, name: first.name };
-    renderDraftPreview(key);
   }
-
-  function getDraftHost(key) {
-    if (key === 'public') {
-      const modal = document.getElementById('publicChatModal');
-      if (!modal) return null;
-      let host = modal.querySelector('.chat-draft-host');
-      if (!host) {
-        const area = modal.querySelector('.chat-input-area');
-        if (!area || !area.parentElement) return null;
-        host = document.createElement('div');
-        host.className = 'chat-draft-host';
-        area.parentElement.insertBefore(host, area);
-      }
-      return host;
-    }
-    const card = document.querySelector('.server-group[data-id="' + key + '"]');
-    if (!card) return null;
-    const wrapper = card.querySelector('.chat-wrapper');
-    if (!wrapper) return null;
-    let host = wrapper.querySelector('.chat-draft-host');
-    if (!host) {
-      const area = wrapper.querySelector('.chat-input-area');
-      host = document.createElement('div');
-      host.className = 'chat-draft-host';
-      if (area) wrapper.insertBefore(host, area); else wrapper.appendChild(host);
-    }
-    return host;
-  }
-
-  function renderDraftPreview(key) {
-    const host = getDraftHost(key);
-    if (!host) return;
-    const d = chatDrafts[key];
-    if (!d || !d.items || !d.items.length) { host.innerHTML = ''; host.style.display = 'none'; return; }
-    host.style.display = 'block';
-    const thumbs = d.items.map(function (it, idx) {
-      let inner = '';
-      if (it.kind === 'image') inner = '<img class="chat-draft-thumb" src="' + esc(it.previewUrl) + '" alt="预览">';
-      else if (it.kind === 'video') inner = '<video class="chat-draft-thumb" src="' + esc(it.previewUrl) + '" muted playsinline></video><span class="chat-draft-badge">视频</span>';
-      else if (it.kind === 'audio') inner = '<div class="chat-draft-audio">🎤 语音</div>';
-      else inner = '<div class="chat-draft-file">💾 ' + esc(it.name || '文件') + '</div>';
-      return '<div class="chat-draft-item" data-idx="' + idx + '">' + inner + '</div>';
-    }).join('');
-    const countLabel = d.items.length > 1 ? ('<span class="chat-draft-count">' + d.items.length + ' 个文件</span>') : '';
-    host.innerHTML = '<div class="chat-draft-bar"><div class="chat-draft-media chat-draft-media-multi">' + thumbs + '</div>' + countLabel + '<button type="button" class="chat-draft-remove" title="取消">✕</button></div>';
-    const rm = host.querySelector('.chat-draft-remove');
-    if (rm) rm.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); clearDraft(key); });
-  }
-
-  function pickFileAsDraft(serverId, isPublic) {
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = '*/*';
-    fileInput.multiple = true;
-    fileInput.onchange = function (e) {
-      const files = e.target.files;
-      if (!files || !files.length) return;
-      const key = draftKey(serverId, isPublic);
-      setDraftFiles(key, files);
-    };
-    fileInput.click();
-  }
-
-  function pickMediaAsDraft(serverId, isPublic) {
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = 'image/*,video/*';
-    fileInput.multiple = true;
-    fileInput.onchange = function (e) {
-      const files = e.target.files;
-      if (!files || !files.length) return;
-      const key = draftKey(serverId, isPublic);
-      // 视频通常一次一个；图片可多选。混合时全部加入队列
-      setDraftFiles(key, files);
-    };
-    fileInput.click();
-  }
-
-  function sendMessageWithMedia(serverId, inputElement, sendFunction, isPublic) {
-    pickMediaAsDraft(serverId, !!isPublic);
-  }
-
-  function normalizeUploadProgress(p) {
-    if (p == null || p === '') return null;
-    if (typeof p === 'number' && isFinite(p)) return p <= 1 ? Math.round(p * 100) : Math.round(p);
-    if (typeof p === 'object') {
-      if (typeof p.percent === 'number' && isFinite(p.percent)) return p.percent <= 1 ? Math.round(p.percent * 100) : Math.round(p.percent);
-      if (typeof p.progress === 'number' && isFinite(p.progress)) return p.progress <= 1 ? Math.round(p.progress * 100) : Math.round(p.progress);
-      if (typeof p.loaded === 'number' && typeof p.total === 'number' && p.total > 0) return Math.round(p.loaded / p.total * 100);
-    }
-    const n = Number(p);
-    if (isFinite(n)) return n <= 1 ? Math.round(n * 100) : Math.round(n);
-    return null;
-  }
-
-  function showUploadProgress(p) {
-    const pct = normalizeUploadProgress(p);
-    if (pct == null) { showToast('⏳ 上传中...', 1500, false); return; }
-    showToast('⏳ 上传中 ' + Math.max(0, Math.min(100, pct)) + '%', 1500, false);
-  }
-
-  function rememberMineMedia(local) {
-    if (!local) return;
-    _recentMineMedia.push({ fp: (local.msgType || '') + '|' + (local.mediaUrl || local.text || ''), t: Date.now(), id: local.id });
-    if (_recentMineMedia.length > 30) _recentMineMedia.shift();
-  }
-
-  function isRecentMineDuplicate(local) {
-    if (!local || !local.isMine) return false;
-    const fp = (local.msgType || '') + '|' + (local.mediaUrl || local.text || '');
-    const now = Date.now();
-    return _recentMineMedia.some(function (x) { return x.fp === fp && (now - x.t) < 15000; });
-  }
-
-  let _voiceRec = null, _voiceChunks = [], _voiceKey = null, _voiceStartAt = 0, _voiceStream = null;
-  let _voiceTimerInterval = null;
-
-  function formatRecordSeconds(sec) {
-    const s = Math.max(0, Math.floor(sec));
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return m + ':' + String(r).padStart(2, '0');
-  }
-
-  function getVoiceTimerEl(key) {
-    // 优先 data-draft-key 匹配的按钮旁的计时器
-    const btns = document.querySelectorAll('.chat-voice-btn');
-    for (let i = 0; i < btns.length; i++) {
-      if (btns[i].dataset.draftKey === key) {
-        const wrap = btns[i].closest('.chat-voice-wrap');
-        if (wrap) return wrap.querySelector('.chat-voice-timer');
-      }
-    }
-    return null;
-  }
-
-  function startVoiceTimer(key) {
-    stopVoiceTimerDisplay();
-    const tick = function () {
-      const elapsed = (Date.now() - _voiceStartAt) / 1000;
-      const label = formatRecordSeconds(elapsed);
-      document.querySelectorAll('.chat-voice-btn.recording').forEach(function (b) {
-        const wrap = b.closest('.chat-voice-wrap');
-        const timer = wrap && wrap.querySelector('.chat-voice-timer');
-        if (timer) {
-          timer.textContent = label;
-          timer.style.display = 'block';
+  function _doUpload(formData, file, originalName, isBlocked, resolve) {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload');
+      xhr.timeout = 600000;  // 10 分钟，大文件上传需要更长时间
+      // 两阶段进度：浏览器→服务器(0~89%) + 服务器→COS(90~100%)
+      xhr.upload.onprogress = function (e) {
+        if (e.lengthComputable && e.total > 0) {
+          showUploadProgress((e.loaded / e.total) * 89);
+        } else {
+          showUploadProgress(Math.min(89, (e.loaded / Math.max(file.size, 1)) * 89));
         }
-      });
-    };
-    tick();
-    _voiceTimerInterval = setInterval(tick, 200);
+      };
+      xhr.upload.onloadstart = function () {
+        showUploadProgress(0);
+      };
+      // 浏览器上传完成，服务器正在存入 COS → 模拟 90%→99% 进度
+      xhr.upload.onload = function () {
+        _startCosSimProgress();
+      };
+      xhr.onerror = function () {
+        _stopCosSimProgress();
+        showToast('❌ 上传失败：网络错误', 3000, false);
+        resolve(null);
+      };
+      xhr.ontimeout = function () {
+        _stopCosSimProgress();
+        showToast('❌ 上传超时', 3000, false);
+        resolve(null);
+      };
+      xhr.onload = function () {
+        try {
+          const data = JSON.parse(xhr.responseText || '{}');
+          if (xhr.status >= 200 && xhr.status < 300 && data.ok && data.url) {
+            _stopCosSimProgress();
+            showUploadProgress(100);
+            const fileType = data.file_type || detectMediaTypeFromFile(file);
+            // fileName 始终返回原始文件名，下载时用原始名保存
+            // isXor 标记：下载时需 XOR 解密还原
+            resolve({
+              url: data.url,
+              type: fileType,
+              fileName: originalName,
+              fileSize: data.file_size != null ? data.file_size : (file.size || 0),
+              mimeType: data.mime_type || file.type || '',
+              isXor: isBlocked
+            });
+            return;
+          }
+          throw new Error((data && data.error) || ('上传失败 (' + xhr.status + ')'));
+        } catch (e) {
+          _stopCosSimProgress();
+          showToast('❌ 上传失败：' + e.message, 3000, false);
+          console.error('上传错误:', e);
+          resolve(null);
+        }
+      };
+      xhr.send(formData);
   }
 
-  function stopVoiceTimerDisplay() {
-    if (_voiceTimerInterval) { clearInterval(_voiceTimerInterval); _voiceTimerInterval = null; }
-    document.querySelectorAll('.chat-voice-timer').forEach(function (t) {
-      t.style.display = 'none';
-      t.textContent = '0:00';
+  function buildMediaText(meta) {
+    // 兼容旧客户端：前缀 + URL；额外字段走 mediaType/url/fileName/fileSize
+    const type = meta.type || 'file';
+    const url = meta.url || '';
+    if (type === 'image') return '[图片]' + url;
+    if (type === 'video') return '[视频]' + url;
+    if (type === 'audio') return '[语音]' + url;
+    return '[文件]' + url + '|' + (meta.fileName || 'file') + '|' + (meta.fileSize || 0);
+  }
+
+  // ---- 待发送附件（支持多文件队列） ----
+  function _pendingList(key) {
+    if (!Array.isArray(state.pendingAttachments[key])) state.pendingAttachments[key] = [];
+    return state.pendingAttachments[key];
+  }
+  function _renderPendingUI(key, input) {
+    const area = input && input.closest('.chat-input-area');
+    if (!area) return;
+    let el = area.querySelector('.chat-pending');
+    const list = state.pendingAttachments[key];
+    const arr = Array.isArray(list) ? list : (list ? [list] : []);
+    if (!arr.length) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement('div'); el.className = 'chat-pending'; area.insertBefore(el, area.firstChild); }
+    if (arr.length === 1) {
+      const m = arr[0];
+      el.innerHTML = `<span class="chat-pending-name">📎 ${esc(m.fileName || ({image:'图片',video:'视频',audio:'语音'}[m.mediaType] || '文件'))}</span><button type="button" aria-label="取消附件">×</button>`;
+    } else {
+      el.innerHTML = `<span class="chat-pending-name">📎 ${arr.length} 个附件待发送</span><button type="button" aria-label="取消全部附件">×</button>`;
+    }
+    el.querySelector('button').onclick = () => { delete state.pendingAttachments[key]; el.remove(); };
+  }
+  function setPendingAttachment(key, media, input) {
+    const list = _pendingList(key);
+    list.push(media);
+    _renderPendingUI(key, input);
+  }
+  function clearPendingAttachment(key, input) {
+    delete state.pendingAttachments[key];
+    const area = input && input.closest('.chat-input-area');
+    const el = area && area.querySelector('.chat-pending');
+    if (el) el.remove();
+  }
+  function sendPendingAttachment(key, input, isPublic, serverId) {
+    const list = state.pendingAttachments[key];
+    const arr = Array.isArray(list) ? list : (list ? [list] : []);
+    if (!arr.length) return false;
+    // 逐条发送
+    arr.forEach(media => {
+      if (isPublic) sendPublicMessage(media.text, media);
+      else sendChatMessage(serverId, media.text, media);
+    });
+    clearPendingAttachment(key, input);
+    return true;
+  }
+  function storeRecordedVoice(file, key, isPublic) {
+    uploadFile(file).then(result => {
+      if (!result) return;
+      result.type = 'audio';
+      const media = { mediaType:'audio', url:result.url, fileName:result.fileName || '语音消息', fileSize:result.fileSize, mimeType:result.mimeType,
+        text:buildMediaText({type:'audio',url:result.url,fileName:result.fileName,fileSize:result.fileSize}) };
+      const input = isPublic ? document.getElementById('publicChatInput') : document.querySelector(`.server-group[data-id="${key}"] .chat-input`);
+      setPendingAttachment(key, media, input);
+      showToast('🎙 语音已准备好，请点击“发送”', 1800, true);
     });
   }
 
-  function releaseVoiceStream() {
-    if (!_voiceStream) return;
-    try {
-      _voiceStream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
-    } catch (e) {}
-    _voiceStream = null;
-  }
-
-  function stopVoiceRecording(cancel) {
-    const rec = _voiceRec; _voiceRec = null;
-    stopVoiceTimerDisplay();
-    document.querySelectorAll('.chat-voice-btn.recording').forEach(function (b) {
-      b.classList.remove('recording');
-      b.textContent = '🎤';
-      b.title = '点击录制语音';
-    });
-    if (!rec) return;
-    try {
-      if (cancel) {
-        // 取消录音时也必须停掉麦克风轨道，否则浏览器会一直占用麦克风
-        rec.ondataavailable = null;
-        rec.onstop = releaseVoiceStream;
-        if (rec.state !== 'inactive') rec.stop();
-        _voiceChunks = [];
-        releaseVoiceStream(); // 双保险
-        return;
-      }
-      if (rec.state !== 'inactive') rec.stop();
-    } catch (e) {}
-  }
-
-  function canLiveRecord() {
-    try {
-      const host = (location.hostname || '').toLowerCase();
-      const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
-      const secure = !!(window.isSecureContext || isLocal);
-      return !!(secure && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
-    } catch (e) { return false; }
-  }
-
-  function pickAudioAsDraft(key) {
+  function sendMessageWithMedia(serverId, inputElement, sendFunction, isPublic, accept) {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = 'audio/*,.mp3,.m4a,.wav,.aac,.ogg,.amr,.webm';
-    fileInput.multiple = false;
-    fileInput.onchange = function (e) {
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      setDraft(key, file, 'audio');
-      showToast('✅ 语音文件已就绪，点击发送', 1500, true);
+    fileInput.accept = accept || 'image/*,video/*,audio/*,*/*';
+    fileInput.multiple = true;
+    fileInput.onchange = async (e) => {
+      const files = Array.from(e.target.files);
+      if (!files.length) return;
+      // 过滤超限文件
+      const oversized = files.filter(f => f.size > 200 * 1024 * 1024);
+      const valid = files.filter(f => f.size <= 200 * 1024 * 1024);
+      if (oversized.length) {
+        showToast('❌ ' + oversized.length + ' 个文件超过 200MB 已跳过', 2500, false);
+      }
+      if (!valid.length) return;
+
+      // 逐个上传，全部加入待发送队列，点「发送」才发出
+      const key = isPublic ? 'public' : serverId;
+      showToast('⏳ 正在上传 ' + valid.length + ' 个文件…', 60000, true);
+      let successCount = 0;
+      let failCount = 0;
+      for (let i = 0; i < valid.length; i++) {
+        const result = await uploadFile(valid[i]);
+        if (!result) { failCount++; continue; }
+        const media = {
+          mediaType: result.type,
+          url: result.url,
+          fileName: result.fileName,
+          fileSize: result.fileSize,
+          mimeType: result.mimeType,
+          text: buildMediaText(result)
+        };
+        setPendingAttachment(key, media, inputElement);
+        successCount++;
+      }
+      if (failCount > 0) {
+        showToast('✅ ' + successCount + ' 个附件已准备好，❌ ' + failCount + ' 个上传失败', 2500, false);
+      } else {
+        showToast('📎 ' + successCount + ' 个附件已准备好，请点击“发送”', 1800, true);
+      }
+      if (inputElement) inputElement.focus();
     };
     fileInput.click();
   }
 
-  function startVoiceRecording(key) {
-    // HTTP / 非安全上下文下浏览器禁止麦克风，自动降级为选择本地语音文件
-    if (!canLiveRecord()) {
-      // 非 localhost/HTTPS 时无法实时录音，降级选文件；localhost 应走实时录音
-      showToast('ℹ️ 请用 localhost 或 HTTPS 访问以实时录音，已改为选择语音文件', 2500, true);
-      pickAudioAsDraft(key);
+  // ---------- 「+」附件菜单：图片 / 视频 / 文件 ----------
+  function closeAllPlusPanels(except) {
+    document.querySelectorAll('.chat-plus-panel.open').forEach(function (el) {
+      if (except && el === except) return;
+      el.classList.remove('open');
+    });
+  }
+
+  function bindPlusMenu(plusBtn, panel, handlers) {
+    if (!plusBtn || !panel) return;
+    plusBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const willOpen = !panel.classList.contains('open');
+      closeAllPlusPanels();
+      if (willOpen) panel.classList.add('open');
+    });
+    panel.querySelectorAll('[data-plus-action]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        panel.classList.remove('open');
+        const action = btn.getAttribute('data-plus-action');
+        if (action === 'image' && handlers.image) handlers.image();
+        else if (action === 'video' && handlers.video) handlers.video();
+        else if (action === 'file' && handlers.file) handlers.file();
+      });
+    });
+  }
+
+  if (!window.__chatPlusGlobalBound) {
+    window.__chatPlusGlobalBound = true;
+    document.addEventListener('click', function () {
+      closeAllPlusPanels();
+    });
+  }
+
+  // ---------- 语音录制（发送按钮左侧） ----------
+  const _voiceRecordState = {
+    recorder: null,
+    chunks: [],
+    stream: null,
+    timer: null,
+    startedAt: 0,
+    activeBtn: null,
+  };
+
+  function stopVoiceTracks() {
+    if (_voiceRecordState.stream) {
+      try {
+        _voiceRecordState.stream.getTracks().forEach(function (t) { t.stop(); });
+      } catch (e) { /* ignore */ }
+      _voiceRecordState.stream = null;
+    }
+  }
+
+  function resetVoiceBtn(btn) {
+    if (!btn) return;
+    btn.classList.remove('recording');
+    btn.textContent = '🎤';
+    btn.title = '按住或点击录制语音';
+  }
+
+  function cancelVoiceRecording() {
+    if (_voiceRecordState.timer) {
+      clearInterval(_voiceRecordState.timer);
+      _voiceRecordState.timer = null;
+    }
+    if (_voiceRecordState.recorder && _voiceRecordState.recorder.state !== 'inactive') {
+      try { _voiceRecordState.recorder.onstop = null; _voiceRecordState.recorder.stop(); } catch (e) { /* ignore */ }
+    }
+    _voiceRecordState.recorder = null;
+    _voiceRecordState.chunks = [];
+    stopVoiceTracks();
+    resetVoiceBtn(_voiceRecordState.activeBtn);
+    _voiceRecordState.activeBtn = null;
+  }
+
+  async function startVoiceRecording(btn, onBlob) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showToast('❌ 当前环境不支持录音', 2500, false);
       return;
     }
-    if (_voiceRec) stopVoiceRecording(true);
-    _voiceKey = key; _voiceChunks = [];
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
-      _voiceStream = stream;
+    if (typeof MediaRecorder === 'undefined') {
+      showToast('❌ 浏览器不支持 MediaRecorder', 2500, false);
+      return;
+    }
+    // 已在录制：再次点击 → 停止并发送
+    if (_voiceRecordState.recorder && _voiceRecordState.recorder.state === 'recording') {
+      finishVoiceRecording(onBlob);
+      return;
+    }
+    cancelVoiceRecording();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      _voiceRecordState.stream = stream;
+      _voiceRecordState.chunks = [];
       let mime = '';
-      if (window.MediaRecorder) {
-        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mime = 'audio/webm;codecs=opus';
-        else if (MediaRecorder.isTypeSupported('audio/webm')) mime = 'audio/webm';
-        else if (MediaRecorder.isTypeSupported('audio/mp4')) mime = 'audio/mp4';
-      }
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      _voiceRec = rec; _voiceStartAt = Date.now();
-      rec.ondataavailable = function (ev) { if (ev.data && ev.data.size > 0) _voiceChunks.push(ev.data); };
-      rec.onstop = function () {
-        releaseVoiceStream();
-        const duration = (Date.now() - _voiceStartAt) / 1000;
-        document.querySelectorAll('.chat-voice-btn.recording').forEach(function (b) { b.classList.remove('recording'); b.textContent = '🎤'; });
-        if (duration < 0.6) { showToast('录音时间太短', 1200, false); _voiceChunks = []; return; }
-        const blobType = (rec.mimeType || mime || 'audio/webm').split(';')[0];
-        const ext = blobType.indexOf('mp4') >= 0 ? 'm4a' : 'webm';
-        const file = new File([new Blob(_voiceChunks, { type: blobType })], 'voice_' + Date.now() + '.' + ext, { type: blobType });
-        _voiceChunks = [];
-        setDraft(_voiceKey || key, file, 'audio');
-        // 把录音时长写入草稿，供 GoEasy createAudioMessage 使用
-        try {
-          const dk = _voiceKey || key;
-          if (chatDrafts[dk] && chatDrafts[dk].items && chatDrafts[dk].items[0]) {
-            chatDrafts[dk].items[0].duration = duration;
-            chatDrafts[dk].duration = duration;
-          }
-        } catch (e) {}
-        showToast('✅ 语音已就绪，点击发送', 1500, true);
-      };
-      rec.start();
-      document.querySelectorAll('.chat-voice-btn').forEach(function (b) {
-        if (b.dataset.draftKey === key) {
-          b.classList.add('recording');
-          b.textContent = '⏹️';
-          b.title = '点击结束录音';
+      const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+      for (let i = 0; i < candidates.length; i++) {
+        if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidates[i])) {
+          mime = candidates[i];
+          break;
         }
-      });
-      startVoiceTimer(key);
-      showToast('🎤 录音中… 再次点击结束', 2000, true);
-    }).catch(function (err) {
-      console.warn(err);
-      releaseVoiceStream();
-      showToast('⚠️ 麦克风不可用，改为选择语音文件', 2000, false);
-      pickAudioAsDraft(key);
-    });
+      }
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      _voiceRecordState.recorder = recorder;
+      _voiceRecordState.activeBtn = btn;
+      _voiceRecordState.startedAt = Date.now();
+      recorder.ondataavailable = function (ev) {
+        if (ev.data && ev.data.size > 0) _voiceRecordState.chunks.push(ev.data);
+      };
+      recorder.onstop = async function () {
+        if (_voiceRecordState.timer) {
+          clearInterval(_voiceRecordState.timer);
+          _voiceRecordState.timer = null;
+        }
+        const chunks = _voiceRecordState.chunks.slice();
+        const usedMime = recorder.mimeType || mime || 'audio/webm';
+        stopVoiceTracks();
+        resetVoiceBtn(btn);
+        _voiceRecordState.recorder = null;
+        _voiceRecordState.activeBtn = null;
+        if (!chunks.length) {
+          showToast('⚠️ 未录到声音', 1500, false);
+          return;
+        }
+        const blob = new Blob(chunks, { type: usedMime });
+        if (blob.size < 256) {
+          showToast('⚠️ 录音太短', 1500, false);
+          return;
+        }
+        const ext = usedMime.indexOf('mp4') >= 0 ? 'm4a' : (usedMime.indexOf('ogg') >= 0 ? 'ogg' : 'webm');
+        const file = new File([blob], 'voice_' + Date.now() + '.' + ext, { type: usedMime });
+        if (typeof onBlob === 'function') onBlob(file);
+      };
+      recorder.start(200);
+      btn.classList.add('recording');
+      btn.textContent = '⏹';
+      btn.title = '点击停止并发送';
+      showToast('🎙 正在录音… 再次点击停止发送', 2000, true);
+      _voiceRecordState.timer = setInterval(function () {
+        const sec = Math.floor((Date.now() - _voiceRecordState.startedAt) / 1000);
+        btn.textContent = '⏹' + sec + 's';
+        if (sec >= 60) finishVoiceRecording(onBlob);
+      }, 500);
+    } catch (e) {
+      console.warn('录音失败', e);
+      cancelVoiceRecording();
+      showToast('❌ 无法开始录音：' + (e.message || '权限被拒绝'), 3000, false);
+    }
   }
 
-  function toggleVoiceRecording(key) {
-    if (_voiceRec && _voiceRec.state === 'recording') stopVoiceRecording(false);
-    else startVoiceRecording(key);
+  function finishVoiceRecording(onBlob) {
+    const recorder = _voiceRecordState.recorder;
+    if (!recorder || recorder.state === 'inactive') {
+      cancelVoiceRecording();
+      return;
+    }
+    try {
+      recorder.stop();
+    } catch (e) {
+      cancelVoiceRecording();
+    }
   }
 
+  // 语音上传后进入待发送状态，由发送按钮统一发送。
 
+  // ---- 链接识别（URL、域名、IPv4、IPv6）- 不追加协议头 ----
   function linkifyText(text) {
     if (!text) return '';
     const urlRegex = /(https?:\/\/[^\s]+|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?|\b(?:(?:[0-9]{1,3}\.){3}[0-9]{1,3}|(?:[0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}|::[0-9a-fA-F]{1,4}|[0-9a-fA-F]{1,4}::)\b)/g;
-    return text.replace(urlRegex, function (match) {
+    return text.replace(urlRegex, function(match) {
       const cleaned = match.replace(/[.,;:!?]+$/, '');
       return `<span class="chat-link" data-url="${esc(cleaned)}">${esc(match)}</span>`;
     });
   }
 
-
-  // ===== QQ 风格语音：点击气泡播放 =====
-  let _voiceAudio = null;
-  let _voiceActiveBubble = null;
-
-  function stopVoicePlayback() {
-    if (_voiceAudio) {
-      try { _voiceAudio.pause(); _voiceAudio.currentTime = 0; } catch (e) {}
-    }
-    if (_voiceActiveBubble) {
-      _voiceActiveBubble.classList.remove('playing');
-      const icon = _voiceActiveBubble.querySelector('.chat-voice-icon');
-      if (icon) icon.textContent = '▶';
-      _voiceActiveBubble = null;
-    }
+  // 从旧版文本前缀解析媒体信息
+  // 去掉 .dlp 后缀（XOR 加密文件上传时追加的）
+  function _restoreBlockedExt(name) {
+    if (typeof name !== 'string') return name;
+    return name.replace(/\.dlp$/i, '');
   }
 
-  function playVoiceBubble(bubble) {
-    if (!bubble) return;
-    const url = bubble.getAttribute('data-url');
-    if (!url) return;
-
-    // 再次点击同一条 → 暂停
-    if (_voiceActiveBubble === bubble && _voiceAudio && !_voiceAudio.paused) {
-      stopVoicePlayback();
-      return;
+  function parseMediaFromText(text) {
+    if (!text || typeof text !== 'string') return null;
+    if (text.startsWith('[图片]')) {
+      return { mediaType: 'image', url: text.substring(4).trim(), fileName: '', fileSize: 0 };
     }
-
-    stopVoicePlayback();
-
-    if (!_voiceAudio) {
-      _voiceAudio = new Audio();
-      _voiceAudio.preload = 'auto';
-      _voiceAudio.addEventListener('ended', function () { stopVoicePlayback(); });
-      _voiceAudio.addEventListener('error', function () {
-        showToast('❌ 语音播放失败', 1500, false);
-        stopVoicePlayback();
-      });
+    if (text.startsWith('[视频]')) {
+      return { mediaType: 'video', url: text.substring(4).trim(), fileName: '', fileSize: 0 };
     }
-
-    _voiceActiveBubble = bubble;
-    bubble.classList.add('playing');
-    const icon = bubble.querySelector('.chat-voice-icon');
-    if (icon) icon.textContent = '⏸';
-
-    // 若还没有时长，加载后更新气泡
-    const onMeta = function () {
-      const d = _voiceAudio.duration;
-      if (d && isFinite(d) && d > 0) {
-        bubble.setAttribute('data-duration', String(d));
-        const w = Math.max(64, Math.min(180, 64 + d * 8));
-        bubble.style.width = w + 'px';
-        let durEl = bubble.querySelector('.chat-voice-dur');
-        if (!durEl) {
-          durEl = document.createElement('span');
-          durEl.className = 'chat-voice-dur';
-          bubble.appendChild(durEl);
-        }
-        durEl.textContent = Math.ceil(d) + '"';
-      }
-    };
-    _voiceAudio.addEventListener('loadedmetadata', onMeta, { once: true });
-
-    _voiceAudio.src = url;
-    _voiceAudio.load();
-    const p = _voiceAudio.play();
-    if (p && typeof p.catch === 'function') {
-      p.catch(function (err) {
-        console.warn(err);
-        showToast('❌ 无法播放语音', 1500, false);
-        stopVoicePlayback();
-      });
+    if (text.startsWith('[语音]')) {
+      return { mediaType: 'audio', url: text.substring(4).trim(), fileName: '语音', fileSize: 0 };
     }
+    if (text.startsWith('[文件]')) {
+      const rest = text.substring(4);
+      const parts = rest.split('|');
+      let fname = _restoreBlockedExt(parts[1] || '文件');
+      // .dlp 后缀表示 XOR 加密文件
+      const isXor = fname.toLowerCase().endsWith('.dlp');
+      if (isXor) fname = fname.replace(/\.dlp$/i, '');
+      return {
+        mediaType: 'file',
+        url: (parts[0] || '').trim(),
+        fileName: fname,
+        fileSize: parseInt(parts[2], 10) || 0,
+        isXor: isXor
+      };
+    }
+    return null;
   }
 
-  document.addEventListener('click', function (e) {
-    const bubble = e.target.closest && e.target.closest('.chat-voice-bubble');
-    if (!bubble) return;
-    e.preventDefault();
-    e.stopPropagation();
-    playVoiceBubble(bubble);
-  }, true);
-
-  function openMediaLightbox(url, kind) {
-    if (!url) return;
-    let box = document.getElementById('mediaLightbox');
-    if (!box) {
-      box = document.createElement('div');
-      box.id = 'mediaLightbox';
-      box.className = 'media-lightbox';
-      box.innerHTML = '<div class="media-lightbox-inner"></div>' +
-        '<button type="button" class="media-lightbox-download" title="下载保存">📥</button>' +
-        '<button type="button" class="media-lightbox-close" title="关闭">✕</button>';
-      document.body.appendChild(box);
-      box.addEventListener('click', function (e) {
-        if (e.target === box || e.target.classList.contains('media-lightbox-close')) {
-          box.classList.remove('open');
-          const inner = box.querySelector('.media-lightbox-inner');
-          if (inner) inner.innerHTML = '';
-        } else if (e.target.closest('.media-lightbox-download')) {
-          e.preventDefault();
-          e.stopPropagation();
-          const curUrl = box.dataset.currentUrl || url;
-          const curKind = box.dataset.currentKind || kind;
-          let filename = 'download';
-          try {
-            const parts = curUrl.split('?')[0].split('/');
-            filename = decodeURIComponent(parts[parts.length - 1] || '') || (curKind === 'video' ? 'video.mp4' : 'image.png');
-          } catch (err) {
-            filename = curKind === 'video' ? 'video.mp4' : 'image.png';
-          }
-          showToast('📥 正在下载: ' + filename, 2000, true);
-          const a = document.createElement('a');
-          a.href = curUrl;
-          a.download = filename;
-          a.target = '_blank';
-          a.rel = 'noopener';
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
+  function openImageLightbox(url) {
+    let overlay = document.getElementById('chatImageLightbox');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'chatImageLightbox';
+      overlay.className = 'chat-lightbox';
+      overlay.innerHTML = '<img class="chat-lightbox-img" alt="预览"><button type="button" class="chat-lightbox-close" aria-label="关闭">✕</button>';
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay || e.target.classList.contains('chat-lightbox-close')) {
+          overlay.classList.remove('open');
         }
       });
     }
-    box.dataset.currentUrl = url;
-    box.dataset.currentKind = kind;
-    const inner = box.querySelector('.media-lightbox-inner');
-    if (kind === 'video') {
-      inner.innerHTML = '<video class="media-lightbox-video" src="' + esc(url) + '" controls autoplay playsinline></video>';
-    } else {
-      inner.innerHTML = '<img class="media-lightbox-img" src="' + esc(url) + '" alt="预览">';
-    }
-    box.classList.add('open');
+    const img = overlay.querySelector('.chat-lightbox-img');
+    if (img) img.src = url;
+    overlay.classList.add('open');
   }
 
-  // 事件委托：点击聊天图片/视频封面放大
-  document.addEventListener('click', function (e) {
-    const img = e.target.closest && e.target.closest('img.chat-media-thumb');
-    if (img) {
-      e.preventDefault();
-      e.stopPropagation();
-      openMediaLightbox(img.getAttribute('data-full') || img.src, 'image');
-      return;
-    }
-    const cover = e.target.closest && e.target.closest('.chat-video-cover');
-    if (cover) {
-      e.preventDefault();
-      e.stopPropagation();
-      openMediaLightbox(cover.getAttribute('data-full'), 'video');
-    }
-  }, true);
-
-  // ===== Telegram / QQ 视口交叉懒加载引擎 (IntersectionObserver Lazy Loading) =====
-  const _lazyMediaObserver = (typeof IntersectionObserver !== 'undefined') ? new IntersectionObserver(function(entries, observer) {
-    entries.forEach(function(entry) {
-      if (entry.isIntersecting) {
-        const el = entry.target;
-        if (el.dataset.lazyPoster && !el.src) {
-          el.src = el.dataset.lazyPoster;
-          delete el.dataset.lazyPoster;
-        }
-        if (el.dataset.lazyVideo && !el.src) {
-          el.src = el.dataset.lazyVideo;
-          delete el.dataset.lazyVideo;
-        }
-        if (el.dataset.lazyVoice && !el.dataset.warmed) {
-          el.dataset.warmed = 'true';
-          try {
-            const pre = new Audio();
-            pre.preload = 'auto';
-            pre.src = el.dataset.lazyVoice;
-            pre.load();
-          } catch (e) {}
-        }
-        observer.unobserve(el);
-      }
-    });
-  }, { root: null, rootMargin: '80px 0px', threshold: 0.01 }) : null;
-
-  function observeLazyMedia(containerEl) {
-    if (!containerEl) return;
-    const targets = containerEl.querySelectorAll('.lazy-media-cover:not([data-observed="true"])');
-    targets.forEach(function (el) {
-      el.dataset.observed = 'true';
-      if (_lazyMediaObserver) {
-        _lazyMediaObserver.observe(el);
-      } else {
-        if (el.dataset.lazyPoster && !el.src) el.src = el.dataset.lazyPoster;
-        if (el.dataset.lazyVideo && !el.src) el.src = el.dataset.lazyVideo;
-      }
-    });
-  }
-
+  // ---- 渲染消息内容：图片缩略图 / 视频播放器 / 语音控件 / 文件下载 ----
   function renderMessageContent(msg) {
-    const t = msg.text || '';
-    if (msg.msgType === 'image' || (msg.isImage && t.startsWith('[图片]'))) {
-      const url = msg.mediaUrl || (t.startsWith('[图片]') ? t.substring(4) : t);
-      return '<img class="chat-media-thumb" src="' + esc(url) + '" data-full="' + esc(url) + '" alt="图片">';
+    const mediaType = msg.mediaType || (msg.isImage ? (String(msg.text || '').startsWith('[视频]') ? 'video' : 'image') : '');
+    let info = null;
+    if (mediaType || msg.url) {
+      info = {
+        mediaType: mediaType || 'file',
+        url: msg.url || '',
+        fileName: msg.fileName || '',
+        fileSize: msg.fileSize || 0,
+        mimeType: msg.mimeType || '',
+        isXor: !!msg.isXor,
+      };
     }
-    if (msg.msgType === 'video' || (msg.isImage && t.startsWith('[视频]'))) {
-      const url = msg.mediaUrl || (t.startsWith('[视频]') ? t.substring(4) : t);
-      const poster = msg.thumbUrl ? esc(msg.thumbUrl) : '';
-      const videoSrc = url.includes('#t=') ? url : (url + '#t=0.001');
-      // 列表里只显示封面，点击全屏播放；携带 #t=0.001 指令强制移动端浏览器解码并显全视频第一帧画幅
-      const imgHtml = poster ? `<img class="lazy-media-cover" data-lazy-poster="${poster}" alt="视频" onerror="this.style.display='none'; const v=this.nextElementSibling; if(v){v.style.display='block';}">` : '';
-      const videoStyle = poster ? 'style="display:none;"' : 'style="display:block;"';
-      return '<div class="chat-video-cover" data-full="' + esc(url) + '" title="点击全屏播放视频">' +
-        imgHtml +
-        `<video class="lazy-media-cover" data-lazy-video="${esc(videoSrc)}" ${videoStyle} muted playsinline preload="metadata" onloadedmetadata="this.onloadedmetadata=null; this.currentTime=0.001; this.pause();"></video>` +
-        '<span class="chat-video-play">▶</span></div>';
+    if (!info || !info.url) {
+      info = parseMediaFromText(msg.text);
     }
-    if (msg.msgType === 'audio' || t.startsWith('[语音]')) {
-      const url = msg.mediaUrl || (t.startsWith('[语音]') ? t.substring(4) : t);
-      let durSec = Number(msg.duration) || 0;
-      const w = Math.max(68, Math.min(200, 68 + (durSec || 3) * 8));
-      const durLabel = durSec > 0 ? formatVoiceDuration(durSec) : '';
-      return '<div class="chat-voice-bubble lazy-media-cover' + (msg.isMine ? ' is-mine' : ' is-other') + '" data-url="' + esc(url) + '" data-lazy-voice="' + esc(url) + '" data-duration="' + esc(String(durSec || '')) + '" style="width:' + w + 'px;" title="点击播放">' +
-        '<span class="chat-voice-icon">▶</span>' +
-        '<span class="chat-voice-waves" aria-hidden="true"><i></i><i></i><i></i></span>' +
-        '<span class="chat-voice-dur">' + esc(durLabel) + '</span>' +
-      '</div>';
+    if (info && info.url) {
+      const url = info.url;
+      const type = info.mediaType;
+      if (type === 'image') {
+        return `<span class="chat-image-wrap"><img class="chat-media-img" src="${esc(url)}" alt="图片" loading="lazy" data-full="${esc(url)}" title="点击放大"></span>`;
+      }
+      if (type === 'video') {
+        return `<span class="chat-video-wrap"><video class="chat-media-video" src="${esc(url)}" controls playsinline preload="metadata"></video></span>`;
+      }
+      if (type === 'audio') {
+        return `<div class="chat-media-audio">
+          <audio class="chat-media-audio-el" src="${esc(url)}" preload="metadata"></audio>
+          <div class="audio-player-ui">
+            <button class="audio-play-btn" type="button" title="播放">▶</button>
+            <div class="audio-progress-bar"><div class="audio-progress-fill"></div></div>
+            <span class="audio-time-display">--:--</span>
+          </div>
+        </div>`;
+      }
+      // file
+      const name = info.fileName || '文件';
+      const sizeStr = info.fileSize ? formatFileSize(info.fileSize) : '';
+      const isXorFile = type === 'file' && (info.isXor || (url && url.toLowerCase().endsWith('.dlp')));
+      const fileLinkAttrs = isXorFile
+        ? `data-xor-url="${esc(url)}" data-xor-name="${esc(name)}" data-xor-mime="${esc(info.mimeType || '')}"`
+        : `href="${esc(url)}" target="_blank" rel="noopener noreferrer" download="${esc(name)}"`;
+      return `<a class="chat-media-file" ${fileLinkAttrs}>
+        <span class="chat-media-file-icon">📎</span>
+        <span class="chat-media-file-meta">
+          <span class="chat-media-file-name">${esc(name)}</span>
+          <span class="chat-media-file-size">${esc(sizeStr || '点击下载')}</span>
+        </span>
+      </a>`;
     }
-    if (msg.msgType === 'file' || t.startsWith('[文件]')) {
-      const url = msg.mediaUrl || (t.startsWith('[文件]') ? t.substring(4) : t);
-      const name = msg.fileName || '文件';
-      return '<a class="chat-link chat-file-link" data-url="' + esc(url) + '" data-filename="' + esc(name) + '" href="' + esc(url) + '" download="' + esc(name) + '" target="_blank" rel="noopener">💾 ' + esc(name) + '</a>';
-    }
-    return linkifyText(t);
+    return linkifyText(msg.text);
   }
 
+  // ===== 长按消息：撤回/删除菜单 =====
+  // ===== 已撤回/删除的消息 ID 集合（防止历史消息重放后复活） =====
+  const _deletedMsgIds = new Set();
+  const DELETED_MSG_STORAGE_KEY = 'lanplay_deleted_msg_ids';
+  function loadDeletedMsgIds() {
+    try {
+      const raw = localStorage.getItem(DELETED_MSG_STORAGE_KEY);
+      if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr)) arr.forEach(id => _deletedMsgIds.add(id)); }
+    } catch(e) {}
+    if (_deletedMsgIds.size > 500) {
+      const entries = [..._deletedMsgIds];
+      entries.slice(0, entries.length - 500).forEach(id => _deletedMsgIds.delete(id));
+    }
+  }
+  function saveDeletedMsgIds() {
+    try { localStorage.setItem(DELETED_MSG_STORAGE_KEY, JSON.stringify([..._deletedMsgIds])); } catch(e) {}
+  }
+  function markMsgDeleted(id) { _deletedMsgIds.add(id); saveDeletedMsgIds(); }
+  loadDeletedMsgIds();
+
+  // ===== 长按消息：撤回/删除菜单 =====
+  // 用 flag 标记正在长按气泡，在 dragstart 里阻止拖动
+  let pressTimer = null;
+  let pressStartX = 0;
+  let pressStartY = 0;
+  let longPressingMsg = false;
+  // 长按气泡时临时移除父卡片 draggable，防止浏览器在 500ms 前抢先启动拖拽幽灵
+  let touchedDraggableEl = null;
+
+  function disableCardDragForLongPress(row) {
+    const group = row.closest('.server-group[draggable="true"]');
+    if (group) {
+      touchedDraggableEl = group;
+      group.removeAttribute('draggable');
+    }
+  }
+  function restoreCardDrag() {
+    if (touchedDraggableEl) {
+      if (touchedDraggableEl.parentElement) {
+        touchedDraggableEl.setAttribute('draggable', 'true');
+      }
+      touchedDraggableEl = null;
+    }
+  }
+
+  function startMsgLongPress(row, x, y) {
+    cancelMsgLongPress();
+    longPressingMsg = true;
+    pressStartX = x;
+    pressStartY = y;
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      const id = row.dataset.msgId;
+      if (!id) return;
+      const isMine = row.classList.contains('chat-msg-mine');
+      showMsgActionMenu(id, isMine, row);
+    }, 500);
+  }
+  function cancelMsgLongPress() {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    longPressingMsg = false;
+  }
+
+  // pointer 事件（桌面）
+  document.addEventListener('pointerdown', e => {
+    const row = e.target.closest('.chat-msg'); if (!row) return;
+    disableCardDragForLongPress(row);
+    startMsgLongPress(row, e.clientX, e.clientY);
+  });
+  document.addEventListener('pointermove', e => {
+    if (!pressTimer) return;
+    const dx = e.clientX - pressStartX;
+    const dy = e.clientY - pressStartY;
+    if (dx * dx + dy * dy > 100) { cancelMsgLongPress(); restoreCardDrag(); }
+  }, {passive:true});
+  ['pointerup','pointercancel'].forEach(ev => document.addEventListener(ev, () => {
+    cancelMsgLongPress();
+    if (!document.getElementById('msgActionMenu')) restoreCardDrag();
+  }, {passive:true}));
+
+  // touch 事件（移动端更可靠，穿透 video/audio 控件）
+  let touchPressRow = null;
+  document.addEventListener('touchstart', e => {
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const row = el && el.closest('.chat-msg');
+    if (!row) return;
+    touchPressRow = row;
+    // 临时移除父卡片 draggable，阻止浏览器启动拖拽幽灵
+    disableCardDragForLongPress(row);
+    startMsgLongPress(row, touch.clientX, touch.clientY);
+  }, {passive:true});
+  document.addEventListener('touchmove', e => {
+    if (!pressTimer) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - pressStartX;
+    const dy = touch.clientY - pressStartY;
+    if (dx * dx + dy * dy > 100) { cancelMsgLongPress(); restoreCardDrag(); }
+  }, {passive:true});
+  document.addEventListener('touchend', () => {
+    cancelMsgLongPress(); touchPressRow = null;
+    // 菜单打开时不恢复 draggable，等菜单关闭时再恢复
+    if (!document.getElementById('msgActionMenu')) restoreCardDrag();
+  }, {passive:true});
+  document.addEventListener('touchcancel', () => {
+    cancelMsgLongPress(); touchPressRow = null;
+    restoreCardDrag();
+  }, {passive:true});
+
+  // 仅在长按气泡或菜单打开时阻止卡片拖动（不再阻止聊天区域的正常拖动）
+  document.addEventListener('dragstart', function(e) {
+    const menuOpen = document.getElementById('msgActionMenu');
+    if (longPressingMsg || menuOpen) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+
+  // 消息操作菜单（撤回 / 删除）
+  function showMsgActionMenu(msgId, isMine, rowEl) {
+    // 移除旧菜单
+    const old = document.getElementById('msgActionMenu');
+    if (old) old.remove();
+
+    const menu = document.createElement('div');
+    menu.id = 'msgActionMenu';
+    menu.className = 'msg-action-menu';
+    menu.innerHTML = `
+      <div class="msg-action-mask"></div>
+      <div class="msg-action-sheet">
+        ${isMine ? '<button class="msg-action-btn recall" type="button">撤回消息</button>' : ''}
+        <button class="msg-action-btn delete" type="button">删除消息</button>
+        <button class="msg-action-btn cancel" type="button">取消</button>
+      </div>
+    `;
+    document.body.appendChild(menu);
+    requestAnimationFrame(() => menu.classList.add('open'));
+
+    function close() {
+      // 立即重置长按状态，恢复卡片可拖动
+      longPressingMsg = false;
+      restoreCardDrag();
+      // 立即移除遮罩 DOM，彻底杜绝 transition 残留灰色遮罩
+      const mask = menu.querySelector('.msg-action-mask');
+      if (mask) mask.remove();
+      menu.classList.remove('open');
+      setTimeout(() => { if (menu.parentElement) menu.remove(); }, 200);
+    }
+
+    menu.querySelector('.msg-action-mask').addEventListener('click', close);
+    menu.querySelector('.cancel').addEventListener('click', close);
+
+    menu.querySelector('.delete').addEventListener('click', () => {
+      close();
+      markMsgDeleted(msgId);
+      Object.keys(state.chatMessages).forEach(k => { state.chatMessages[k] = (state.chatMessages[k]||[]).filter(m=>m.id!==msgId); });
+      state.publicMessages = (state.publicMessages||[]).filter(m=>m.id!==msgId);
+      saveChatMessages(); savePublicMessages();
+      if (rowEl && rowEl.parentElement) rowEl.remove();
+      else { state.servers.forEach(s => renderChatMessages(s.id, false)); renderPublicChat(false); }
+    });
+
+    if (isMine) {
+      menu.querySelector('.recall').addEventListener('click', () => {
+        close();
+        markMsgDeleted(msgId);
+        Object.keys(state.chatMessages).forEach(k => { state.chatMessages[k] = (state.chatMessages[k]||[]).filter(m=>m.id!==msgId); });
+        state.publicMessages = (state.publicMessages||[]).filter(m=>m.id!==msgId);
+        const group = rowEl && rowEl.closest('.server-group');
+        const channel = group ? (CHAT_PREFIX + group.dataset.id) : PUBLIC_CHANNEL;
+        if (goEasy && state.goEasyReady) goEasy.pubsub.publish({channel, message:JSON.stringify({type:'delete', id:msgId, senderId:state.userId}), qos:1});
+        saveChatMessages(); savePublicMessages();
+        if (rowEl && rowEl.parentElement) rowEl.remove();
+        else { state.servers.forEach(s => renderChatMessages(s.id, false)); renderPublicChat(false); }
+      });
+    }
+  }
+
+  // 委托：XOR 加密文件点击 → 解密下载
+  document.addEventListener('click', function (e) {
+    const xorEl = e.target.closest('[data-xor-url]');
+    if (xorEl) {
+      e.preventDefault();
+      e.stopPropagation();
+      _xorDecryptAndDownload(xorEl.dataset.xorUrl, xorEl.dataset.xorName, xorEl.dataset.xorMime);
+    }
+  });
+
+  // 委托：聊天图片点击放大
+  document.addEventListener('click', function (e) {
+    const img = e.target.closest('.chat-media-img');
+    if (img && img.dataset.full) {
+      e.preventDefault();
+      e.stopPropagation();
+      openImageLightbox(img.dataset.full);
+    }
+  });
+
+  function formatAudioDuration(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return '--:--';
+    const total = Math.round(seconds);
+    const min = Math.floor(total / 60);
+    const sec = total % 60;
+    return String(min).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+  }
+  // ===== 自定义音频播放器：事件委托 =====
+  // 未播放时显示总时长，播放时从 0 开始计时
+  // 用 requestAnimationFrame 保证进度条与时间完全同步流畅
+  function _audioWrap(e) {
+    const audio = e.target;
+    if (!audio || !audio.classList || !audio.classList.contains('chat-media-audio-el')) return null;
+    return audio.closest('.chat-media-audio');
+  }
+  function _audioSyncUI(audio, w) {
+    const td = w.querySelector('.audio-time-display');
+    const pf = w.querySelector('.audio-progress-fill');
+    if (td) td.textContent = formatAudioDuration(audio.currentTime);
+    if (pf && audio.duration && isFinite(audio.duration)) {
+      pf.style.width = ((audio.currentTime / audio.duration) * 100) + '%';
+    }
+  }
+  // rAF 循环：播放期间每帧同步刷新进度条 + 时间
+  const _audioRaf = new WeakMap();
+  function _startAudioRaf(audio, w) {
+    if (_audioRaf.has(audio)) return;
+    function tick() {
+      _audioSyncUI(audio, w);
+      _audioRaf.set(audio, requestAnimationFrame(tick));
+    }
+    _audioRaf.set(audio, requestAnimationFrame(tick));
+  }
+  function _stopAudioRaf(audio, w) {
+    const id = _audioRaf.get(audio);
+    if (id) { cancelAnimationFrame(id); _audioRaf.delete(audio); }
+    // 停止后立刻刷一次，确保停在准确位置
+    _audioSyncUI(audio, w);
+  }
+
+  document.addEventListener('loadedmetadata', function (e) {
+    const w = _audioWrap(e); if (!w) return;
+    const audio = e.target;
+    const td = w.querySelector('.audio-time-display');
+    if (td && audio.duration && isFinite(audio.duration)) td.textContent = formatAudioDuration(audio.duration);
+  }, true);
+  document.addEventListener('canplay', function (e) {
+    const w = _audioWrap(e); if (!w) return;
+    const audio = e.target;
+    const td = w.querySelector('.audio-time-display');
+    if (td && audio.duration && isFinite(audio.duration) && audio.paused && audio.currentTime === 0) {
+      td.textContent = formatAudioDuration(audio.duration);
+    }
+  }, true);
+  document.addEventListener('durationchange', function (e) {
+    const w = _audioWrap(e); if (!w) return;
+    const audio = e.target;
+    const td = w.querySelector('.audio-time-display');
+    if (td && audio.duration && isFinite(audio.duration) && audio.paused && audio.currentTime === 0) {
+      td.textContent = formatAudioDuration(audio.duration);
+    }
+  }, true);
+  document.addEventListener('play', function (e) {
+    const w = _audioWrap(e); if (!w) return;
+    const audio = e.target;
+    const btn = w.querySelector('.audio-play-btn');
+    if (btn) { btn.textContent = '⏸'; btn.title = '暂停'; }
+    _startAudioRaf(audio, w);
+  }, true);
+  document.addEventListener('pause', function (e) {
+    const w = _audioWrap(e); if (!w) return;
+    const audio = e.target;
+    const btn = w.querySelector('.audio-play-btn');
+    if (btn) { btn.textContent = '▶'; btn.title = '播放'; }
+    _stopAudioRaf(audio, w);
+  }, true);
+  document.addEventListener('ended', function (e) {
+    const w = _audioWrap(e); if (!w) return;
+    const audio = e.target;
+    const btn = w.querySelector('.audio-play-btn');
+    const td = w.querySelector('.audio-time-display');
+    const pf = w.querySelector('.audio-progress-fill');
+    if (btn) { btn.textContent = '▶'; btn.title = '播放'; }
+    _stopAudioRaf(audio, w);
+    try { audio.currentTime = 0; } catch (_) {}
+    if (td && audio.duration && isFinite(audio.duration)) td.textContent = formatAudioDuration(audio.duration);
+    if (pf) pf.style.width = '0%';
+  }, true);
+  // 播放/暂停按钮 + 进度条点击跳转
+  document.addEventListener('click', function (e) {
+    const playBtn = e.target.closest('.audio-play-btn');
+    if (playBtn) {
+      e.stopPropagation();
+      const w = playBtn.closest('.chat-media-audio');
+      const audio = w && w.querySelector('.chat-media-audio-el');
+      if (!audio) return;
+      if (audio.paused) { audio.play().catch(() => {}); } else { audio.pause(); }
+      return;
+    }
+    const bar = e.target.closest('.audio-progress-bar');
+    if (bar) {
+      e.stopPropagation();
+      const w = bar.closest('.chat-media-audio');
+      const audio = w && w.querySelector('.chat-media-audio-el');
+      if (!audio || !audio.duration || !isFinite(audio.duration)) return;
+      const rect = bar.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      audio.currentTime = pct * audio.duration;
+      // 跳转后立刻同步 UI（暂停时 rAF 不跑，需要手动刷一次）
+      _audioSyncUI(audio, w);
+    }
+  });
+
+  // ---- 初始化 GoEasy ----
   function initGoEasy(retryCount) {
     if (retryCount === undefined) retryCount = 0;
     if (typeof GoEasy === 'undefined') {
-      if (retryCount < 3) setTimeout(() => initGoEasy(retryCount + 1), 2000);
-      else {
+      if (retryCount < 3) {
+        console.warn(`GoEasy SDK 未加载，${retryCount+1}秒后重试...`);
+        setTimeout(() => initGoEasy(retryCount + 1), 2000);
+      } else {
+        console.error('GoEasy SDK 加载失败，聊天功能不可用');
         state.goEasyReady = false;
+        document.querySelectorAll('.server-group .chat-wrapper .chat-messages').forEach(el => {
+          el.innerHTML = '<div style="color:var(--red);text-align:center;padding:8px;">⚠️ 聊天服务未连接</div>';
+        });
         document.querySelectorAll('.server-group .chat-input').forEach(inp => { inp.disabled = true; inp.placeholder = '聊天未连接'; });
         document.querySelectorAll('.server-group .chat-send-btn').forEach(btn => btn.disabled = true);
+        const pubContainer = document.getElementById('publicChatMessages');
+        if (pubContainer) pubContainer.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px;">⚠️ 聊天服务未连接</div>';
       }
       return;
     }
+
     ensureUsername(() => {
       try {
         goEasy = GoEasy.getInstance({
           host: 'hangzhou.goeasy.io',
-          appkey: 'BC-6b89528811b742ab9af8b8f9641b1b9a',
-          modules: ['im'],
+          appkey: 'BC-e891108825ab43fb97dabe3327478e30',
+          modules: ['pubsub'],
           forceTLS: true
         });
-        const userId = state.username || ('user_' + generateMsgId());
+        const userId = state.userId;
         const nick = state.username || '匿名用户';
         goEasy.connect({
           id: userId,
           data: { nickname: nick, avatar: '' },
           onSuccess: function () {
-            console.log('GoEasy IM 连接成功，用户ID:', goEasy.id);
+            console.log('GoEasy 连接成功，用户ID:', goEasy.id);
             state.goEasyReady = true;
-            state.presenceReady = true;
-            showToast('✅ IM 聊天服务已连接', 1500, true);
-            setupImMessageListeners();
+            showToast('✅ 聊天服务已连接', 1500, true);
+            // 必须先 subscribe(presence:enable) 成功，再挂 Presence 监听
+            subscribePublicChannel();
             forceSubscribeAll();
-            startImPresence();
-            setTimeout(function () { syncAllOfflineHistory(); }, 400);
             state.servers.forEach(s => renderChatMessages(s.id, false));
             renderPublicChat(false);
             updateChatUI();
             restorePublicUnread();
-            updateOnlineMembersUI();
           },
           onFailed: function (error) {
-            console.error('GoEasy IM 连接失败', error);
+            console.error('GoEasy 连接失败', error);
             state.goEasyReady = false;
             state.presenceReady = false;
             if (retryCount < 3) {
+              console.warn(`GoEasy 连接失败，${retryCount+1}秒后重试...`);
               setTimeout(() => {
-                if (goEasy) { try { goEasy.disconnect(); } catch (e) {} goEasy = null; }
-                _imListenersBound = false;
+                if (goEasy) {
+                  try { goEasy.disconnect(); } catch(e) {}
+                  goEasy = null;
+                }
                 initGoEasy(retryCount + 1);
               }, 2000);
             } else {
               showToast('❌ 聊天服务连接失败，请检查网络或 appkey', 3000, false);
-              updateChatUI();
+              document.querySelectorAll('.server-group .chat-input').forEach(inp => { inp.disabled = true; inp.placeholder = '聊天不可用'; });
+              document.querySelectorAll('.server-group .chat-send-btn').forEach(btn => btn.disabled = true);
+              const pubContainer = document.getElementById('publicChatMessages');
+              if (pubContainer) pubContainer.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px;">⚠️ 聊天服务未连接</div>';
+              updateOnlineMembersUI();
             }
-          },
-          onProgress: function (attempts) { console.log('GoEasy IM 连接中...', attempts); }
+          }
         });
       } catch (e) {
         console.error('GoEasy 初始化异常', e);
         state.goEasyReady = false;
-        if (retryCount < 3) setTimeout(() => initGoEasy(retryCount + 1), 2000);
+        if (retryCount < 3) {
+          setTimeout(() => initGoEasy(retryCount + 1), 2000);
+        } else {
+          showToast('❌ 聊天服务初始化失败', 3000, false);
+        }
       }
     });
   }
 
+  // ---- 公共未读状态管理 ----
   function getPublicUnreadCount() {
     const raw = localStorage.getItem(PUBLIC_UNREAD_KEY);
+    // 兼容旧布尔值存储
     if (raw === 'true') return 1;
     if (raw === 'false' || raw == null || raw === '') return 0;
     const n = parseInt(raw, 10);
     return isNaN(n) || n < 0 ? 0 : n;
   }
+
   function updatePublicUnreadBadge() {
     const badge = document.getElementById('publicUnreadBadge');
     if (!badge) return;
@@ -2108,828 +4879,187 @@
     badge.textContent = count > 99 ? '99+' : String(count);
     badge.classList.toggle('zero', count === 0);
   }
+
   function setPublicUnread(value) {
-    if (value === true || value === 1) {
-      localStorage.setItem(PUBLIC_UNREAD_KEY, String(Math.max(1, getPublicUnreadCount() + 1)));
-    } else if (typeof value === 'number') {
-      localStorage.setItem(PUBLIC_UNREAD_KEY, String(Math.max(0, value)));
-    } else {
+    // value: true 表示 +1；false 表示清零；number 表示直接设置
+    if (value === false || value === 0) {
       localStorage.setItem(PUBLIC_UNREAD_KEY, '0');
+    } else if (value === true) {
+      const next = getPublicUnreadCount() + 1;
+      localStorage.setItem(PUBLIC_UNREAD_KEY, String(next));
+    } else if (typeof value === 'number') {
+      localStorage.setItem(PUBLIC_UNREAD_KEY, String(Math.max(0, value | 0)));
     }
     updatePublicUnreadBadge();
   }
-  function restorePublicUnread() { updatePublicUnreadBadge(); }
 
-  function queueMarkAsRead(groupId, message) {
-    if (!groupId || !message) return;
-    if (!_pendingReadByGroup[groupId]) _pendingReadByGroup[groupId] = [];
-    const list = _pendingReadByGroup[groupId];
-    const mid = message.messageId;
-    if (mid && list.some(m => m.messageId === mid)) return;
-    list.push(message);
-    if (!queueMarkAsRead._timer) {
-      queueMarkAsRead._timer = setTimeout(function () {
-        queueMarkAsRead._timer = null;
-        flushMarkAsRead();
-      }, 400);
-    }
+  function restorePublicUnread() {
+    updatePublicUnreadBadge();
   }
 
-  function flushMarkAsRead(onlyGroupId) {
-    const im = getIm();
-    if (!im || !im.markMessageAsRead) return;
-    const groups = onlyGroupId ? [onlyGroupId] : Object.keys(_pendingReadByGroup);
-    groups.forEach(function (gid) {
-      const msgs = _pendingReadByGroup[gid];
-      if (!msgs || !msgs.length) return;
-      const shouldRead = (gid === PUBLIC_CHANNEL && state.publicModalOpen) ||
-        (gid !== PUBLIC_CHANNEL && gid !== PRESENCE_GROUP && state.expanded.has(groupToServerId(gid)));
-      if (!shouldRead && !onlyGroupId) return;
-      const batch = msgs.splice(0, msgs.length);
-      try {
-        im.markMessageAsRead({
-          id: gid,
-          type: imSceneGroup(),
-          messages: batch,
-          onSuccess: function () { console.log('[IM] 已读标记成功', gid, batch.length); },
-          onFailed: function (err) {
-            console.warn('[IM] 已读标记失败', gid, err);
-            if (!_pendingReadByGroup[gid]) _pendingReadByGroup[gid] = [];
-            batch.forEach(function (m) {
-              if (!_pendingReadByGroup[gid].some(x => x.messageId === m.messageId)) _pendingReadByGroup[gid].push(m);
-            });
-          }
-        });
-      } catch (e) { console.warn('[IM] markMessageAsRead 异常', e); }
+  // ---- 订阅服务器频道 ----
+  function loadChannelHistory(channel, onMessage) {
+    if (!goEasy || !state.goEasyReady || !goEasy.pubsub || !goEasy.pubsub.history) return;
+    goEasy.pubsub.history({ channel: channel, limit: HISTORY_LIMIT,
+      onSuccess: response => {
+        const list = response && response.content && response.content.messages || [];
+        list.forEach(item => { if (typeof onMessage === 'function') onMessage({content:item.content}); });
+      },
+      onFailed: error => console.warn('[历史消息] 获取失败', channel, error)
     });
-  }
-
-  function markGroupReadNow(groupId) {
-    if (!groupId) return;
-    flushMarkAsRead(groupId);
-  }
-
-  function isPresenceText(text) {
-    if (!text) return false;
-    if (text.indexOf('"__presence__"') >= 0) return true;
-    try { const o = JSON.parse(text); return !!(o && o.__presence__); } catch (e) { return false; }
-  }
-
-  function imMessageToLocal(message) {
-    if (!message) return null;
-    const type = message.type || 'text';
-    const payload = message.payload || {};
-    const senderData = message.senderData || {};
-    const sender = senderData.nickname || message.senderId || '匿名';
-    const id = message.messageId || generateMsgId();
-    const time = message.timestamp || Date.now();
-    const isMine = (message.senderId && goEasy && message.senderId === goEasy.id) || (sender === state.username);
-    let text = '', isImage = false, mediaUrl = '', thumbUrl = '', fileName = '', duration = 0, msgType = type;
-
-    if (type === 'text') {
-      text = payload.text != null ? String(payload.text) : '';
-      if (text.includes('__revoke__')) {
-        try {
-          let revId = null;
-          if (text.startsWith('{')) {
-            const parsed = JSON.parse(text);
-            if (parsed && parsed.__revoke__) revId = parsed.__revoke__;
-          } else if (text.startsWith('__revoke__:')) {
-            revId = text.substring(11);
-          }
-          if (revId) {
-            removeMessageById(revId);
-            return null;
-          }
-        } catch (e) {}
-      }
-      if (isPresenceText(text)) return null;
-      if (text.startsWith('[图片]') || text.startsWith('[视频]')) isImage = true;
-    } else if (type === 'image') {
-      mediaUrl = payload.url || ''; text = '[图片]' + mediaUrl; isImage = true; msgType = 'image';
-    } else if (type === 'video') {
-      const v = payload.video || payload;
-      mediaUrl = (v && v.url) || payload.url || '';
-      thumbUrl = (payload.thumbnail && payload.thumbnail.url) || '';
-      text = '[视频]' + mediaUrl; isImage = true; msgType = 'video'; duration = (v && v.duration) || 0;
-    } else if (type === 'audio') {
-      mediaUrl = payload.url || ''; text = '[语音]' + mediaUrl; msgType = 'audio';
-      duration = payload.duration || 0; fileName = payload.name || '';
-    } else if (type === 'file') {
-      mediaUrl = payload.url || '';
-      fileName = payload.name || '文件';
-      // 语音被降级为文件消息发来时（或对端 SDK 以文件形式发送的音频），按语音气泡展示
-      const ct = String(payload.contentType || '');
-      if (/^audio\//i.test(ct) || /\.(mp3|m4a|aac|ogg|opus|oga|wav|webm|amr|flac)$/i.test(fileName)) {
-        msgType = 'audio';
-        duration = payload.duration || 0;
-        text = '[语音]' + mediaUrl;
-        fileName = '';
-      } else {
-        text = '[文件]' + mediaUrl;
-        msgType = 'file';
-      }
-    } else if (type === 'custom') {
-      try {
-        const c = typeof payload === 'string' ? JSON.parse(payload) : payload;
-        if (c && c.__presence__) { handlePresencePayload(c, message.senderId, senderData); return null; }
-      } catch (e) {}
-      text = typeof payload === 'string' ? payload : (payload.text || JSON.stringify(payload));
-    } else {
-      text = typeof payload === 'string' ? payload : (payload.text || JSON.stringify(payload));
-    }
-
-    return {
-      id, text, sender, isMine, time, isImage, msgType, mediaUrl, thumbUrl, fileName, duration,
-      offline: !!(message.offline || message.isOffline)
-    };
-  }
-
-  // 自己发送的媒体消息可能先用本地 blob 预览地址上屏；
-  // 服务端回执携带真实 URL 到达后原地替换，避免刷新后语音/图片失效。
-  function upgradeBlobMedia(existing, incoming) {
-    if (!existing || !incoming) return false;
-    const oldUrl = existing.mediaUrl || '';
-    const newUrl = incoming.mediaUrl || '';
-    if (oldUrl.indexOf('blob:') === 0 && newUrl && newUrl.indexOf('blob:') !== 0) {
-      existing.mediaUrl = newUrl;
-      existing.text = incoming.text || existing.text;
-      if (incoming.duration) existing.duration = incoming.duration;
-      if (incoming.thumbUrl) existing.thumbUrl = incoming.thumbUrl;
-      return true;
-    }
-    return false;
-  }
-
-  function ingestLocalMessage(groupId, local, rawMessage, opts) {
-    opts = opts || {};
-    if (!local) return false;
-    const fromHistory = !!opts.fromHistory;
-    const fromOffline = !!opts.fromOffline || !!local.offline;
-
-    if (groupId === PUBLIC_CHANNEL) {
-      if (!state.publicMessages) state.publicMessages = [];
-      const existingPub = state.publicMessages.find(m => m.id === local.id);
-      if (existingPub) {
-        if (upgradeBlobMedia(existingPub, local)) { savePublicMessages(); renderPublicChat(false); }
-        return false;
-      }
-      if (isRecentMineDuplicate(local)) return false;
-      state.publicMessages.push(local);
-      state.publicMessages.sort((a, b) => (a.time || 0) - (b.time || 0));
-      savePublicMessages();
-      renderPublicChat(!fromHistory);
-      if (!local.isMine && !state.publicModalOpen && (!fromHistory || fromOffline)) setPublicUnread(true);
-      if (rawMessage && state.publicModalOpen) queueMarkAsRead(PUBLIC_CHANNEL, rawMessage);
-      return true;
-    }
-
-    const serverId = groupToServerId(groupId);
-    if (!serverId) return false;
-    if (!state.chatMessages[serverId]) state.chatMessages[serverId] = [];
-    const existingSrv = state.chatMessages[serverId].find(m => m.id === local.id);
-    if (existingSrv) {
-      if (upgradeBlobMedia(existingSrv, local)) { saveChatMessages(); renderChatMessages(serverId, false); }
-      return false;
-    }
-    if (isRecentMineDuplicate(local)) return false;
-    state.chatMessages[serverId].push(local);
-    state.chatMessages[serverId].sort((a, b) => (a.time || 0) - (b.time || 0));
-    saveChatMessages();
-    renderChatMessages(serverId, !fromHistory);
-    if (!local.isMine && !state.expanded.has(serverId) && (!fromHistory || fromOffline)) {
-      state.unreadStatus[serverId] = getUnreadCount(serverId) + 1;
-      saveUnreadStatus();
-      updateUnreadIndicators();
-    }
-    if (rawMessage && state.expanded.has(serverId)) queueMarkAsRead(groupId, rawMessage);
-    return true;
-  }
-
-  function setupImMessageListeners() {
-    const im = getIm();
-    if (!im || _imListenersBound) return;
-    _imListenersBound = true;
-    const onGroup = function (message) {
-      try {
-        if (message.groupId === PRESENCE_GROUP) {
-          const payload = message.payload || {};
-          let body = payload.text != null ? payload.text : payload;
-          if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }
-          if (body && body.__presence__) handlePresencePayload(body, message.senderId, message.senderData || {});
-          return;
-        }
-        const local = imMessageToLocal(message);
-        if (!local) return;
-        const isOffline = !!(message.offline || message.isOffline);
-        ingestLocalMessage(message.groupId, local, message, { fromOffline: isOffline });
-        if (message.groupId && !local.isMine) {
-          const viewing = (message.groupId === PUBLIC_CHANNEL && state.publicModalOpen) ||
-            state.expanded.has(groupToServerId(message.groupId));
-          if (!viewing) queueMarkAsRead(message.groupId, message);
-        }
-      } catch (e) { console.warn('处理 IM 群消息失败', e); }
-    };
-    try {
-      if (typeof GoEasy !== 'undefined' && GoEasy.IM_EVENT) im.on(GoEasy.IM_EVENT.GROUP_MESSAGE_RECEIVED, onGroup);
-      else im.on('GROUP_MESSAGE_RECEIVED', onGroup);
-    } catch (e) {
-      console.error('绑定 IM 监听失败', e);
-      _imListenersBound = false;
-    }
-  }
-
-  function fetchGroupHistory(groupId, callback) {
-    const im = getIm();
-    if (!im || !im.history || !groupId) { if (typeof callback === 'function') callback([]); return; }
-    try {
-      im.history({
-        id: groupId,
-        type: imSceneGroup(),
-        lastTimestamp: null,
-        limit: HISTORY_LIMIT,
-        onSuccess: function (result) {
-          let list = [];
-          if (result && Array.isArray(result.content)) list = result.content;
-          else if (result && Array.isArray(result)) list = result;
-          else if (result && result.content && Array.isArray(result.content.messages)) list = result.content.messages;
-          if (typeof callback === 'function') callback(list);
-        },
-        onFailed: function (error) {
-          console.warn('[IM] history 失败', groupId, error);
-          if (typeof callback === 'function') callback([]);
-        }
-      });
-    } catch (e) {
-      console.warn('[IM] history 异常', e);
-      if (typeof callback === 'function') callback([]);
-    }
-  }
-
-  function mergeHistoryIntoLocal(groupId, historyList) {
-    if (!historyList || !historyList.length) return 0;
-    const sorted = historyList.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-    let added = 0, localLatest = 0;
-    if (groupId === PUBLIC_CHANNEL) {
-      (state.publicMessages || []).forEach(m => { if (m.time > localLatest) localLatest = m.time; });
-    } else {
-      const sid = groupToServerId(groupId);
-      if (sid) (state.chatMessages[sid] || []).forEach(m => { if (m.time > localLatest) localLatest = m.time; });
-    }
-    sorted.forEach(function (message) {
-      const local = imMessageToLocal(message);
-      if (!local) return;
-      const isNewOffline = localLatest > 0 && (local.time || 0) > localLatest;
-      if (ingestLocalMessage(groupId, local, message, { fromHistory: true, fromOffline: isNewOffline })) added++;
-      if (message && !local.isMine) {
-        const viewing = (groupId === PUBLIC_CHANNEL && state.publicModalOpen) ||
-          state.expanded.has(groupToServerId(groupId));
-        if (viewing) queueMarkAsRead(groupId, message);
-      }
-    });
-    return added;
-  }
-
-  function syncGroupOfflineHistory(groupId) {
-    if (!groupId || groupId === PRESENCE_GROUP) return;
-    fetchGroupHistory(groupId, function (list) {
-      const n = mergeHistoryIntoLocal(groupId, list);
-      _historySynced[groupId] = Date.now();
-      if (n > 0) console.log('[IM] 同步历史/离线消息', groupId, n);
-      const viewing = (groupId === PUBLIC_CHANNEL && state.publicModalOpen) ||
-        state.expanded.has(groupToServerId(groupId));
-      if (viewing) markGroupReadNow(groupId);
-    });
-  }
-
-  function syncAllOfflineHistory() {
-    if (!state.goEasyReady || !getIm()) return;
-    syncGroupOfflineHistory(PUBLIC_CHANNEL);
-    (state.servers || []).forEach(function (s) { syncGroupOfflineHistory(serverGroupId(s.id)); });
   }
 
   function subscribeChannel(serverId) {
     if (!goEasy || !state.goEasyReady) return;
-    const im = getIm();
-    if (!im) return;
-    const gid = serverGroupId(serverId);
-    im.subscribeGroup({
-      groupIds: [gid],
+    const channel = CHAT_PREFIX + serverId;
+    goEasy.pubsub.subscribe({
+      channel: channel,
+      history: 50,
+      onMessage: function (message) {
+        handleChatMessage(serverId, message.content);
+      },
       onSuccess: function () {
         state.chatSubscribed[serverId] = true;
-        console.log('IM 订阅群成功:', gid);
-        syncGroupOfflineHistory(gid);
+        loadChannelHistory(channel, message => handleChatMessage(serverId, message.content));
+        console.log(`订阅频道 ${channel} 成功`);
       },
       onFailed: function (error) {
-        console.error('IM 订阅群失败:', gid, error);
-        setTimeout(() => { if (state.goEasyReady) subscribeChannel(serverId); }, 5000);
+        console.error(`订阅频道 ${channel} 失败`, error);
+        setTimeout(() => {
+          if (state.goEasyReady) {
+            subscribeChannel(serverId);
+          }
+        }, 5000);
       }
     });
   }
 
   function subscribeAllChannels() {
     if (!goEasy || !state.goEasyReady) return;
-    const im = getIm();
-    if (!im) return;
-    const ids = (state.servers || []).map(s => serverGroupId(s.id));
-    if (ids.length) {
-      im.subscribeGroup({
-        groupIds: ids,
-        onSuccess: function () {
-          state.servers.forEach(s => { state.chatSubscribed[s.id] = true; });
-          console.log('IM 批量订阅服务器群成功:', ids.length);
-          ids.forEach(syncGroupOfflineHistory);
-        },
-        onFailed: function (error) {
-          console.error('IM 批量订阅失败，逐个订阅', error);
-          state.servers.forEach(s => subscribeChannel(s.id));
-        }
-      });
-    }
-    subscribePublicAndPresence();
-  }
-
-  function subscribePublicAndPresence() {
-    const im = getIm();
-    if (!im) return;
-    im.subscribeGroup({
-      groupIds: [PUBLIC_CHANNEL, PRESENCE_GROUP],
-      onSuccess: function () {
-        console.log('IM 公共群 + 在线群订阅成功');
-        state.publicChatReady = true;
-        restorePublicUnread();
-        syncGroupOfflineHistory(PUBLIC_CHANNEL);
-      },
-      onFailed: function (error) {
-        console.error('IM 公共/在线群订阅失败', error);
-        setTimeout(() => { if (state.goEasyReady) subscribePublicAndPresence(); }, 5000);
-      }
+    state.servers.forEach(s => {
+      subscribeChannel(s.id);
     });
   }
-
-  function subscribePublicChannel() { subscribePublicAndPresence(); }
-
-  const _subscribeAttemptAt = Object.create(null);
-  let _publicSubscribedAt = 0;
 
   function forceSubscribeAll() {
     if (!state.goEasyReady) return;
     state.chatSubscribed = {};
-    _publicSubscribedAt = 0;
     subscribeAllChannels();
-    console.log('[IM] 强制重新订阅所有群');
+    // subscribePublicChannel 成功回调里会 initPresence / queryHereNow
+    subscribePublicChannel();
+    console.log('[聊天] 强制重新订阅所有频道');
   }
 
-  // 增量补订阅：每秒轮询成功时调用。
-  // GoEasy 群订阅在连接期间持续有效，无需重复订阅；原实现每秒全量强制
-  // 重订阅会形成订阅风暴，触发服务端重投历史消息（含在线状态老心跳），
-  // 是“下线成员人数不变”的根源之一。这里只补订阅缺失的群，并做 10 秒退避。
-  function ensureImSubscriptions() {
-    if (!state.goEasyReady || !getIm()) return;
-    const now = Date.now();
-    (state.servers || []).forEach(function (s) {
-      const id = s.id;
-      if (state.chatSubscribed[id]) return;
-      if (now - (_subscribeAttemptAt[id] || 0) < 10000) return;
-      _subscribeAttemptAt[id] = now;
-      subscribeChannel(id);
-    });
-    if (!state.publicChatReady && (now - _publicSubscribedAt) > 10000) {
-      _publicSubscribedAt = now;
-      subscribePublicAndPresence();
+  // ---- 服务器聊天接收 ----
+  function handleChatMessage(serverId, content) {
+    try {
+      const msg = JSON.parse(content);
+      if (msg.type === 'delete' && msg.id) {
+        markMsgDeleted(msg.id);
+        state.chatMessages[serverId] = (state.chatMessages[serverId] || []).filter(m => m.id !== msg.id);
+        saveChatMessages(); renderChatMessages(serverId, false); return;
+      }
+      if (_deletedMsgIds.has(msg.id)) return;
+      if (!state.chatMessages[serverId]) state.chatMessages[serverId] = [];
+
+      const exists = state.chatMessages[serverId].some(m => m.id === msg.id);
+      if (exists) return;
+
+      const isMine = (msg.senderId === state.userId) || (msg.sender === state.username) || (msg.sender === state.userId);
+      state.chatMessages[serverId].push({
+        id: msg.id,
+        text: msg.text,
+        sender: msg.sender,
+        senderName: msg.senderName || msg.nickname || msg.sender,
+        senderId: msg.senderId || '',
+        isMine: isMine,
+        time: msg.time || Date.now(),
+        isImage: !!msg.isImage,
+        mediaType: msg.mediaType || '',
+        url: msg.url || '',
+        fileName: _restoreBlockedExt(msg.fileName || ''),
+        fileSize: msg.fileSize || 0,
+        mimeType: msg.mimeType || '',
+        isXor: !!msg.isXor || ((msg.url || '').toLowerCase().endsWith('.dlp')),
+      });
+      saveChatMessages();
+      renderChatMessages(serverId, true);
+
+      if (!isMine && !state.expanded.has(serverId)) {
+        state.unreadStatus[serverId] = getUnreadCount(serverId) + 1;
+        saveUnreadStatus();
+        updateUnreadIndicators();
+      }
+    } catch (e) {
+      console.warn('解析聊天消息失败', e);
     }
   }
 
-  function appendLocalChat(serverId, local) {
-    if (!state.chatMessages[serverId]) state.chatMessages[serverId] = [];
-    if (state.chatMessages[serverId].some(m => m.id === local.id)) return;
-    state.chatMessages[serverId].push(local);
-    saveChatMessages();
-    renderChatMessages(serverId, true);
-    const card = document.querySelector(`.server-group[data-id="${serverId}"]`);
-    if (card) {
-      const input = card.querySelector('.chat-input');
-      if (input) { input.value = ''; autoResizeChatInput(input); }
-    }
-  }
-
-  function sendChatMessage(serverId, text, isVideo = false) {
-    const _dk = draftKey(serverId, false);
-    if (chatDrafts[_dk]) { sendDraftMedia(_dk); return; }
-    if (!text || !String(text).trim()) {
-      showToast('请输入内容或选择图片/语音', 1200, false);
+  // ---- 服务器聊天发送 ----
+  // mediaOrFlag: 兼容旧布尔 isVideo，或媒体元数据对象
+  function sendChatMessage(serverId, text, mediaOrFlag) {
+    if (!text || !String(text).trim()) return;
+    if (!state.username) {
+      ensureUsername(() => {});
+      showToast('⚠️ 请先设置用户名', 1500, false);
       return;
     }
-    if (!state.username) { ensureUsername(() => {}); showToast('⚠️ 请先设置用户名', 1500, false); return; }
-    if (!goEasy || !state.goEasyReady) { showToast('⚠️ 聊天服务未连接，请稍后重试', 2000, false); return; }
-    const im = getIm();
-    if (!im) { showToast('⚠️ IM 模块未就绪', 2000, false); return; }
-    const gid = serverGroupId(serverId);
-    const trimmed = text.trim();
-    const isMediaText = /\[(图片|视频|语音|文件)\]/.test(trimmed);
-    const textMessage = im.createTextMessage({ text: trimmed, to: buildGroupTo(gid, '服务器聊天') });
-    im.sendMessage({
-      message: textMessage,
+    if (!goEasy || !state.goEasyReady) {
+      showToast('⚠️ 聊天服务未连接，请稍后重试', 2000, false);
+      return;
+    }
+    const media = (mediaOrFlag && typeof mediaOrFlag === 'object') ? mediaOrFlag : null;
+    const isVideoFlag = mediaOrFlag === true;
+    const channel = CHAT_PREFIX + serverId;
+    const msgId = generateMsgId();
+    const mediaType = media ? (media.mediaType || '') : (isVideoFlag ? 'video' : '');
+    const msgObj = {
+      id: msgId,
+      text: String(text).trim(),
+      sender: state.userId,
+      senderName: state.username,
+      senderId: state.userId,
+      time: Date.now(),
+      isImage: mediaType === 'image' || mediaType === 'video',
+      mediaType: mediaType || undefined,
+      url: media && media.url ? media.url : undefined,
+      fileName: media && media.fileName ? media.fileName : undefined,
+      fileSize: media && media.fileSize != null ? media.fileSize : undefined,
+      mimeType: media && media.mimeType ? media.mimeType : undefined,
+      isXor: media && media.isXor ? true : undefined,
+    };
+    const payload = JSON.stringify(msgObj);
+    goEasy.pubsub.publish({
+      channel: channel,
+      message: payload,
+      qos: 1,
       onSuccess: function () {
-        const mid = (textMessage && textMessage.messageId) || generateMsgId();
-        appendLocalChat(serverId, {
-          id: mid, text: trimmed, sender: state.username, isMine: true, time: Date.now(),
-          isImage: isMediaText && (trimmed.startsWith('[图片]') || trimmed.startsWith('[视频]')),
-          msgType: isVideo ? 'video' : (trimmed.startsWith('[图片]') ? 'image' : 'text')
-        });
+        if (!state.chatMessages[serverId]) state.chatMessages[serverId] = [];
+        const exists = state.chatMessages[serverId].some(m => m.id === msgId);
+        if (!exists) {
+          state.chatMessages[serverId].push(Object.assign({ isMine: true }, msgObj, { isXor: !!msgObj.isXor }));
+          saveChatMessages();
+        }
+        renderChatMessages(serverId, true);
+        const card = document.querySelector(`.server-group[data-id="${serverId}"]`);
+        if (card) {
+          const input = card.querySelector('.chat-input');
+          if (input) { input.value = ''; input.style.height = 'auto'; }
+        }
       },
       onFailed: function (error) {
-        showToast('❌ 消息发送失败：' + (error && error.content ? error.content : '未知错误'), 2500, false);
+        console.error('消息发送失败', error);
+        showToast('❌ 消息发送失败：' + (error && error.content ? error.content : error), 2500, false);
       }
     });
   }
 
-  // 创建 GoEasy 媒体消息。
-  // 语音优先走原生 createAudioMessage；当前 SDK 版本不支持或创建失败时，
-  // 自动降级为文件消息发送（接收端会按音频特征还原成语音气泡），不再直接抛异常。
-  function createImMediaMessage(im, file, kind, to, extra) {
-    extra = extra || {};
-    const progress = function (p) { showUploadProgress(p); };
-    if (kind === 'image' && typeof im.createImageMessage === 'function') {
-      return { message: im.createImageMessage({ file: file, to: to, onProgress: progress }), outKind: 'image' };
-    }
-    if (kind === 'video' && typeof im.createVideoMessage === 'function') {
-      return { message: im.createVideoMessage({ file: file, to: to, onProgress: progress }), outKind: 'video' };
-    }
-    if (kind === 'audio' && typeof im.createAudioMessage === 'function') {
-      const opts = { file: file, to: to, onProgress: progress };
-      if (extra.duration && isFinite(extra.duration) && extra.duration > 0) {
-        opts.duration = Math.max(1, Math.round(extra.duration));
-      }
-      try {
-        return { message: im.createAudioMessage(opts), outKind: 'audio' };
-      } catch (e1) {
-        // 兼容部分版本参数名差异
-        try {
-          return { message: im.createAudioMessage({ audioFile: file, to: to, duration: opts.duration, onProgress: progress }), outKind: 'audio' };
-        } catch (e2) {
-          console.warn('[IM] createAudioMessage 不可用，降级为文件消息发送', e1, e2);
-        }
-      }
-    }
-    if (typeof im.createFileMessage === 'function') {
-      return { message: im.createFileMessage({ file: file, to: to, onProgress: progress }), outKind: 'file' };
-    }
-    return null;
-  }
-
-  function pushLocalMediaMsg(isPublic, serverId, local) {
-    local.isMine = true;
-    local.sender = state.username;
-    rememberMineMedia(local);
-    if (isPublic) {
-      if (!state.publicMessages) state.publicMessages = [];
-      if (!state.publicMessages.some(function (m) { return m.id === local.id; })) {
-        state.publicMessages.push(local); savePublicMessages();
-      }
-      renderPublicChat(true); setPublicUnread(false);
-    } else {
-      appendLocalChat(serverId, local);
-    }
-  }
-
-  function formatImSendError(error) {
-    if (!error) return '未知错误';
-    const parts = [];
-    if (error.code !== undefined && error.code !== null) parts.push('code:' + error.code);
-    if (error.content) parts.push(String(error.content));
-    if (!parts.length && error.message) parts.push(String(error.message));
-    return parts.join(' ') || '未知错误';
-  }
-
-  // 构建本地已发送媒体消息；outKind 为降级后的实际消息类型。
-  // 语音即使被降级成文件消息发出，本地仍按语音气泡展示。
-  function buildLocalMediaMessage(message, kind, outKind, item) {
-    const payload = (message && message.payload) || {};
-    const viewKind = (kind === 'audio') ? 'audio' : (outKind || kind);
-    const local = imMessageToLocal(message) || {};
-    local.id = local.id || (message && message.messageId) || generateMsgId();
-    local.time = local.time || Date.now();
-    local.msgType = viewKind;
-    local.isImage = viewKind === 'image' || viewKind === 'video';
-    if (!local.mediaUrl) {
-      local.mediaUrl = payload.url || (payload.video && payload.video.url) || '';
-    }
-    // GoEasy 未回传 url 时（少见），先用本地预览地址顶上，保证气泡不空白；
-    // 服务端回执到达后会由 upgradeBlobMedia 替换为真实地址
-    if (!local.mediaUrl && item.previewUrl) local.mediaUrl = item.previewUrl;
-    if (!local.duration && item.duration) local.duration = item.duration;
-    if (!local.fileName && item.name) local.fileName = item.name;
-    local.text = (viewKind === 'image' ? '[图片]' : viewKind === 'video' ? '[视频]' : viewKind === 'audio' ? '[语音]' : '[文件]') + local.mediaUrl;
-    return local;
-  }
-
-  function sendOneMediaItem(im, to, item, isPublic, serverId) {
-    return new Promise(function (resolve) {
-      const kind = item.kind || 'file';
-      let created = null;
-      try {
-        created = createImMediaMessage(im, item.file, kind, to, { duration: item.duration });
-      } catch (e) {
-        console.error('[IM] 创建媒体消息异常', e);
-        resolve({ ok: false, error: { content: '创建消息失败：' + (e && e.message ? e.message : '未知错误') } });
-        return;
-      }
-      const message = created && created.message;
-      const outKind = created && created.outKind ? created.outKind : kind;
-      if (!message) {
-        resolve({ ok: false, error: { content: '当前 GoEasy SDK 不支持发送该媒体类型' } });
-        return;
-      }
-      im.sendMessage({
-        message: message,
-        onSuccess: function () {
-          const local = buildLocalMediaMessage(message, kind, outKind, item);
-          pushLocalMediaMsg(isPublic, serverId, local);
-          resolve({ ok: true });
-        },
-        onFailed: function (error) {
-          console.error('[IM] 媒体消息发送失败 kind=' + kind + ' outKind=' + outKind, error);
-          resolve({ ok: false, error: error });
-        }
-      });
-    });
-  }
-
-  // 发送失败时保留草稿：只清掉已成功的项，失败项留在输入区可重发。
-  // 这是“语音发送失败后会消失”的核心修复点。
-  function keepDraftItems(key, failedItems) {
-    if (!failedItems || !failedItems.length) { clearDraft(key); return; }
-    const old = chatDrafts[key];
-    if (old && old.items) {
-      old.items.forEach(function (it) {
-        if (failedItems.indexOf(it) === -1 && it.previewUrl) {
-          try { URL.revokeObjectURL(it.previewUrl); } catch (e) {}
-        }
-      });
-    }
-    const first = failedItems[0];
-    chatDrafts[key] = {
-      items: failedItems.slice(),
-      file: first.file, kind: first.kind, previewUrl: first.previewUrl, name: first.name,
-      duration: first.duration
-    };
-    renderDraftPreview(key);
-  }
-
-  async function sendDraftMedia(key) {
-    const d = chatDrafts[key];
-    if (!d || !d.items || !d.items.length) return false;
-    if (_sendingLock[key]) { showToast('⏳ 正在发送，请稍候', 1200, false); return true; }
-    if (!state.username) { ensureUsername(function () {}); showToast('⚠️ 请先设置用户名', 1500, false); return true; }
-    const im = getIm();
-    if (!im || !state.goEasyReady) { showToast('⚠️ IM 未连接', 2000, false); return true; }
-    const isPublic = key === 'public';
-    const serverId = isPublic ? null : key;
-    const to = buildGroupTo(isPublic ? PUBLIC_CHANNEL : serverGroupId(serverId), isPublic ? '公共聊天' : '服务器聊天');
-    const items = d.items.slice();
-    _sendingLock[key] = true;
-    let okCount = 0;
-    const failedItems = [];
-    let lastError = null;
-    try {
-      for (let i = 0; i < items.length; i++) {
-        showToast(items.length > 1 ? ('⏳ 正在发送 ' + (i + 1) + '/' + items.length + '...') : '⏳ 正在发送...', 2000, false);
-        const result = await sendOneMediaItem(im, to, items[i], isPublic, serverId);
-        if (result && result.ok) {
-          okCount++;
-        } else {
-          failedItems.push(items[i]);
-          if (result && result.error) lastError = result.error;
-        }
-      }
-    } finally {
-      _sendingLock[key] = false;
-    }
-    if (!failedItems.length) {
-      // 全部成功才清空草稿
-      clearDraft(key);
-      showToast('✅ 发送成功' + (items.length > 1 ? (' (' + okCount + ')') : ''), 1200, true);
-    } else {
-      keepDraftItems(key, failedItems);
-      const reason = formatImSendError(lastError);
-      if (okCount > 0) {
-        showToast('⚠️ 部分发送成功 ' + okCount + '/' + items.length + '，失败内容已保留：' + reason, 3500, false);
-      } else {
-        showToast('❌ 发送失败：' + reason + '（内容已保留，可重新点击发送）', 3500, false);
-      }
-    }
-    return true;
-  }
-
-  function sendChatImMedia(serverId, file, kind) {
-    setDraft(draftKey(serverId, false), file, kind);
-  }
-
-  function sendPublicMessage(text, isVideo = false) {
-    const _dk = draftKey(null, true);
-    if (chatDrafts[_dk]) { sendDraftMedia(_dk); return; }
-    if (!text || !String(text).trim()) {
-      showToast('请输入内容或选择图片/语音', 1200, false);
-      return;
-    }
-    if (!state.username) { ensureUsername(() => {}); showToast('⚠️ 请先设置用户名', 1500, false); return; }
-    if (!goEasy || !state.goEasyReady) { showToast('⚠️ 聊天服务未连接', 2000, false); return; }
-    const im = getIm();
-    if (!im) { showToast('⚠️ IM 模块未就绪', 2000, false); return; }
-    const trimmed = text.trim();
-    const isMediaText = /\[(图片|视频|语音|文件)\]/.test(trimmed);
-    const textMessage = im.createTextMessage({ text: trimmed, to: buildGroupTo(PUBLIC_CHANNEL, '公共聊天') });
-    im.sendMessage({
-      message: textMessage,
-      onSuccess: function () {
-        const msgId = (textMessage && textMessage.messageId) || generateMsgId();
-        if (!state.publicMessages) state.publicMessages = [];
-        if (!state.publicMessages.some(m => m.id === msgId)) {
-          state.publicMessages.push({
-            id: msgId, text: trimmed, sender: state.username, isMine: true, time: Date.now(),
-            isImage: isMediaText && (trimmed.startsWith('[图片]') || trimmed.startsWith('[视频]')),
-            msgType: isVideo ? 'video' : (trimmed.startsWith('[图片]') ? 'image' : 'text')
-          });
-          savePublicMessages();
-        }
-        renderPublicChat(true);
-        const el = document.getElementById('publicChatInput');
-        if (el) { el.value = ''; autoResizeChatInput(el); }
-        setPublicUnread(false);
-      },
-      onFailed: function () { showToast('❌ 公共消息发送失败', 2000, false); }
-    });
-  }
-
-  function sendPublicImMedia(file, kind) {
-    setDraft(draftKey(null, true), file, kind);
-  }
-
-  function handlePresencePayload(body, senderId, senderData) {
-    if (!body || !body.__presence__) return;
-    const id = body.id || senderId || '';
-    if (!id) return;
-    const action = body.action || 'join';
-    if (action === 'leave') {
-      if (_presenceMap[id]) { delete _presenceMap[id]; syncPresenceToState(); }
-      return;
-    }
-    // 关键修复：忽略“过期到达”的 presence 消息。
-    // GoEasy 在断线重连/重新订阅时会重投历史消息，老心跳会把已下线成员不断
-    // “救活”，导致在线人数只增不减、必须刷新浏览器才正常。
-    // 正常实时心跳的投递延迟只有毫秒级，超过 PRESENCE_STALE_MS 的一律按过期处理。
-    const ts = Number(body.ts) || 0;
-    if (ts > 0 && Date.now() - ts > PRESENCE_STALE_MS) return;
-    const nickname = body.nickname || (senderData && senderData.nickname) || id;
-    const wasOnline = !!_presenceMap[id];
-    _presenceMap[id] = { id: id, nickname: nickname, lastSeen: Date.now() };
-    syncPresenceToState();
-    if (!wasOnline && action === 'join') {
-      if (id !== state.username && !(goEasy && id === goEasy.id)) {
-        showToast('🟢 成员 ' + nickname + ' 已上线', 2000, true);
-      }
-    }
-  }
-
-  function syncPresenceToState() {
-    const now = Date.now();
-    const list = [];
-    Object.keys(_presenceMap).forEach(id => {
-      const m = _presenceMap[id];
-      if (!m) return;
-      if (now - (m.lastSeen || 0) > PRESENCE_TTL_MS) { delete _presenceMap[id]; return; }
-      list.push({ id: m.id, nickname: m.nickname, data: { nickname: m.nickname } });
-    });
-    const myId = (goEasy && goEasy.id) || state.username;
-    if (myId && !list.some(x => x.id === myId || x.nickname === state.username)) {
-      list.unshift({ id: myId, nickname: state.username || myId, data: { nickname: state.username || myId } });
-      _presenceMap[myId] = { id: myId, nickname: state.username || myId, lastSeen: now };
-    }
-    state.onlineMembers = list;
-    state.onlineCount = list.length;
-    updateOnlineMembersUI();
-  }
-
-  function sendPresenceAction(action) {
-    const im = getIm();
-    if (!im || !state.goEasyReady) return;
-    const body = JSON.stringify({
-      __presence__: true,
-      action: action || 'heartbeat',
-      id: (goEasy && goEasy.id) || state.username,
-      nickname: state.username || '匿名',
-      ts: Date.now()
-    });
-    try {
-      const msg = im.createTextMessage({ text: body, to: buildGroupTo(PRESENCE_GROUP, '在线状态') });
-      im.sendMessage({
-        message: msg,
-        onSuccess: function () {
-          const myId = (goEasy && goEasy.id) || state.username;
-          if (myId) {
-            _presenceMap[myId] = { id: myId, nickname: state.username || myId, lastSeen: Date.now() };
-            syncPresenceToState();
-          }
-        },
-        onFailed: function () {}
-      });
-    } catch (e) {}
-  }
-
-  function startImPresence() {
-    stopImPresence();
-    sendPresenceAction('join');
-    presenceHeartbeatTimer = setInterval(() => {
-      if (!state.goEasyReady || document.hidden) return;
-      sendPresenceAction('heartbeat');
-    }, PRESENCE_HEARTBEAT_MS);
-    presenceExpireTimer = setInterval(() => { syncPresenceToState(); }, PRESENCE_SWEEP_MS);
-  }
-  function stopImPresence() {
-    if (presenceHeartbeatTimer) { clearInterval(presenceHeartbeatTimer); presenceHeartbeatTimer = null; }
-    if (presenceExpireTimer) { clearInterval(presenceExpireTimer); presenceExpireTimer = null; }
-  }
-  function queryHereNow() { syncPresenceToState(); }
-  function initPresence() { startImPresence(); }
-
-  function updateOnlineMembersUI() {
-    const badge = document.getElementById('onlineCountBadge');
-    const titleCount = document.getElementById('onlineMembersTitleCount');
-    const list = document.getElementById('onlineMembersList');
-    const listLen = (state.onlineMembers && state.onlineMembers.length) || 0;
-    state.onlineCount = listLen;
-    const label = listLen > 99 ? '99+' : String(listLen);
-    if (badge) {
-      if (badge.textContent !== label) badge.textContent = label;
-      badge.classList.toggle('zero', listLen === 0);
-    }
-    if (titleCount) {
-      const t = '(' + listLen + ')';
-      if (titleCount.textContent !== t) titleCount.textContent = t;
-    }
-    if (!list) return;
-    if (!listLen) {
-      list.innerHTML = '<div class="online-members-empty">暂无在线成员</div>';
-      return;
-    }
-    list.innerHTML = state.onlineMembers.map(m => {
-      const rawName = m.nickname || m.id || '匿名';
-      const rawId = m.id || '';
-      const name = esc(rawName);
-      const idStr = esc(rawId);
-      const initial = String(rawName || '?').charAt(0).toUpperCase();
-      const isMe = (m.id === state.username) || (m.nickname === state.username) || (goEasy && m.id === goEasy.id);
-      const showId = rawId && String(rawName) !== String(rawId);
-      const idHtml = showId ? `<div class="online-member-id">${idStr}</div>` : '';
-      return `<div class="online-member-item" title="${idStr}">
-        <div class="online-member-avatar">${esc(initial)}</div>
-        <div class="online-member-info">
-          <div class="online-member-name">${name}${isMe ? ' <span style="color:var(--cyan);font-size:11px;">(我)</span>' : ''}</div>
-          ${idHtml}
-        </div>
-        <div class="online-member-dot" title="在线"></div>
-      </div>`;
-    }).join('');
-  }
-
-  function bindOnlineMembersEvents() {
-    const btn = document.getElementById('onlineMembersBtn');
-    const modal = document.getElementById('onlineMembersModal');
-    const closeBtn = document.getElementById('closeOnlineMembersBtn');
-    if (!btn || !modal) return;
-    let modalPollTimer = null;
-    function startModalPoll() {
-      if (modalPollTimer) clearInterval(modalPollTimer);
-      modalPollTimer = setInterval(() => {
-        if (state.goEasyReady && modal.classList.contains('open')) syncPresenceToState();
-      }, 2000);
-    }
-    function stopModalPoll() {
-      if (modalPollTimer) { clearInterval(modalPollTimer); modalPollTimer = null; }
-    }
-    btn.addEventListener('click', () => {
-      modal.classList.add('open');
-      if (state.goEasyReady) { sendPresenceAction('heartbeat'); syncPresenceToState(); }
-      updateOnlineMembersUI();
-      startModalPoll();
-    });
-    if (closeBtn) closeBtn.addEventListener('click', () => { modal.classList.remove('open'); stopModalPoll(); });
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) { modal.classList.remove('open'); stopModalPoll(); }
-    });
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && state.goEasyReady) {
-        sendPresenceAction('heartbeat');
-        syncPresenceToState();
-        setTimeout(function () { syncAllOfflineHistory(); }, 300);
-      }
-    });
-  }
-
+  // ---- 渲染消息列表（支持滚动位置恢复） ----
   function getChatMessagesSignature(messages) {
     if (!messages || !messages.length) return 'empty';
-    const first = messages[0], last = messages[messages.length - 1];
+    // 用条数 + 首尾 id/time 做轻量签名，避免无变化时重绘
+    const first = messages[0];
+    const last = messages[messages.length - 1];
     return messages.length + '|' + (first && first.id) + '|' + (last && last.id) + '|' + (last && last.time);
   }
 
@@ -2938,324 +5068,810 @@
     if (!card) return;
     const container = card.querySelector('.chat-messages');
     if (!container) return;
-    const active = document.activeElement;
-    const inputFocused = active && card.contains(active) && active.classList.contains('chat-input');
+
+    // 输入框正在输入时，除非强制滚到底（新消息），否则不要动 DOM，避免收起键盘
+    const inputEl = card.querySelector('.chat-input');
+    const inputFocused = inputEl && document.activeElement === inputEl;
+
     if (!state.goEasyReady) {
-      container.innerHTML = '<div style="color:var(--red);text-align:center;padding:8px;">⚠️ 聊天服务未连接</div>';
+      if (container.dataset.sig !== 'disconnected') {
+        container.innerHTML = '<div style="color:var(--red);text-align:center;padding:8px;">⚠️ 聊天服务未连接</div>';
+        container.dataset.sig = 'disconnected';
+      }
       return;
     }
-    const msgs = state.chatMessages[serverId] || [];
-    const sig = getChatMessagesSignature(msgs);
-    if (container.dataset.sig === sig && !forceScroll) return;
-    container.dataset.sig = sig;
-    if (!msgs.length) {
-      container.innerHTML = '<div style="color:var(--muted);text-align:center;margin:auto 0;padding:20px 8px;font-size:12px;">暂无消息，来说点什么吧</div>';
-    } else {
-      container.innerHTML = buildChatMessagesHtml(msgs);
-      observeLazyMedia(container);
+
+    const messages = state.chatMessages[serverId] || [];
+    const sig = getChatMessagesSignature(messages);
+
+    // 消息未变化且非强制滚动：保持现状，避免跳到第一条 / 丢焦点
+    if (container.dataset.sig === sig && !forceScroll) {
+      return;
     }
-    // 滚动位置恢复：强制滚动时滚底；否则优先恢复保存的位置
-    if (forceScroll) {
+
+    // 重绘前记住当前位置
+    const prevScroll = container.scrollTop;
+    const prevHeight = container.scrollHeight;
+    const wasNearBottom = (prevScroll + container.clientHeight) >= (prevHeight - 40);
+
+    if (messages.length === 0) {
+      container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:8px;font-size:12px;">暂无消息</div>';
+    } else {
+      container.innerHTML = buildChatMessagesHtml(messages);
+    }
+    container.dataset.sig = sig;
+
+    // 滚动：新消息强制到底；否则尽量保持原位置 / 贴底
+    const savedPosition = getChatScroll(serverId);
+    if ((forceScroll && (savedPosition === null || wasNearBottom)) || (!forceScroll && wasNearBottom && savedPosition === null)) {
       container.scrollTop = container.scrollHeight;
       saveChatScroll(serverId, container.scrollTop);
-    } else if (!inputFocused) {
-      const saved = getChatScroll(serverId);
-      if (saved != null) {
-        container.scrollTop = Math.min(saved, container.scrollHeight - container.clientHeight);
+    } else {
+      const saved = savedPosition;
+      if (saved !== null) {
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        container.scrollTop = Math.min(saved, maxScroll);
       } else {
         container.scrollTop = container.scrollHeight;
         saveChatScroll(serverId, container.scrollTop);
       }
     }
+
+    // 若因重绘导致失焦，尝试恢复（仅在本次确实有输入焦点时）
+    if (inputFocused && inputEl && document.activeElement !== inputEl) {
+      try { inputEl.focus({ preventScroll: true }); } catch (e) { try { inputEl.focus(); } catch (_) {} }
+    }
   }
 
+  // ===== 初始化聊天卡片 =====
   function initChatForCard(serverId, cardElement) {
-    if (!cardElement) return;
-    const bodyInner = cardElement.querySelector('.body-inner');
+    let wrapper = cardElement.querySelector('.chat-wrapper');
+    const bodyInner = cardElement.querySelector('.server-body > .body-inner');
     if (!bodyInner) return;
-    let wrapper = bodyInner.querySelector('.chat-wrapper');
+
     const isNew = !wrapper;
+
     if (!wrapper) {
       wrapper = document.createElement('div');
       wrapper.className = 'chat-wrapper';
-      wrapper.setAttribute('draggable', 'false');
-      const hasUsername = !!(state.username && state.username.trim());
+      const hasUsername = !!state.username;
       const ready = state.goEasyReady && hasUsername;
       wrapper.innerHTML = `
         <div class="chat-messages"></div>
-        <div class="chat-draft-host" style="display:none;"></div>
         <div class="chat-input-area">
           <div class="chat-plus-wrap">
-            <button class="image-upload-btn chat-plus-btn" type="button" title="更多">➕</button>
-            <div class="chat-plus-menu">
-              <button class="chat-plus-item chat-image-btn" type="button">🏞️ 图片/视频</button>
-              <button class="chat-plus-item chat-file-btn" type="button">💾 文件</button>
+            <button type="button" class="chat-plus-btn" title="添加附件">＋</button>
+            <div class="chat-plus-panel">
+              <button type="button" data-plus-action="image">🖼️ 图片</button>
+              <button type="button" data-plus-action="video">🎬 视频</button>
+              <button type="button" data-plus-action="file">📎 文件</button>
             </div>
           </div>
-          <textarea class="chat-input" rows="1" placeholder="${ready ? '输入聊天内容...' : (state.goEasyReady ? '请先设置用户名' : '聊天未连接')}" ${ready ? '' : 'disabled'}></textarea>
-          <div class="chat-voice-wrap">
-            <button class="image-upload-btn chat-voice-btn" type="button" title="点击录制语音" data-draft-key="${esc(serverId)}">🎤</button>
-            <span class="chat-voice-timer" style="display:none">0:00</span>
-          </div>
-          <button class="chat-send-btn" type="button" ${ready ? '' : 'disabled'}>发送</button>
-        </div>`;
-      bodyInner.insertBefore(wrapper, bodyInner.firstChild);
-    }
-    if (wrapper.dataset.bound !== 'true') {
+          <textarea rows="1" class="chat-input" placeholder="${ready ? '输入聊天内容...' : (state.goEasyReady ? '请先设置用户名' : '聊天未连接')}" ${ready ? '' : 'disabled'}></textarea>
+          <button type="button" class="chat-voice-btn" title="录制语音">🎤</button>
+          <button class="chat-send-btn" ${ready ? '' : 'disabled'}>发送</button>
+        </div>
+      `;
+      const roomList = bodyInner.querySelector('.room-list');
+      if (roomList) {
+        bodyInner.insertBefore(wrapper, roomList);
+      } else {
+        bodyInner.prepend(wrapper);
+      }
+
+      // 绑定滚动事件以保存位置
+      const container = wrapper.querySelector('.chat-messages');
+      if (container && !container.dataset.scrollBound) {
+        container.addEventListener('scroll', function() {
+          saveChatScroll(serverId, this.scrollTop);
+        });
+        container.dataset.scrollBound = 'true';
+      }
+
       const input = wrapper.querySelector('.chat-input');
       const sendBtn = wrapper.querySelector('.chat-send-btn');
-      const sendHandler = function () {
-        // 有草稿时即使输入框为空也要发送；无草稿再发文字
-        sendChatMessage(serverId, (input && input.value) || '', false);
+      const plusBtn = wrapper.querySelector('.chat-plus-btn');
+      const plusPanel = wrapper.querySelector('.chat-plus-panel');
+      const voiceBtn = wrapper.querySelector('.chat-voice-btn');
+      const sendHandler = function() {
+        if (sendPendingAttachment(serverId, input, false, serverId)) return;
+        const text = input.value.trim();
+        if (text) sendChatMessage(serverId, text, false);
       };
       sendBtn.addEventListener('click', sendHandler);
-      input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendHandler(); }
-        // auto-resize on next frame after value changes
-        requestAnimationFrame(() => autoResizeChatInput(input));
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sendHandler();
+        }
       });
-      input.addEventListener('input', function () {
-        autoResizeChatInput(this);
+      bindPlusMenu(plusBtn, plusPanel, {
+        image: function () { sendMessageWithMedia(serverId, input, sendChatMessage, false, 'image/*'); },
+        video: function () { sendMessageWithMedia(serverId, input, sendChatMessage, false, 'video/*'); },
+        file: function () { sendMessageWithMedia(serverId, input, sendChatMessage, false, '*/*'); },
       });
-
-      // QQ 风格 ➕ 按钮：点击展开/收起菜单
-      const plusWrap = wrapper.querySelector('.chat-plus-wrap');
-      const plusBtn = wrapper.querySelector('.chat-plus-btn');
-      const plusMenu = wrapper.querySelector('.chat-plus-menu');
-      if (plusBtn && plusMenu) {
-        plusBtn.addEventListener('click', function (e) {
-          e.preventDefault(); e.stopPropagation();
-          plusMenu.classList.toggle('open');
-        });
-        // 点击菜单项后关闭菜单
-        plusMenu.querySelectorAll('.chat-plus-item').forEach(function (item) {
-          item.addEventListener('click', function () {
-            plusMenu.classList.remove('open');
-          });
-        });
-        // 点击外部关闭菜单
-        document.addEventListener('click', function (ev) {
-          if (!plusWrap.contains(ev.target)) plusMenu.classList.remove('open');
-        });
-      }
-
-      const imageBtn = plusMenu ? plusMenu.querySelector('.chat-image-btn') : wrapper.querySelector('.chat-image-btn');
-      const fileBtn = plusMenu ? plusMenu.querySelector('.chat-file-btn') : wrapper.querySelector('.chat-file-btn');
-      if (fileBtn) {
-        fileBtn.addEventListener('click', function () {
-          pickFileAsDraft(serverId, false);
-        });
-      }
-      if (imageBtn) {
-        imageBtn.addEventListener('click', function () {
-          pickMediaAsDraft(serverId, false);
-        });
-      }
-      const voiceBtn = wrapper.querySelector('.chat-voice-btn');
       if (voiceBtn) {
         voiceBtn.addEventListener('click', function (e) {
-          e.preventDefault(); e.stopPropagation();
-          toggleVoiceRecording(draftKey(serverId, false));
+          e.stopPropagation();
+          startVoiceRecording(voiceBtn, function (file) {
+            storeRecordedVoice(file, serverId, false);
+          });
         });
-      }
-      const msgBox = wrapper.querySelector('.chat-messages');
-      if (msgBox) {
-        msgBox.addEventListener('scroll', function () { saveChatScroll(serverId, msgBox.scrollTop); }, { passive: true });
       }
       wrapper.dataset.bound = 'true';
     }
-    if (isNew) renderChatMessages(serverId, true);
-    else renderChatMessages(serverId, false);
-    if (state.goEasyReady && !state.chatSubscribed[serverId]) subscribeChannel(serverId);
+
+    // 仅在新创建或消息可能变化时渲染；输入中由 renderChatMessages 内部保护
+    if (isNew) {
+      renderChatMessages(serverId, false); // 首次打开恢复上次位置
+    } else {
+      renderChatMessages(serverId, false);
+    }
+
+    if (state.goEasyReady && !state.chatSubscribed[serverId]) {
+      subscribeChannel(serverId);
+    }
   }
 
+  // ---- 公共频道 ----
+  function subscribePublicChannel() {
+    if (!goEasy || !state.goEasyReady) return;
+    goEasy.pubsub.subscribe({
+      channel: PUBLIC_CHANNEL,
+      history: 50,
+      // 官方要求：订阅时开启 presence，该订阅才会被计入在线成员
+      presence: { enable: true },
+      onMessage: function (message) {
+        try {
+          const msg = JSON.parse(message.content);
+          if (msg.type === 'delete' && msg.id) {
+            markMsgDeleted(msg.id);
+            state.publicMessages = (state.publicMessages || []).filter(m => m.id !== msg.id);
+            savePublicMessages(); renderPublicChat(false); return;
+          }
+          if (_deletedMsgIds.has(msg.id)) return;
+          if (!state.publicMessages) state.publicMessages = [];
+
+          const exists = state.publicMessages.some(m => m.id === msg.id);
+          if (exists) return;
+
+          const isMine = (msg.senderId === state.userId) || (msg.sender === state.username) || (msg.sender === state.userId);
+          state.publicMessages.push({
+            id: msg.id,
+            text: msg.text,
+            sender: msg.sender || '匿名',
+            senderName: msg.senderName || msg.nickname || msg.sender || '匿名',
+            senderId: msg.senderId || '',
+            isMine: isMine,
+            time: msg.time || Date.now(),
+            isImage: !!msg.isImage,
+            mediaType: msg.mediaType || '',
+            url: msg.url || '',
+            fileName: _restoreBlockedExt(msg.fileName || ''),
+            fileSize: msg.fileSize || 0,
+            mimeType: msg.mimeType || '',
+            isXor: !!msg.isXor || ((msg.url || '').toLowerCase().endsWith('.dlp')),
+          });
+          savePublicMessages();
+          renderPublicChat(true);
+
+          if (!isMine && !state.publicModalOpen) {
+            setPublicUnread(true);
+          }
+        } catch (e) {
+          console.warn('公共消息解析失败', e);
+        }
+      },
+      onSuccess: function () {
+        console.log('公共频道订阅成功');
+        state.publicChatReady = true;
+        loadChannelHistory(PUBLIC_CHANNEL, message => {
+          try { const msg = JSON.parse(message.content);
+            if (msg.type === 'delete' && msg.id) { markMsgDeleted(msg.id); state.publicMessages = (state.publicMessages||[]).filter(m=>m.id!==msg.id); return; }
+            if (_deletedMsgIds.has(msg.id)) return;
+            if (!state.publicMessages.some(m => m.id === msg.id)) {
+              const isMine=(msg.senderId===state.userId)||(msg.sender===state.userId)||(msg.sender===state.username);
+              const restored = Object.assign({}, msg, {isMine, senderName:msg.senderName||msg.sender, senderId:msg.senderId||'', fileName:_restoreBlockedExt(msg.fileName||''), isXor:!!msg.isXor});
+            state.publicMessages.push(restored);
+            }
+          } catch(e) {}
+        });
+        savePublicMessages(); renderPublicChat(false);
+        restorePublicUnread();
+        // 公共频道订阅成功后再拉在线列表（自己已在该 channel 上）
+        if (!state.presenceReady) {
+          initPresence();
+        } else {
+          queryHereNow();
+        }
+      },
+      onFailed: function (error) {
+        console.error('公共频道订阅失败', error);
+        setTimeout(() => {
+          if (state.goEasyReady) {
+            subscribePublicChannel();
+          }
+        }, 5000);
+      }
+    });
+  }
+
+  // ---- 在线成员 Presence ----
+  function initPresence() {
+    if (!goEasy || !state.goEasyReady) return;
+    // 确保已用 presence:enable 订阅 channel 之后再监听
+    subscribePresence();
+    queryHereNow();
+    startPresencePolling();
+  }
+
+  function startPresencePolling() {
+    if (presenceRefreshTimer) clearInterval(presenceRefreshTimer);
+    // 后台每 5 秒刷新；弹窗打开时在 bind 里会加速
+    presenceRefreshTimer = setInterval(() => {
+      if (!state.goEasyReady || document.hidden) return;
+      queryHereNow();
+    }, 5000);
+  }
+
+  function normalizeMember(m) {
+    if (!m) return { id: 'unknown', nickname: '未知用户', avatar: '' };
+    // 兼容新版 {id, data:{nickname}} 与旧版 {id, data:"字符串"} / {userId, userData}
+    let id = m.id || m.userId || 'unknown';
+    let nickname = id;
+    let avatar = '';
+    const rawData = m.data !== undefined ? m.data : m.userData;
+    if (rawData && typeof rawData === 'object') {
+      nickname = rawData.nickname || rawData.name || id;
+      avatar = rawData.avatar || '';
+    } else if (typeof rawData === 'string' && rawData) {
+      try {
+        const parsed = JSON.parse(rawData);
+        nickname = parsed.nickname || parsed.name || id;
+        avatar = parsed.avatar || '';
+      } catch (_) {
+        nickname = rawData;
+      }
+    }
+    return { id: String(id), nickname: String(nickname), avatar: String(avatar || '') };
+  }
+
+  let _presenceHereNowTimer = null;
+  function scheduleHereNowRefresh(delay) {
+    if (_presenceHereNowTimer) clearTimeout(_presenceHereNowTimer);
+    _presenceHereNowTimer = setTimeout(function () {
+      _presenceHereNowTimer = null;
+      queryHereNow();
+    }, typeof delay === 'number' ? delay : 400);
+  }
+
+  // 上线 Toast：同一用户短时间内只提示一次
+  const _onlineToastAt = Object.create(null);
+  function notifyMemberOnline(member) {
+    if (!member) return;
+    const norm = normalizeMember(member);
+    const id = norm.id || '';
+    const name = norm.nickname || id || '未知成员';
+    // 不提示自己
+    if (id && state.username && (id === state.username || name === state.username)) return;
+    const now = Date.now();
+    if (_onlineToastAt[id] && now - _onlineToastAt[id] < 8000) return;
+    _onlineToastAt[id] = now;
+    showToast('🟢 成员 ' + name + ' 已上线', 2000, true);
+  }
+
+  function notifyPresenceJoin(presenceEvent) {
+    if (!presenceEvent) return;
+    const action = presenceEvent.action;
+    if (action === 'join' || action === 'online' || action === 'back') {
+      if (presenceEvent.member) {
+        notifyMemberOnline(presenceEvent.member);
+        return;
+      }
+    }
+    // 旧版 events 数组
+    if (Array.isArray(presenceEvent.events)) {
+      presenceEvent.events.forEach(function (ev) {
+        const a = ev.action;
+        if (a === 'join' || a === 'online' || a === 'back') {
+          notifyMemberOnline({
+            id: ev.userId || (ev.member && ev.member.id),
+            data: ev.userData || (ev.member && ev.member.data)
+          });
+        }
+      });
+    }
+  }
+
+  function applyPresencePayload(payload, opts) {
+    if (!payload) return false;
+    opts = opts || {};
+    let listUpdated = false;
+
+    // 新版: { action, member, amount, members }
+    // 文档拼写 memebers 也兼容
+    // 旧版: { events:[], clientAmount, ... } 或 hereNow content
+    if (typeof payload.amount === 'number') {
+      state.onlineCount = payload.amount;
+    } else if (typeof payload.clientAmount === 'number') {
+      state.onlineCount = payload.clientAmount;
+    } else if (typeof payload.userAmount === 'number') {
+      state.onlineCount = payload.userAmount;
+    }
+
+    const listSource = Array.isArray(payload.members) ? payload.members
+      : Array.isArray(payload.memebers) ? payload.memebers
+      : Array.isArray(payload.users) ? payload.users
+      : null;
+
+    if (listSource) {
+      // 全量成员列表（hereNow / presence 事件自带 members）——始终覆盖并同步人数
+      state.onlineMembers = listSource.map(normalizeMember);
+      if (typeof payload.amount === 'number') {
+        state.onlineCount = payload.amount;
+      } else if (typeof payload.clientAmount === 'number') {
+        state.onlineCount = payload.clientAmount;
+      } else {
+        state.onlineCount = state.onlineMembers.length;
+      }
+      listUpdated = true;
+    } else if (Array.isArray(payload.events)) {
+      payload.events.forEach(function (ev) {
+        const action = ev.action;
+        const member = {
+          id: ev.userId || (ev.member && ev.member.id),
+          data: ev.userData || (ev.member && ev.member.data)
+        };
+        const mid = member.id;
+        if (!mid) return;
+        if (action === 'join' || action === 'online' || action === 'back') {
+          const norm = normalizeMember(member);
+          const idx = state.onlineMembers.findIndex(m => m.id === mid);
+          if (idx >= 0) state.onlineMembers[idx] = norm;
+          else state.onlineMembers.unshift(norm);
+          listUpdated = true;
+        } else if (action === 'leave' || action === 'offline' || action === 'timeout') {
+          const before = state.onlineMembers.length;
+          state.onlineMembers = state.onlineMembers.filter(m => m.id !== mid);
+          if (state.onlineMembers.length !== before) listUpdated = true;
+        }
+      });
+      if (typeof payload.clientAmount === 'number') {
+        state.onlineCount = payload.clientAmount;
+      } else if (listUpdated) {
+        state.onlineCount = state.onlineMembers.length;
+      }
+    } else if (payload.member && payload.action) {
+      const mid = payload.member.id;
+      const action = payload.action;
+      if (action === 'join' || action === 'set' || action === 'online' || action === 'back') {
+        const norm = normalizeMember(payload.member);
+        const idx = state.onlineMembers.findIndex(m => m.id === mid);
+        if (idx >= 0) state.onlineMembers[idx] = norm;
+        else state.onlineMembers.unshift(norm);
+        listUpdated = true;
+      } else if (action === 'leave' || action === 'offline' || action === 'timeout') {
+        const before = state.onlineMembers.length;
+        state.onlineMembers = state.onlineMembers.filter(m => m.id !== mid);
+        if (state.onlineMembers.length !== before) listUpdated = true;
+      }
+      if (typeof payload.amount === 'number') state.onlineCount = payload.amount;
+      else if (listUpdated) state.onlineCount = state.onlineMembers.length;
+    }
+
+    // 去重
+    const seen = new Set();
+    state.onlineMembers = state.onlineMembers.filter(m => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+
+    // 人数与列表不一致时，标记需要全量刷新
+    const needFullRefresh = !opts.fromHereNow && (
+      !listUpdated ||
+      (typeof state.onlineCount === 'number' && state.onlineCount !== state.onlineMembers.length)
+    );
+
+    updateOnlineMembersUI();
+    return needFullRefresh;
+  }
+
+  function subscribePresence() {
+    if (!goEasy || !state.goEasyReady) return;
+    try {
+      goEasy.pubsub.subscribePresence({
+        channel: PRESENCE_CHANNEL,
+        membersLimit: 100,
+        onPresence: function (presenceEvent) {
+          try {
+            console.log('[Presence] 事件:', presenceEvent);
+            notifyPresenceJoin(presenceEvent);
+            const needRefresh = applyPresencePayload(presenceEvent, { fromHereNow: false });
+            // 有上下线变化或列表不完整时，立刻用 hereNow 拉全量，保证实时准确
+            if (needRefresh || (presenceEvent && presenceEvent.action)) {
+              scheduleHereNowRefresh(300);
+            }
+          } catch (e) {
+            console.warn('Presence 事件处理异常', e);
+            scheduleHereNowRefresh(500);
+          }
+        },
+        onSuccess: function () {
+          console.log('[Presence] 订阅成功 channel=', PRESENCE_CHANNEL);
+          state.presenceReady = true;
+          queryHereNow();
+        },
+        onFailed: function (error) {
+          console.error('[Presence] 订阅失败', error);
+          state.presenceReady = false;
+          queryHereNow();
+          setTimeout(() => {
+            if (state.goEasyReady) subscribePresence();
+          }, 8000);
+        }
+      });
+    } catch (e) {
+      console.error('[Presence] subscribePresence 异常', e);
+      queryHereNow();
+    }
+  }
+
+  function queryHereNow() {
+    if (!goEasy || !state.goEasyReady) return;
+    try {
+      goEasy.pubsub.hereNow({
+        channel: PRESENCE_CHANNEL,
+        limit: 100,
+        onSuccess: function (response) {
+          try {
+            console.log('[Presence] hereNow 响应:', response);
+            const content = (response && response.content) ? response.content : response;
+            if (content && content.channels && content.channels[PRESENCE_CHANNEL]) {
+              applyPresencePayload(content.channels[PRESENCE_CHANNEL], { fromHereNow: true });
+            } else {
+              applyPresencePayload(content, { fromHereNow: true });
+            }
+          } catch (e) {
+            console.warn('[Presence] hereNow 解析失败', e, response);
+          }
+        },
+        onFailed: function (error) {
+          console.warn('[Presence] hereNow 失败', error);
+          tryLegacyHereNow();
+        }
+      });
+    } catch (e) {
+      console.warn('[Presence] hereNow 调用异常', e);
+      tryLegacyHereNow();
+    }
+  }
+
+  function tryLegacyHereNow() {
+    if (!goEasy) return;
+    try {
+      // 兼容极旧 SDK：goEasy.hereNow(opts, callback)
+      if (typeof goEasy.hereNow === 'function') {
+        goEasy.hereNow({
+          channels: [PRESENCE_CHANNEL],
+          includeUsers: true,
+          distinct: true
+        }, function (response) {
+          console.log('[Presence] legacy hereNow:', response);
+          try {
+            const content = (response && response.content) ? response.content : response;
+            if (content && content.channels && content.channels[PRESENCE_CHANNEL]) {
+              applyPresencePayload(content.channels[PRESENCE_CHANNEL]);
+            } else if (content && content.channels) {
+              const first = Object.values(content.channels)[0];
+              if (first) applyPresencePayload(first);
+            } else {
+              applyPresencePayload(content);
+            }
+          } catch (err) {
+            console.warn('[Presence] legacy 解析失败', err);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('[Presence] legacy hereNow 不可用', e);
+    }
+  }
+
+  function updateOnlineMembersUI() {
+    const badge = document.getElementById('onlineCountBadge');
+    const titleCount = document.getElementById('onlineMembersTitleCount');
+    const list = document.getElementById('onlineMembersList');
+
+    // 数字严格跟随当前成员列表长度，彻底避免 amount 旧值卡住角标
+    const listLen = (state.onlineMembers && state.onlineMembers.length) || 0;
+    const count = listLen;
+    state.onlineCount = count;
+
+    const label = count > 99 ? '99+' : String(count);
+    if (badge) {
+      if (badge.textContent !== label) {
+        badge.textContent = label;
+      }
+      badge.classList.toggle('zero', count === 0);
+    }
+    if (titleCount) {
+      const t = '(' + count + ')';
+      if (titleCount.textContent !== t) {
+        titleCount.textContent = t;
+      }
+    }
+    if (!list) return;
+
+    if (!listLen) {
+      list.innerHTML = '<div class="online-members-empty">暂无在线成员</div>';
+      return;
+    }
+
+    const html = state.onlineMembers.map(m => {
+      const rawName = m.nickname || m.id || '匿名';
+      const rawId = m.id || '';
+      const name = esc(rawName);
+      const idStr = esc(rawId);
+      const initial = String(rawName || '?').charAt(0).toUpperCase();
+      const isMe = (m.id === state.username) || (m.nickname === state.username);
+      return `<div class="online-member-item" title="${idStr}">
+        <div class="online-member-avatar">${esc(initial)}</div>
+        <div class="online-member-info">
+          <div class="online-member-name">${name}${isMe ? ' <span style="color:var(--cyan);font-size:11px;">(我)</span>' : ''}</div>
+          <div class="online-member-id">${idStr}</div>
+        </div>
+        <div class="online-member-dot" title="在线"></div>
+      </div>`;
+    }).join('');
+    list.innerHTML = html;
+  }
+
+  function bindOnlineMembersEvents() {
+    const btn = document.getElementById('onlineMembersBtn');
+    const modal = document.getElementById('onlineMembersModal');
+    const closeBtn = document.getElementById('closeOnlineMembersBtn');
+    if (!btn || !modal) return;
+
+    let modalPollTimer = null;
+    function startModalPoll() {
+      if (modalPollTimer) clearInterval(modalPollTimer);
+      modalPollTimer = setInterval(() => {
+        if (state.goEasyReady && modal.classList.contains('open')) {
+          queryHereNow();
+        }
+      }, 2000);
+    }
+    function stopModalPoll() {
+      if (modalPollTimer) {
+        clearInterval(modalPollTimer);
+        modalPollTimer = null;
+      }
+    }
+
+    btn.addEventListener('click', () => {
+      modal.classList.add('open');
+      if (state.goEasyReady) queryHereNow();
+      updateOnlineMembersUI();
+      startModalPoll();
+    });
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        modal.classList.remove('open');
+        stopModalPoll();
+      });
+    }
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('open');
+        stopModalPoll();
+      }
+    });
+
+    // 页面重新可见时立即刷新在线状态
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && state.goEasyReady) {
+        queryHereNow();
+      }
+    });
+  }
+
+  function sendPublicMessage(text, mediaOrFlag) {
+    if (!text || !String(text).trim()) return;
+    if (!state.username) {
+      ensureUsername(() => {});
+      showToast('⚠️ 请先设置用户名', 1500, false);
+      return;
+    }
+    if (!goEasy || !state.goEasyReady) {
+      showToast('⚠️ 聊天服务未连接', 2000, false);
+      return;
+    }
+    const media = (mediaOrFlag && typeof mediaOrFlag === 'object') ? mediaOrFlag : null;
+    const isVideoFlag = mediaOrFlag === true;
+    const mediaType = media ? (media.mediaType || '') : (isVideoFlag ? 'video' : '');
+    const msgId = generateMsgId();
+    const msgObj = {
+      id: msgId,
+      text: String(text).trim(),
+      sender: state.userId,
+      senderName: state.username,
+      senderId: state.userId,
+      time: Date.now(),
+      isImage: mediaType === 'image' || mediaType === 'video',
+      mediaType: mediaType || undefined,
+      url: media && media.url ? media.url : undefined,
+      fileName: media && media.fileName ? media.fileName : undefined,
+      fileSize: media && media.fileSize != null ? media.fileSize : undefined,
+      mimeType: media && media.mimeType ? media.mimeType : undefined,
+      isXor: media && media.isXor ? true : undefined,
+    };
+    const payload = JSON.stringify(msgObj);
+    goEasy.pubsub.publish({
+      channel: PUBLIC_CHANNEL,
+      message: payload,
+      qos: 1,
+      onSuccess: function () {
+        if (!state.publicMessages) state.publicMessages = [];
+        const exists = state.publicMessages.some(m => m.id === msgId);
+        if (!exists) {
+          state.publicMessages.push(Object.assign({ isMine: true }, msgObj, { isXor: !!msgObj.isXor }));
+          savePublicMessages();
+        }
+        renderPublicChat(true);
+        const pubInput = document.getElementById('publicChatInput');
+        if (pubInput) { pubInput.value = ''; pubInput.style.height = 'auto'; }
+        setPublicUnread(false);
+      },
+      onFailed: function (error) {
+        showToast('❌ 公共消息发送失败', 2000, false);
+        console.error(error);
+      }
+    });
+  }
+
+  // ---- 渲染公共聊天（支持滚动位置恢复） ----
   function renderPublicChat(forceScroll = false) {
     const container = document.getElementById('publicChatMessages');
     if (!container) return;
     const msgs = state.publicMessages || [];
+
     if (!state.goEasyReady) {
       container.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px;">⚠️ 聊天服务未连接</div>';
       return;
     }
+
     if (msgs.length === 0) {
-      container.innerHTML = '<div style="color:var(--muted);text-align:center;margin:auto 0;padding:20px;font-size:14px;">暂无消息</div>';
+      container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>';
     } else {
       container.innerHTML = buildChatMessagesHtml(msgs);
-      observeLazyMedia(container);
     }
+
     if (forceScroll) {
       container.scrollTop = container.scrollHeight;
       savePublicScroll(container.scrollTop);
     } else {
       const saved = getPublicScroll();
-      if (saved != null) {
-        container.scrollTop = Math.min(saved, container.scrollHeight - container.clientHeight);
+      if (saved !== null) {
+        const maxScroll = container.scrollHeight - container.clientHeight;
+        container.scrollTop = Math.min(saved, maxScroll);
       } else {
-        // 首次加载或无保存位置 → 滚到底部
-        container.scrollTop = container.scrollHeight;
-        savePublicScroll(container.scrollTop);
+        container.scrollTop = 0;
       }
     }
   }
 
   function bindPublicChatEvents() {
-    const modal = document.getElementById('publicChatModal');
     const openBtn = document.getElementById('openPublicChatBtn');
+    const modal = document.getElementById('publicChatModal');
     const closeBtn = document.getElementById('closePublicChatBtn');
     const sendBtn = document.getElementById('publicChatSendBtn');
     const input = document.getElementById('publicChatInput');
-    const imageBtn = document.getElementById('publicChatImageBtn');
-    if (!modal || !openBtn) return;
+    const plusBtn = document.getElementById('publicChatPlusBtn');
+    const plusPanel = document.getElementById('publicChatPlusPanel');
+    const voiceBtn = document.getElementById('publicChatVoiceBtn');
+    const autoGrow = el => { if (!el) return; el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,120)+'px'; };
+    [input, ...document.querySelectorAll('.chat-input')].forEach(el => el && el.addEventListener('input', () => autoGrow(el)));
 
-    openBtn.addEventListener('click', function () {
+
+    // 绑定滚动事件保存位置
+    const pubContainer = document.getElementById('publicChatMessages');
+    if (pubContainer && !pubContainer.dataset.scrollBound) {
+      pubContainer.addEventListener('scroll', function() {
+        savePublicScroll(this.scrollTop);
+      });
+      pubContainer.dataset.scrollBound = 'true';
+    }
+
+    if (!openBtn || !modal || !closeBtn || !sendBtn || !input) {
+      console.warn('公共聊天 DOM 元素未找到，请检查 index.html');
+      return;
+    }
+
+    openBtn.addEventListener('click', function() {
       state.publicModalOpen = true;
       modal.classList.add('open');
       setPublicUnread(false);
-      renderPublicChat(true);
-      syncGroupOfflineHistory(PUBLIC_CHANNEL);
-      markGroupReadNow(PUBLIC_CHANNEL);
+      renderPublicChat(false);
+
       const header = modal.querySelector('.custom-modal-header');
-      if (header && !header.dataset.editBound) {
-        header.dataset.editBound = '1';
-        let editBtn = header.querySelector('.edit-nick-btn');
+      if (header) {
+        let editBtn = header.querySelector('.edit-username-btn');
         if (!editBtn) {
           editBtn = document.createElement('button');
-          editBtn.type = 'button';
-          editBtn.className = 'edit-nick-btn';
-          editBtn.textContent = '修改用户名';
-          editBtn.style.cssText = 'margin-left:8px;border:0;background:transparent;color:var(--cyan);font-size:12px;font-weight:700;cursor:pointer;';
-          const title = header.querySelector('span');
-          if (title) title.appendChild(editBtn);
-          else header.insertBefore(editBtn, header.firstChild);
+          editBtn.className = 'edit-username-btn';
+          editBtn.textContent = '✏️';
+          editBtn.title = '编辑用户名';
+          editBtn.style.cssText = 'background:none;border:0;font-size:16px;cursor:pointer;color:var(--muted);margin-right:auto;';
+          const closeBtnElem = header.querySelector('.custom-modal-close');
+          if (closeBtnElem) {
+            header.insertBefore(editBtn, closeBtnElem);
+          } else {
+            header.appendChild(editBtn);
+          }
+          editBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            showUsernamePrompt(() => {
+              renderPublicChat(false);
+              updateChatUI();
+            });
+          });
         }
-        editBtn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          showUsernamePrompt(() => { renderPublicChat(false); updateChatUI(); });
-        });
+        const titleSpan = header.querySelector('.title-text');
+        if (titleSpan) {
+          titleSpan.style.cursor = 'default';
+          titleSpan.title = '';
+        }
       }
     });
-    if (closeBtn) {
-      closeBtn.addEventListener('click', function () {
-        state.publicModalOpen = false;
-        modal.classList.remove('open');
-      });
-    }
-    modal.addEventListener('click', function (e) {
+
+    closeBtn.addEventListener('click', function() {
+      state.publicModalOpen = false;
+      modal.classList.remove('open');
+    });
+    modal.addEventListener('click', function(e) {
       if (e.target === modal) {
         state.publicModalOpen = false;
         modal.classList.remove('open');
       }
     });
-    if (sendBtn) {
-      sendBtn.addEventListener('click', function () {
-        // 有草稿时即使输入框为空也要发送
-        sendPublicMessage((input && input.value) || '', false);
-      });
-    }
-    if (input) {
-      input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          if (sendBtn) sendBtn.click();
-        }
-        requestAnimationFrame(() => autoResizeChatInput(input));
-      });
-      input.addEventListener('input', function () {
-        autoResizeChatInput(this);
-      });
-    }
-    // QQ 风格 ➕ 按钮
-    const publicPlusWrap = document.getElementById('publicPlusWrap');
-    const publicPlusBtn = publicPlusWrap ? publicPlusWrap.querySelector('.chat-plus-btn') : null;
-    const publicPlusMenu = publicPlusWrap ? publicPlusWrap.querySelector('.chat-plus-menu') : null;
-    if (publicPlusBtn && publicPlusMenu) {
-      publicPlusBtn.addEventListener('click', function (e) {
-        e.preventDefault(); e.stopPropagation();
-        publicPlusMenu.classList.toggle('open');
-      });
-      publicPlusMenu.querySelectorAll('.chat-plus-item').forEach(function (item) {
-        item.addEventListener('click', function () {
-          publicPlusMenu.classList.remove('open');
-        });
-      });
-      document.addEventListener('click', function (ev) {
-        if (!publicPlusWrap.contains(ev.target)) publicPlusMenu.classList.remove('open');
-      });
-    }
 
-    const pubFileBtn = publicPlusMenu ? publicPlusMenu.querySelector('.chat-file-btn') : document.getElementById('publicChatFileBtn');
-    const pubImageBtn = publicPlusMenu ? publicPlusMenu.querySelector('.chat-image-btn') : document.getElementById('publicChatImageBtn');
-    if (pubFileBtn) {
-      pubFileBtn.addEventListener('click', function () {
-        pickFileAsDraft(null, true);
-      });
-    }
-    if (pubImageBtn) {
-      pubImageBtn.addEventListener('click', function () {
-        pickMediaAsDraft(null, true);
-      });
-    }
-    // keep backward compat
-    const oldFileBtn = document.getElementById('publicChatFileBtn');
-    if (oldFileBtn && oldFileBtn !== pubFileBtn) {
-      oldFileBtn.addEventListener('click', function () {
-        pickFileAsDraft(null, true);
-      });
-    }
-    const oldImageBtn = document.getElementById('publicChatImageBtn');
-    if (oldImageBtn && oldImageBtn !== pubImageBtn) {
-      oldImageBtn.textContent = '🏞️';
-      oldImageBtn.title = '选择图片/视频';
-      oldImageBtn.addEventListener('click', function () {
-        pickMediaAsDraft(null, true);
-      });
-    }
-    let voiceBtn = document.getElementById('publicChatVoiceBtn');
-    if (!voiceBtn) {
-      const area = document.querySelector('#publicChatModal .chat-input-area');
-      if (area) {
-        const anchor = area.querySelector('.chat-plus-wrap') || area.querySelector('.chat-send-btn');
-        const wrap = document.createElement('div');
-        wrap.className = 'chat-voice-wrap';
-        voiceBtn = document.createElement('button');
-        voiceBtn.id = 'publicChatVoiceBtn';
-        voiceBtn.type = 'button';
-        voiceBtn.className = 'image-upload-btn chat-voice-btn';
-        voiceBtn.title = '点击录制语音';
-        voiceBtn.textContent = '🎤';
-        voiceBtn.dataset.draftKey = 'public';
-        const timer = document.createElement('span');
-        timer.className = 'chat-voice-timer';
-        timer.style.display = 'none';
-        timer.textContent = '0:00';
-        wrap.appendChild(voiceBtn);
-        wrap.appendChild(timer);
-        if (anchor) area.insertBefore(wrap, anchor);
+    sendBtn.addEventListener('click', function() {
+      if (sendPendingAttachment('public', input, true, null)) return;
+      const text = input.value.trim();
+      if (text) sendPublicMessage(text, false);
+    });
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendBtn.click();
       }
-    }
+    });
+    bindPlusMenu(plusBtn, plusPanel, {
+      image: function () { sendMessageWithMedia(null, input, null, true, 'image/*'); },
+      video: function () { sendMessageWithMedia(null, input, null, true, 'video/*'); },
+      file: function () { sendMessageWithMedia(null, input, null, true, '*/*'); },
+    });
     if (voiceBtn) {
       voiceBtn.addEventListener('click', function (e) {
-        e.preventDefault(); e.stopPropagation();
-        toggleVoiceRecording('public');
+        e.stopPropagation();
+        startVoiceRecording(voiceBtn, function (file) {
+          storeRecordedVoice(file, 'public', true);
+        });
       });
-    }
-    const msgBox = document.getElementById('publicChatMessages');
-    if (msgBox) {
-      msgBox.addEventListener('scroll', function () { savePublicScroll(msgBox.scrollTop); }, { passive: true });
     }
   }
 
   function reconnectChat() {
     if (state.goEasyReady) {
       forceSubscribeAll();
-      sendPresenceAction('heartbeat');
-      setTimeout(function () { syncAllOfflineHistory(); }, 300);
     } else {
-      _imListenersBound = false;
       initGoEasy(0);
     }
   }
 
+  // ============================================================
+  // ========== 渲染服务器列表 ==========
   // ============================================================
   function renderServers() {
     const list = document.getElementById('serverList');
@@ -3512,60 +6128,17 @@
     }
   });
 
-  // ---- 聊天链接点击：文件链接让浏览器原生处理并给出提示, 文本链接复制URL ----
+  // ---- 聊天链接点击复制 ----
   document.addEventListener('click', function(e) {
-    const fileLink = e.target.closest('.chat-file-link');
-    if (fileLink) {
-      // 严禁使用 e.preventDefault()！保留原生的 <a> 点击默认行为，确保移动端浏览器原生启动 APK/ZIP 等二进制文件下载
-      e.stopPropagation();
-      var name = fileLink.dataset.filename || '文件';
-      showToast('📥 正在准备下载: ' + name + ' (若未响应可长按链接下载)', 3000, true);
-      return;
-    }
     const link = e.target.closest('.chat-link');
     if (link) {
       e.stopPropagation();
-      var url2 = link.dataset.url;
-      if (url2) {
-        copyWithMessage(url2, '✅ 已复制：' + url2);
+      const url = link.dataset.url;
+      if (url) {
+        copyWithMessage(url, '✅ 已复制：' + url);
       }
     }
   });
-
-  // 强制下载：支持 CORS 场景以 Blob 保存；不支持 CORS 时以原生超链接方式触发下载，杜绝 window.close() 中断请求
-  function forceDownload(url, filename) {
-    showToast('📥 正在准备下载: ' + filename, 2500, true);
-    fetch(url, { mode: 'cors' })
-      .then(function (resp) {
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        return resp.blob();
-      })
-      .then(function (blob) {
-        var blobUrl = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = filename;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 60000);
-        showToast('✅ 下载完成: ' + filename, 1500, true);
-      })
-      .catch(function () {
-        // CORS 拦截时回退：以 <a> 标签触发系统默认下载，严禁执行 window.close() 否则会直接结束新开页签并弹出警告
-        showToast('📥 正在启动直链下载: ' + filename + ' (若未响应可长按链接下载)', 3000, true);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      });
-  }
 
   // ===== 筛选器渲染 =====
   // 房间保活：与「全部」相同（后端 + 前端 5 次）
@@ -3701,7 +6274,6 @@
       active.classList.contains('chat-input') ||
       active.classList.contains('chat-send-btn') ||
       active.classList.contains('chat-image-btn') ||
-      active.classList.contains('chat-voice-btn') ||
       active.classList.contains('image-upload-btn') ||
       active.closest('.chat-wrapper')
     );
@@ -3804,7 +6376,7 @@
       render();
 
       if (state.goEasyReady) {
-        ensureImSubscriptions();
+        forceSubscribeAll();
       }
 
       checkNetwork(true);
@@ -3867,6 +6439,7 @@
   state.firstExpand = true;
 
   state.username = getStoredUsername();
+  state.userId = getStoredUserId();
   loadChatMessages();
   loadPublicMessages();
   loadUnreadStatus();
@@ -3877,198 +6450,8 @@
   const addPort = document.getElementById('addPort');
   setupHostPortAutoFill(addHost, addPort);
 
-  initGoEasy();
-  let _pendingRevokeMsg = null;
-  let _longPressTimer = null;
-  let _touchStartPos = { x: 0, y: 0 };
-
-  function showRevokeConfirmModal(msgId, serverId, isPublic, senderName) {
-    if (!msgId) return;
-    if (_longPressTimer) {
-      clearTimeout(_longPressTimer);
-      _longPressTimer = null;
-    }
-    const modal = document.getElementById('revokeConfirmModal');
-    if (modal && modal.classList.contains('open')) return;
-    _pendingRevokeMsg = { msgId: msgId, serverId: serverId, isPublic: !!isPublic };
-    const txt = document.getElementById('revokeModalText');
-    if (txt) {
-      txt.textContent = senderName ? `确定要撤回 ${senderName} 发送的这条消息吗？` : '确定要撤回这条消息吗？';
-    }
-    if (modal) modal.classList.add('open');
-  }
-
-  function hideRevokeConfirmModal() {
-    const modal = document.getElementById('revokeConfirmModal');
-    if (modal) modal.classList.remove('open');
-    _pendingRevokeMsg = null;
-  }
-
-  function executeRevoke() {
-    if (!_pendingRevokeMsg) return;
-    const { msgId, serverId, isPublic } = _pendingRevokeMsg;
-    hideRevokeConfirmModal();
-
-    setTimeout(function () {
-      try {
-        removeMessageById(msgId);
-        const im = getIm();
-        if (im && state.goEasyReady) {
-          const gid = isPublic ? PUBLIC_CHANNEL : serverGroupId(serverId);
-          if (gid) {
-            const revokePayload = JSON.stringify({ __revoke__: msgId });
-            const textMsg = im.createTextMessage({ text: revokePayload, to: buildGroupTo(gid, '撤回指令') });
-            im.sendMessage({ message: textMsg });
-          }
-        }
-      } catch (e) {
-        console.warn('广播撤回消息失败:', e);
-      }
-      showToast('✅ 消息已撤回', 1500, true);
-    }, 10);
-  }
-
-  function removeMessageById(msgId) {
-    if (!msgId) return;
-    let changed = false;
-    Object.keys(state.chatMessages).forEach(serverId => {
-      const msgs = state.chatMessages[serverId];
-      if (msgs && msgs.some(m => m.id === msgId)) {
-        state.chatMessages[serverId] = msgs.filter(m => m.id !== msgId);
-        changed = true;
-        renderChatMessages(serverId, false);
-      }
-    });
-    if (state.publicMessages && state.publicMessages.some(m => m.id === msgId)) {
-      state.publicMessages = state.publicMessages.filter(m => m.id !== msgId);
-      changed = true;
-      renderPublicChat(false);
-    }
-    if (changed) {
-      saveChatMessages();
-      savePublicMessages();
-    }
-  }
-
-  function bindRevokeModalEvents() {
-    const modal = document.getElementById('revokeConfirmModal');
-    const cancelBtn = document.getElementById('cancelRevokeBtn');
-    const confirmBtn = document.getElementById('confirmRevokeBtn');
-    const doCancel = function (e) {
-      if (e) { e.preventDefault(); e.stopPropagation(); }
-      hideRevokeConfirmModal();
-    };
-    const doConfirm = function (e) {
-      if (e) { e.preventDefault(); e.stopPropagation(); }
-      executeRevoke();
-    };
-    if (cancelBtn) {
-      cancelBtn.addEventListener('click', doCancel);
-      cancelBtn.addEventListener('touchend', doCancel, { passive: false });
-    }
-    if (confirmBtn) {
-      confirmBtn.addEventListener('click', doConfirm);
-      confirmBtn.addEventListener('touchend', doConfirm, { passive: false });
-    }
-    if (modal) {
-      modal.addEventListener('click', function (e) {
-        if (e.target === modal) doCancel(e);
-      });
-    }
-  }
-
-  function bindMessageLongPressEvents() {
-    // 捕获期动态解绑：在手按到卡片内部聊天区域（尤其是短文本/纯数字消息）的第一瞬，直接移除外层服务器卡片的 draggable 属性！
-    // 这样无论各种手机 Chromium 引擎如何判定原生长按，底层也不会再把此次长按当成卡片拖拽排序！
-    const lockCardDrag = function (e) {
-      if (!e || !e.target) return;
-      const wrap = e.target.closest && e.target.closest('.chat-wrapper');
-      if (wrap) {
-        const card = wrap.closest('.server-group');
-        if (card && card.getAttribute('draggable') !== 'false') {
-          card.setAttribute('draggable', 'false');
-          card.classList.remove('dragging');
-        }
-      } else {
-        const card = e.target.closest && e.target.closest('.server-group');
-        if (card && card.getAttribute('draggable') !== 'true') {
-          card.setAttribute('draggable', 'true');
-        }
-      }
-    };
-    document.addEventListener('touchstart', lockCardDrag, { passive: true, capture: true });
-    document.addEventListener('mousedown', lockCardDrag, { passive: true, capture: true });
-
-    const handleStart = function (e) {
-      const msgEl = e.target.closest && e.target.closest('.chat-msg');
-      if (!msgEl) return;
-      const card = msgEl.closest('.server-group');
-      if (card) {
-        card.setAttribute('draggable', 'false');
-        card.classList.remove('dragging');
-      }
-      const msgId = msgEl.dataset.id;
-      if (!msgId) return;
-
-      const isPublic = !!msgEl.closest('#publicChatModal');
-      const serverId = card ? card.dataset.id : null;
-      const senderName = msgEl.dataset.sender || '';
-
-      const touch = e.touches ? e.touches[0] : e;
-      _touchStartPos = { x: touch.clientX, y: touch.clientY };
-
-      if (_longPressTimer) clearTimeout(_longPressTimer);
-      _longPressTimer = setTimeout(function () {
-        _longPressTimer = null;
-        showRevokeConfirmModal(msgId, serverId, isPublic, senderName);
-      }, 400);
-    };
-
-    const handleMove = function (e) {
-      if (!_longPressTimer) return;
-      const touch = e.touches ? e.touches[0] : e;
-      const dx = Math.abs(touch.clientX - _touchStartPos.x);
-      const dy = Math.abs(touch.clientY - _touchStartPos.y);
-      if (dx > 15 || dy > 15) {
-        clearTimeout(_longPressTimer);
-        _longPressTimer = null;
-      }
-    };
-
-    const handleEnd = function () {
-      if (_longPressTimer) {
-        clearTimeout(_longPressTimer);
-        _longPressTimer = null;
-      }
-    };
-
-    const handleContextMenu = function (e) {
-      const msgEl = e.target.closest && e.target.closest('.chat-msg');
-      if (!msgEl) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const msgId = msgEl.dataset.id;
-      if (!msgId) return;
-      const isPublic = !!msgEl.closest('#publicChatModal');
-      const card = msgEl.closest('.server-group');
-      const serverId = card ? card.dataset.id : null;
-      const senderName = msgEl.dataset.sender || '';
-      showRevokeConfirmModal(msgId, serverId, isPublic, senderName);
-    };
-
-    document.addEventListener('touchstart', handleStart, { passive: true });
-    document.addEventListener('touchmove', handleMove, { passive: true });
-    document.addEventListener('touchend', handleEnd, { passive: true });
-    document.addEventListener('touchcancel', handleEnd, { passive: true });
-    document.addEventListener('mousedown', handleStart, { passive: true });
-    document.addEventListener('mousemove', handleMove, { passive: true });
-    document.addEventListener('mouseup', handleEnd, { passive: true });
-    document.addEventListener('contextmenu', handleContextMenu, true);
-  }
-
+  ensureGoEasySdk(() => initGoEasy());
   bindPublicChatEvents();
-  bindRevokeModalEvents();
-  bindMessageLongPressEvents();
   bindOnlineMembersEvents();
   updateOnlineMembersUI();
   startPolling();
@@ -4085,6 +6468,74 @@
       showToast(state.autoExpand ? '✅ 自动展开已开启' : '⛔ 自动展开已关闭', 1200, true);
     });
   }
+
+  // ===== 手动远程更新前后端（哈希对比+toast） =====
+  const updateModal = document.getElementById('updateModal');
+  const updateStatus = document.getElementById('updateStatus');
+  const manualUpdateBtn = document.getElementById('manualUpdateBtn');
+  const updateFrontendBtn = document.getElementById('updateFrontendBtn');
+  const updateBackendBtn = document.getElementById('updateBackendBtn');
+  const updateAllBtn = document.getElementById('updateAllBtn');
+  const closeUpdateModalBtn = document.getElementById('closeUpdateModalBtn');
+  function openUpdateModal(){ if(updateModal) updateModal.classList.add('open'); checkRemoteUpdate(); }
+  function closeUpdateModal(){ if(updateModal) updateModal.classList.remove('open'); }
+  if(manualUpdateBtn) manualUpdateBtn.addEventListener('click', openUpdateModal);
+  if(closeUpdateModalBtn) closeUpdateModalBtn.addEventListener('click', closeUpdateModal);
+  if(updateModal) updateModal.addEventListener('click', e=>{ if(e.target===updateModal) closeUpdateModal(); });
+  async function checkRemoteUpdate(){
+    if(!updateStatus) return;
+    updateStatus.textContent = '⏳ 正在对比本地与远程哈希…';
+    try{
+      const d = await getJSON('/api/update/check?_='+Date.now());
+      const fe = d.frontend||{}, be=d.backend||{};
+      const feNeed = !!fe.need_update, beNeed=!!be.need_update;
+      let txt = '';
+      txt += '前端: '+(fe.local_exists===false?'本地缺失':(fe.local_hash||'—').slice(0,8))+' → '+(fe.remote_hash||'—').slice(0,8)+(feNeed?'  需要更新':'  已是最新')+'\\n';
+      txt += '后端: '+(be.local_hash||'—').slice(0,8)+' → '+(be.remote_hash||'—').slice(0,8)+(beNeed?'  需要更新':'  已是最新');
+      if(!fe.remote_available||!be.remote_available) txt += '\\n⚠️ 远程不可达，请检查网络';
+      updateStatus.textContent = txt;
+      // 点击更新图片时如果检测到有更新就出现对应 toast
+      if(feNeed) showToast('🔔 检测到前端有更新', 2500, true);
+      else if(beNeed) showToast('🔔 检测到后端有更新', 2500, true);
+      if(!feNeed && !beNeed && fe.remote_available && be.remote_available) showToast('✅ 前后端已是最新', 1500, true);
+    }catch(e){ updateStatus.textContent = '❌ 检查失败: '+e.message; showToast('❌ 更新检查失败: '+e.message, 2500, false); }
+  }
+  async function doUpdate(target){
+    const btn = target==='frontend'?updateFrontendBtn:target==='backend'?updateBackendBtn:updateAllBtn;
+    if(btn) { btn.disabled=true; btn.style.opacity='0.6'; }
+    try{
+      if(target==='all'){
+        showToast('⏳ 正在更新前后端…', 2000, true);
+        const r = await fetch('/api/update/all', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        const d = await r.json().catch(()=>({}));
+        if(!r.ok||!d.ok) throw new Error(d.error||'更新失败');
+        const fe = d.frontend||{}, be=d.backend||{};
+        if(fe.skipped) showToast('ℹ️ 前端已是最新，已跳过更新', 2000, true);
+        else if(fe.ok) showToast('✅ 前端更新完成请重启应用', 3000, true);
+        else showToast('❌ 前端更新失败: '+(fe.error||''), 3000, false);
+        // 稍延后显示后端 toast，避免被前端 toast 覆盖
+        setTimeout(()=>{
+          if(be.skipped) showToast('ℹ️ 后端已是最新，已跳过更新', 2000, true);
+          else if(be.ok) showToast('✅ 后端更新完成请重启应用', 3000, true);
+          else showToast('❌ 后端更新失败: '+(be.error||''), 3000, false);
+        }, fe.ok&&!fe.skipped? 1600: 200);
+        await checkRemoteUpdate();
+      } else {
+        const label = target==='frontend'?'前端':'后端';
+        showToast('⏳ 正在更新'+label+'…', 2000, true);
+        const r = await fetch('/api/update/'+target, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        const d = await r.json().catch(()=>({}));
+        if(!r.ok||!d.ok) throw new Error(d.error||'更新失败');
+        if(d.skipped){ showToast('ℹ️ '+label+'已是最新，已跳过更新', 2000, true); }
+        else { showToast('✅ '+label+'更新完成请重启应用', 3000, true); }
+        await checkRemoteUpdate();
+      }
+    }catch(e){ showToast('❌ 更新失败: '+e.message, 3000, false); }
+    finally{ if(btn){ btn.disabled=false; btn.style.opacity=''; } }
+  }
+  if(updateFrontendBtn) updateFrontendBtn.addEventListener('click', ()=>doUpdate('frontend'));
+  if(updateBackendBtn) updateBackendBtn.addEventListener('click', ()=>doUpdate('backend'));
+  if(updateAllBtn) updateAllBtn.addEventListener('click', ()=>doUpdate('all'));
 
   // ===== 卡片点击委托 =====
   document.getElementById('serverList').addEventListener('click', function(e) {
@@ -4138,16 +6589,6 @@
     state.frozenCardId = null;
     renderServers();
     state.frozenCardId = id;
-    try {
-      const gid = serverGroupId(id);
-      syncGroupOfflineHistory(gid);
-      markGroupReadNow(gid);
-      if (state.unreadStatus[id]) {
-        delete state.unreadStatus[id];
-        saveUnreadStatus();
-        updateUnreadIndicators();
-      }
-    } catch (e) {}
   });
 
   function createElementFromHTML(html) {
@@ -4162,18 +6603,26 @@
     if (logInterval) clearInterval(logInterval);
     if (refreshTimer) clearTimeout(refreshTimer);
     if (goEasyInitTimer) clearTimeout(goEasyInitTimer);
-    try { stopImPresence(); sendPresenceAction('leave'); flushMarkAsRead(); } catch (e) {}
+    if (presenceRefreshTimer) clearInterval(presenceRefreshTimer);
   });
 
-  // 移动端/部分浏览器只有 pagehide 时机能可靠发出“离开”通知；
-  // 收到 leave 的客户端会立即移除该成员，无需等待 TTL 过期
-  window.addEventListener('pagehide', () => {
-    try { stopImPresence(); sendPresenceAction('leave'); } catch (e) {}
-  });
 
-  // 页面回前台时立刻补一次心跳，让自己快速回到他人的在线列表
-  window.addEventListener('pageshow', () => {
-    if (state.goEasyReady) { try { sendPresenceAction('heartbeat'); syncPresenceToState(); } catch (e) {} }
-  });
+  }
 
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', __lanPlayInit);
+  } else {
+    __lanPlayInit();
+  }
 })();
+
+// 动态创建的服务器聊天框也支持 QQ 式自动换行扩展
+if (!window.__chatAutoGrowBound) {
+  window.__chatAutoGrowBound = true;
+  document.addEventListener('input', function(e) {
+    if (!e.target.matches('.chat-input, #publicChatInput')) return;
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+  });
+}
+
