@@ -108,6 +108,62 @@ html.dark .glass{border-color:rgba(255,255,255,.05)}
 }
 .brand-area::-webkit-scrollbar{display:none}
 .brand-area > *{flex-shrink:0}
+/* 导航栏图标拖拽排序（虚线用内边框，避免被 overflow 裁切） */
+.brand-area > button.nav-dragging{
+  opacity:0.35;
+  transform:scale(0.9);
+  z-index:5;
+  filter:grayscale(0.2);
+}
+.brand-area > button.nav-drag-over{
+  /* 内描边虚线：不依赖 outline，不会被 overflow-x/y 裁掉 */
+  border:2px dashed var(--cyan)!important;
+  background:rgba(25,200,174,.14)!important;
+  box-sizing:border-box;
+}
+html.dark .brand-area > button.nav-drag-over,
+:root:not(.light) .brand-area > button.nav-drag-over{
+  background:rgba(46,230,200,.18)!important;
+  border-color:var(--cyan)!important;
+}
+.brand-area.nav-reordering{
+  touch-action:none;
+  overflow:visible; /* 拖动时允许阴影/拖影溢出 */
+}
+/* 跟手拖影（fixed，挂在 body 上，不受导航栏裁切） */
+.nav-drag-ghost{
+  position:fixed;
+  width:42px;
+  height:42px;
+  border-radius:12px;
+  display:grid;
+  place-items:center;
+  font-size:18px;
+  font-weight:700;
+  pointer-events:none;
+  z-index:10050;
+  margin:0;
+  padding:0;
+  border:2px solid rgba(255,255,255,.55);
+  background:linear-gradient(145deg,var(--cyan),#14a891);
+  color:#fff;
+  box-shadow:0 10px 28px rgba(25,200,174,.45),0 2px 8px rgba(0,0,0,.18);
+  transform:translate(-50%,-50%) scale(1.08);
+  opacity:0.95;
+  transition:none;
+  line-height:1;
+  overflow:visible;
+}
+html.dark .nav-drag-ghost,
+:root:not(.light) .nav-drag-ghost{
+  color:#0f1923;
+  border-color:rgba(15,25,35,.25);
+  box-shadow:0 10px 28px rgba(0,0,0,.5),0 0 0 1px rgba(46,230,200,.35);
+}
+.nav-drag-ghost .online-count-badge,
+.nav-drag-ghost .public-unread-badge{
+  display:none!important;
+}
 .brand{display:flex;align-items:center;gap:12px;min-width:0;cursor:pointer}
 .logo{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(145deg,#fff970,#ffd626);box-shadow:inset 0 0 0 2px rgba(255,255,255,.7),0 4px 12px rgba(255,200,40,.25);font-size:16px;animation:pulse 3s ease-in-out infinite;flex-shrink:0}
 .plugin-toast{
@@ -2303,7 +2359,7 @@ html.dark .msg-action-btn.recall {
         <button id="closeResetModalBtn" class="custom-modal-close">✕</button>
       </div>
       <div class="custom-modal-body">
-        <p style="margin:0 0 20px;font-size:14px;color:var(--ink);line-height:1.6;">确定要恢复默认排序吗？当前自定义排序将被清除。</p>
+        <p style="margin:0 0 20px;font-size:14px;color:var(--ink);line-height:1.6;">确定要恢复默认排序吗？服务器卡片与导航栏图标的自定义排序将被清除。</p>
         <div style="display:flex;gap:10px;">
           <button id="resetCancelBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:rgba(125,175,210,.15);color:var(--ink);font-weight:700;cursor:pointer;font-size:14px;transition:var(--transition);">取消</button>
           <button id="resetConfirmBtn" style="flex:1;border:0;border-radius:12px;padding:11px;background:var(--cyan);color:#fff;font-weight:800;cursor:pointer;font-size:14px;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:6px;">确认恢复</button>
@@ -2844,6 +2900,249 @@ html.dark .msg-action-btn.recall {
     }
   });
 
+
+  // ===== 导航栏图标长按拖动排序 =====
+  const NAV_ORDER_KEY = 'lan_play_nav_order';
+  const DEFAULT_NAV_ORDER = [
+    'themeToggleBtn',
+    'openLogModalBtn',
+    'openAddModalBtn',
+    'resetOrderBtn',
+    'dpiToggleBtn',
+    'manualUpdateBtn',
+    'toggleAutoExpandBtn',
+    'openPublicChatBtn',
+    'onlineMembersBtn',
+    'copyPluginBtn',
+  ];
+
+  function applyNavOrder(order) {
+    const area = document.getElementById('brandArea');
+    if (!area || !Array.isArray(order) || !order.length) return;
+    const map = {};
+    [...area.children].forEach(el => {
+      if (el.id) map[el.id] = el;
+    });
+    order.forEach(id => {
+      if (map[id]) {
+        area.appendChild(map[id]);
+        delete map[id];
+      }
+    });
+    // 未在保存列表中的图标（新版本新增）追加到末尾，保持相对稳定
+    Object.keys(map).forEach(id => area.appendChild(map[id]));
+  }
+
+  function saveNavOrder() {
+    const area = document.getElementById('brandArea');
+    if (!area) return;
+    const ids = [...area.children].map(el => el.id).filter(Boolean);
+    try { localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(ids)); } catch (e) { /* ignore */ }
+  }
+
+  function loadNavOrder() {
+    try {
+      const raw = localStorage.getItem(NAV_ORDER_KEY);
+      if (!raw) return;
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length) applyNavOrder(arr);
+    } catch (e) { /* ignore */ }
+  }
+
+  function resetNavOrder() {
+    try { localStorage.removeItem(NAV_ORDER_KEY); } catch (e) { /* ignore */ }
+    applyNavOrder(DEFAULT_NAV_ORDER);
+  }
+
+  function initNavIconReorder() {
+    const area = document.getElementById('brandArea');
+    if (!area || area.dataset.navDragBound === '1') return;
+    area.dataset.navDragBound = '1';
+
+    let dragEl = null;
+    let longPressTimer = null;
+    let startX = 0;
+    let startY = 0;
+    let dragging = false;
+    let suppressClick = false;
+    let activePointerId = null;
+    let ghostEl = null;
+    let lastX = 0;
+    let lastY = 0;
+
+    function clearTimer() {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }
+
+    function clearDragOver() {
+      area.querySelectorAll('.nav-drag-over').forEach(el => el.classList.remove('nav-drag-over'));
+    }
+
+    function removeGhost() {
+      if (ghostEl) {
+        try { ghostEl.remove(); } catch (_) { /* ignore */ }
+        ghostEl = null;
+      }
+    }
+
+    function moveGhost(x, y) {
+      if (!ghostEl) return;
+      ghostEl.style.left = x + 'px';
+      ghostEl.style.top = y + 'px';
+    }
+
+    function createGhost(btn, x, y) {
+      removeGhost();
+      const g = document.createElement('div');
+      g.className = 'nav-drag-ghost';
+      // 只复制可见图标文字/emoji，避免角标干扰
+      const icon =
+        btn.querySelector('.public-chat-icon, .online-icon') ||
+        null;
+      g.textContent = icon ? icon.textContent.trim() : (btn.textContent || '').trim().charAt(0) || '•';
+      // 若按钮本身就是 emoji（无子 span），取完整文本首个非空白
+      if (!icon) {
+        const t = (btn.childNodes && btn.childNodes.length)
+          ? [...btn.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join('')
+          : '';
+        if (t) g.textContent = t;
+        else if (btn.firstChild && btn.firstChild.nodeType === 3) g.textContent = btn.firstChild.textContent.trim();
+        else {
+          // 回退：去掉角标数字后的文本
+          const clone = btn.cloneNode(true);
+          clone.querySelectorAll('.online-count-badge, #publicUnreadBadge, #onlineCountBadge').forEach(n => n.remove());
+          g.textContent = (clone.textContent || '•').trim() || '•';
+        }
+      }
+      g.style.left = x + 'px';
+      g.style.top = y + 'px';
+      document.body.appendChild(g);
+      ghostEl = g;
+    }
+
+    function endDragVisual() {
+      clearDragOver();
+      if (dragEl) dragEl.classList.remove('nav-dragging');
+      area.classList.remove('nav-reordering');
+      removeGhost();
+    }
+
+    function getBtnFromPoint(x, y) {
+      // 拖影 pointer-events:none，可直接取下方元素
+      const el = document.elementFromPoint(x, y);
+      if (!el) return null;
+      const btn = el.closest('#brandArea > button');
+      return (btn && area.contains(btn)) ? btn : null;
+    }
+
+    function onPointerDown(e) {
+      if (e.button != null && e.button !== 0) return;
+      const btn = e.target.closest('#brandArea > button');
+      if (!btn || !area.contains(btn)) return;
+      activePointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      dragging = false;
+      dragEl = null;
+      clearTimer();
+      longPressTimer = setTimeout(() => {
+        dragging = true;
+        dragEl = btn;
+        btn.classList.add('nav-dragging');
+        area.classList.add('nav-reordering');
+        createGhost(btn, lastX, lastY);
+        try {
+          if (btn.setPointerCapture && activePointerId != null) {
+            btn.setPointerCapture(activePointerId);
+          }
+        } catch (_) { /* ignore */ }
+        try { if (navigator.vibrate) navigator.vibrate(12); } catch (_) { /* ignore */ }
+      }, 420);
+    }
+
+    function onPointerMove(e) {
+      if (activePointerId != null && e.pointerId !== activePointerId) return;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      if (!dragging) {
+        if (longPressTimer) {
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          if (dx * dx + dy * dy > 64) clearTimer();
+        }
+        return;
+      }
+      e.preventDefault();
+      moveGhost(e.clientX, e.clientY);
+      clearDragOver();
+      const over = getBtnFromPoint(e.clientX, e.clientY);
+      if (over && over !== dragEl) over.classList.add('nav-drag-over');
+    }
+
+    function onPointerUp(e) {
+      if (activePointerId != null && e.pointerId !== activePointerId) return;
+      clearTimer();
+      if (!dragging || !dragEl) {
+        dragging = false;
+        dragEl = null;
+        activePointerId = null;
+        endDragVisual();
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 50);
+
+      const x = e.clientX, y = e.clientY;
+      const over = getBtnFromPoint(x, y);
+      if (over && over !== dragEl && area.contains(over)) {
+        const children = [...area.children];
+        const di = children.indexOf(dragEl);
+        const ti = children.indexOf(over);
+        if (di >= 0 && ti >= 0) {
+          if (di < ti) area.insertBefore(dragEl, over.nextSibling);
+          else area.insertBefore(dragEl, over);
+          saveNavOrder();
+        }
+      }
+      endDragVisual();
+      dragging = false;
+      dragEl = null;
+      activePointerId = null;
+    }
+
+    function onPointerCancel(e) {
+      if (activePointerId != null && e.pointerId !== activePointerId) return;
+      clearTimer();
+      endDragVisual();
+      dragging = false;
+      dragEl = null;
+      activePointerId = null;
+    }
+
+    area.addEventListener('pointerdown', onPointerDown);
+    area.addEventListener('pointermove', onPointerMove, { passive: false });
+    area.addEventListener('pointerup', onPointerUp);
+    area.addEventListener('pointercancel', onPointerCancel);
+    // 拖拽结束后吞掉一次 click，避免误触打开功能
+    area.addEventListener('click', (e) => {
+      if (suppressClick) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    }, true);
+
+    loadNavOrder();
+  }
+
+  initNavIconReorder();
+
   // ===== 恢复默认排序 =====
   const resetModal = document.getElementById('resetOrderModal');
   document.getElementById('resetOrderBtn').addEventListener('click', () => resetModal.classList.add('open'));
@@ -2854,6 +3153,8 @@ html.dark .msg-action-btn.recall {
     resetModal.classList.remove('open');
     try {
       localStorage.removeItem('lan_play_server_order');
+      localStorage.removeItem(NAV_ORDER_KEY);
+      resetNavOrder();
       await fetch('/api/servers/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -6538,6 +6839,30 @@ html.dark .msg-action-btn.recall {
   if(updateFrontendBtn) updateFrontendBtn.addEventListener('click', ()=>doUpdate('frontend'));
   if(updateBackendBtn) updateBackendBtn.addEventListener('click', ()=>doUpdate('backend'));
   if(updateAllBtn) updateAllBtn.addEventListener('click', ()=>doUpdate('all'));
+
+  // ===== 每次启动自动检查一次前后端是否有更新（仅有更新时 toast） =====
+  async function checkUpdateOnStartup() {
+    try {
+      if (!navigator.onLine) return;
+      const d = await getJSON('/api/update/check?_=' + Date.now());
+      if (!d || d.ok === false) return;
+      const fe = d.frontend || {};
+      const be = d.backend || {};
+      const feNeed = !!fe.need_update;
+      const beNeed = !!be.need_update;
+      if (feNeed && beNeed) {
+        showToast('🔔 检测到前端和后端有更新，点击 ⬆️ 可更新', 3500, true);
+      } else if (feNeed) {
+        showToast('🔔 检测到前端有更新，点击 ⬆️ 可更新', 3000, true);
+      } else if (beNeed) {
+        showToast('🔔 检测到后端有更新，点击 ⬆️ 可更新', 3000, true);
+      }
+    } catch (e) {
+      console.warn('[更新] 启动检查失败', e);
+    }
+  }
+  // 延后执行，避开首屏加载与网络检测
+  setTimeout(checkUpdateOnStartup, 2500);
 
   // ===== 卡片点击委托 =====
   document.getElementById('serverList').addEventListener('click', function(e) {
