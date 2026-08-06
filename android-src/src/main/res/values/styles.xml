@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 放在 android-src/src/main/res/values/styles.xml 会覆盖 p4a 默认主题 -->
+<!-- 强制状态栏/导航栏透明，解决部分 ROM 即使代码设透明仍显示黑条 -->
+<resources>
+    <style name="AppTheme" parent="@android:style/Theme.NoTitleBar">
+        <!-- 窗口背景用启动图，状态栏透明 -->
+        <item name="android:windowBackground">@drawable/presplash</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <!-- 关键：不要用 windowFullscreen，否则内容不会延伸 -->
+    </style>
+</resources>
