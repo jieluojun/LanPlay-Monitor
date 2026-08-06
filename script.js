@@ -8471,11 +8471,18 @@ html:not(.dark) {
   if (toggleAutoBtn) {
     toggleAutoBtn.textContent = state.autoExpand ? '📂' : '📁';
     toggleAutoBtn.addEventListener('click', function() {
+      const wasOn = state.autoExpand;
       state.autoExpand = !state.autoExpand;
       localStorage.setItem(AUTO_EXPAND_KEY, String(state.autoExpand));
       this.textContent = state.autoExpand ? '📂' : '📁';
+      // 关闭自动展开时：清空 expanded 集合并立即收起所有已展开的卡片
+      // 避免出现"已关掉自动展开但卡片还都展开着"的残留状态
+      if (wasOn && !state.autoExpand) {
+        state.expanded.clear();
+        state.frozenCardId = null;
+      }
       render();
-      showToast(state.autoExpand ? '✅ 自动展开已开启' : '⛔ 自动展开已关闭', 1200, true);
+      showToast(state.autoExpand ? '✅ 自动展开已开启' : '⛔ 自动展开已关闭，所有展开的卡片已收起', 1500, true);
     });
   }
 
@@ -8528,7 +8535,10 @@ html:not(.dark) {
   }
   if(closeUpdateModalBtn) closeUpdateModalBtn.addEventListener('click', closeUpdateModal);
   if(updateModal) updateModal.addEventListener('click', e=>{ if(e.target===updateModal) closeUpdateModal(); });
-  // 导航栏 ⬆️ 图标点击：直接拉取远程哈希，若两端都需要更新则优先更新前端
+  // 导航栏 ⬆️ 图标点击：拉取远程哈希，若有更新则弹确认弹窗让用户选择
+  //  - 前端和后端都需更新：按需求优先更新前端（弹窗显示优先级）
+  //  - 仅有其一需更新：弹窗提示是哪个，确认后直接更新
+  //  - 都不需更新：toast 提示已是最新
   async function onManualUpdateIconClick() {
     if (!manualUpdateBtn || manualUpdateBtn.disabled) return;
     manualUpdateBtn.disabled = true;
@@ -8541,28 +8551,87 @@ html:not(.dark) {
       const feNeed = !!fe.need_update;
       const beNeed = !!be.need_update;
       if (!feNeed && !beNeed) {
+        // 无更新：toast 提示
         showToast('✅ 前后端已是最新', 1800, true);
         return;
       }
+      // 有更新：弹"是否更新"的确认弹窗
+      // 两端都需更新：按需求默认更新前端
+      // 仅前端需更新：更新前端
+      // 仅后端需更新：更新后端
+      const targets = [];
+      if (feNeed) targets.push({ key: 'frontend', label: '前端' });
+      if (beNeed) targets.push({ key: 'backend', label: '后端' });
+      let primary = 'frontend';
       if (feNeed && beNeed) {
-        // 两端都需更新：按需求优先更新前端
-        showToast('🔔 前端和后端都有更新，优先更新前端', 2800, true);
-        await doUpdate('frontend');
+        primary = 'frontend'; // 两端都需更新时优先前端
+      } else if (!feNeed && beNeed) {
+        primary = 'backend';
+      }
+      const confirmMsg = feNeed && beNeed
+        ? '前端和后端都有新版本，是否开始更新？\n(将优先更新前端，更新完成后请重启应用)'
+        : (feNeed
+            ? '前端有新版本，是否立即更新？\n更新完成后请重启应用'
+            : '后端有新版本，是否立即更新？\n更新完成后请重启应用');
+      const ok = await _showUpdateConfirm(confirmMsg);
+      if (!ok) {
+        showToast('已取消更新', 1500, true);
         return;
       }
-      if (feNeed) {
-        showToast('🔔 检测到前端有更新，正在更新…', 2000, true);
-        await doUpdate('frontend');
-        return;
-      }
-      // beNeed only
-      showToast('🔔 检测到后端有更新，正在更新…', 2000, true);
-      await doUpdate('backend');
+      // 用户确认：按 primary 更新；如果两端都需更新，确认后只更 primary（不自动更另一个）
+      // 用户想都更则去模态框（长按图标进入）点"一键更新前后端"
+      showToast('⏳ 正在更新' + (primary === 'frontend' ? '前端' : '后端') + '…', 2000, true);
+      await doUpdate(primary);
     } catch (e) {
       showToast('❌ 更新检查失败：' + (e && e.message ? e.message : e), 3000, false);
     } finally {
       if (manualUpdateBtn) manualUpdateBtn.disabled = false;
     }
+  }
+
+  // 通用确认弹窗：返回 Promise<boolean>，true = 确认，false = 取消
+  // 复用 .msg-action-menu 的遮罩 + .custom-modal-box 风格
+  function _showUpdateConfirm(message) {
+    return new Promise(function (resolve) {
+      // 移除旧弹窗
+      const old = document.getElementById('updateConfirmModal');
+      if (old) old.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'updateConfirmModal';
+      modal.className = 'custom-modal';
+      modal.innerHTML =
+        '<div class="custom-modal-box" style="width:min(360px,calc(100% - 32px));">' +
+          '<div class="custom-modal-header">' +
+            '<span>⬆️ 发现新版本</span>' +
+            '<button class="custom-modal-close" type="button" aria-label="关闭">✕</button>' +
+          '</div>' +
+          '<div class="custom-modal-body">' +
+            '<p style="margin:0 0 16px;font-size:14px;color:var(--ink);line-height:1.6;white-space:pre-line;">' + esc(message) + '</p>' +
+            '<div style="display:flex;gap:10px;">' +
+              '<button id="updateConfirmCancelBtn" type="button" style="flex:1;border:0;border-radius:12px;padding:11px;background:rgba(125,175,210,.15);color:var(--ink);font-weight:700;cursor:pointer;font-size:14px;transition:var(--transition);">取消</button>' +
+              '<button id="updateConfirmOkBtn" type="button" style="flex:1;border:0;border-radius:12px;padding:11px;background:var(--cyan);color:#fff;font-weight:800;cursor:pointer;font-size:14px;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:6px;">立即更新</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      requestAnimationFrame(function () { modal.classList.add('open'); });
+
+      function close(result) {
+        if (modal.parentElement) modal.parentElement.removeChild(modal);
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') close(false);
+        else if (e.key === 'Enter') close(true);
+      }
+      modal.querySelector('.custom-modal-close').addEventListener('click', function () { close(false); });
+      modal.querySelector('#updateConfirmCancelBtn').addEventListener('click', function () { close(false); });
+      modal.querySelector('#updateConfirmOkBtn').addEventListener('click', function () { close(true); });
+      modal.addEventListener('click', function (e) { if (e.target === modal) close(false); });
+      document.addEventListener('keydown', onKey);
+    });
   }
   async function checkRemoteUpdate(){
     if(!updateStatus) return;
