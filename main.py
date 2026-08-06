@@ -484,27 +484,27 @@ def ensure_frontend_exists() -> None:
         warn("[更新] 前端自动下载失败（远程无数据）")
 
 def _compile_py_to_pyc(py_path: Path) -> dict[str, Any]:
-    """将 .py 编译为 pyc（APK 内实际使用格式），返回 {ok, pyc_path, error}。非 .py 文件直接跳过。"""
+    """将 .py 编译为 pyc（APK 内实际使用格式），返回 {ok, pyc_path, error}。非 .py 文件直接跳过。
+    修复：不再拷贝为 legacy .pyc（会因 Python 版本 magic 不一致导致 APK 白屏），仅生成 __pycache__ 缓存由解释器自动加载。"""
     try:
         if py_path.suffix.lower() != ".py":
             return {"ok": True, "skipped": True, "reason": "非Python文件无需编译"}
         if not py_path.is_file():
             return {"ok": False, "error": "源文件不存在"}
         import py_compile
-        # 先校验语法，避免生成损坏的 pyc
         try:
             compile(py_path.read_text(encoding="utf-8", errors="replace"), str(py_path), "exec")
         except SyntaxError as se:
             return {"ok": False, "error": f"语法错误无法编译: {se}"}
-        # 生成 __pycache__/xxx.cpython-*.pyc
         cpath = py_compile.compile(str(py_path), cfile=None, doraise=True)
         info(f"[pyc] ✅ 已编译 {py_path.name} -> {cpath}")
-        # 额外在同目录生成 legacy 同名 .pyc（部分 APK 加载器直接找 *.pyc）
+        # 不再 copy 为同目录 .pyc，避免旧版 Python magic 导致 APK 白屏；__pycache__ 已足够
+        # 若存在旧的 legacy .pyc，删除以免误加载
         try:
             legacy = py_path.with_suffix(".pyc")
-            import shutil
-            shutil.copyfile(cpath, str(legacy))
-            info(f"[pyc] ↳ 已同步 {legacy.name}")
+            if legacy.is_file():
+                legacy.unlink()
+                info(f"[pyc] 已清理旧 legacy {legacy.name}")
         except Exception:
             pass
         return {"ok": True, "pyc_path": cpath}
@@ -512,8 +512,27 @@ def _compile_py_to_pyc(py_path: Path) -> dict[str, Any]:
         warn(f"[pyc] 编译失败 {py_path}: {e}")
         return {"ok": False, "error": str(e)}
 
+def _cleanup_stale_pyc(py_path: Path) -> None:
+    """选择 PY 源码格式时清理旧 pyc，避免版本不一致的 pyc 被优先加载导致白屏。"""
+    try:
+        legacy = py_path.with_suffix(".pyc")
+        if legacy.is_file():
+            legacy.unlink()
+            info(f"[pyc] 已清理 {legacy.name}（PY 模式）")
+        # 清理 __pycache__ 中对应文件的旧缓存
+        cache_dir = py_path.parent / "__pycache__"
+        if cache_dir.is_dir():
+            for f in cache_dir.glob(f"{py_path.stem}.*.pyc"):
+                try:
+                    f.unlink()
+                    info(f"[pyc] 已清理缓存 {f.name}")
+                except Exception:
+                    pass
+    except Exception as e:
+        warn(f"[pyc] 清理失败: {e}")
+
 def _ensure_pyc_for_existing(py_path: Path, label: str) -> None:
-    """更新前：若检测到有更新，先将现有文件转成 pyc（APK 使用格式），失败不阻断更新。"""
+    """更新前：若检测到有更新且用户选择 pyc 格式，才将现有文件转成 pyc；py 模式跳过。"""
     if py_path.suffix.lower() != ".py" or not py_path.is_file():
         return
     info(f"[更新] 检测到{label}有更新，更新前先将现有文件编译为 pyc…")
@@ -578,22 +597,24 @@ def do_update_backend(backend_format: str = "py") -> dict[str, Any]:
     remote_hash = _sha256_bytes(data)
     if local_hash == remote_hash:
         return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash, "format": backend_format}
-    # 点击更新前先将现有文件转换成 pyc（APK 使用格式）
-    _ensure_pyc_for_existing(fp, "后端")
+    # 点击更新前：仅 pyc 模式才先将旧文件转 pyc；py 模式避免额外 pyc 导致白屏
+    if backend_format == "pyc":
+        _ensure_pyc_for_existing(fp, "后端")
     try:
         tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
         Path(tmp).write_bytes(data)
         os.replace(tmp, str(fp))
         info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash[:8]} [{backend_format}]")
-        # 写入后编译为 pyc
-        pyc_res = _compile_py_to_pyc(fp)
-        if not pyc_res.get("ok") and not pyc_res.get("skipped"):
-            warn(f"[更新] 后端新文件 pyc 编译失败: {pyc_res.get('error')}")
-        # 若用户选择 pyc 格式，额外保证 pyc 可被 APK 直接加载：已生成 __pycache__ + legacy .pyc
         if backend_format == "pyc":
-            info(f"[更新] 后端已按 pyc 格式就绪，APK 将优先加载 pyc")
+            pyc_res = _compile_py_to_pyc(fp)
+            if not pyc_res.get("ok") and not pyc_res.get("skipped"):
+                warn(f"[更新] 后端新文件 pyc 编译失败: {pyc_res.get('error')}")
+            info(f"[更新] 后端已按 pyc 格式就绪（__pycache__ 缓存已生成，源码保留）")
         else:
-            info(f"[更新] 后端已按 py 格式就绪（pyc 已同步生成作缓存）")
+            # py 模式：清理旧 pyc，避免旧 magic 的 pyc 被 APK 优先加载白屏
+            _cleanup_stale_pyc(fp)
+            pyc_res = {"ok": True, "skipped": True, "reason": "PY 模式已清理旧 pyc，下次启动自动生成"}
+            info(f"[更新] 后端已按 py 源码格式就绪")
         return {"ok": True, "skipped": False, "message": "后端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash, "pyc": pyc_res, "format": backend_format}
     except Exception as e:
         return {"ok": False, "error": str(e), "skipped": False}
@@ -2037,6 +2058,23 @@ class MonitorHandler(BaseHTTPRequestHandler):
                         body, headers, status = make_json_response(data, status=500)
                 except Exception as e:
                     data = {"ok": False, "error": str(e), "target": "backend"}
+                    body, headers, status = make_json_response(data, status=500)
+                self._send(body, headers, status)
+                return
+
+            if path == "/api/update/clean-pyc":
+                try:
+                    fp = Path(LOCAL_BACKEND_FILE)
+                    _cleanup_stale_pyc(fp)
+                    # 同时尝试编译当前 py 以生成与当前解释器匹配的缓存
+                    try:
+                        _compile_py_to_pyc(fp)
+                    except Exception:
+                        pass
+                    data = {"ok": True, "message": "已清理旧 pyc，白屏应已修复，请重启应用"}
+                    body, headers, status = make_json_response(data)
+                except Exception as e:
+                    data = {"ok": False, "error": str(e)}
                     body, headers, status = make_json_response(data, status=500)
                 self._send(body, headers, status)
                 return

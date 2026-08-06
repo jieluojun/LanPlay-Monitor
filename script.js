@@ -2350,6 +2350,7 @@ html.dark .msg-action-btn.recall {
           </div>
         </div>
         <button id="updateAllBtn" style="border:0;border-radius:12px;padding:11px;background:linear-gradient(135deg,#19c8ae,#1a73c0);color:#fff;font-weight:800;cursor:pointer;">⬆️ 一键更新前后端</button>
+        <button id="fixPycBtn" style="border:1px solid var(--line);border-radius:12px;padding:9px;background:transparent;color:var(--muted);font-weight:700;font-size:12px;cursor:pointer;">🛠️ 修复白屏（清理旧 pyc）</button>
       </div>
     </div>
   </div>
@@ -6547,6 +6548,17 @@ html.dark .msg-action-btn.recall {
   }
   if(updateFrontendBtn) updateFrontendBtn.addEventListener('click', ()=>doUpdate('frontend'));
   if(updateBackendBtn) updateBackendBtn.addEventListener('click', ()=>doUpdate('backend'));
+  const fixPycBtn = document.getElementById('fixPycBtn');
+  if(fixPycBtn) fixPycBtn.addEventListener('click', async ()=>{
+    fixPycBtn.disabled=true; fixPycBtn.textContent='⏳ 修复中…';
+    try{
+      const r = await fetch('/api/update/clean-pyc', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+      const d = await r.json().catch(()=>({}));
+      if(r.ok && d.ok) showToast('✅ '+d.message, 3000, true);
+      else showToast('❌ 修复失败: '+(d.error||r.status), 3000, false);
+    }catch(e){ showToast('❌ 修复失败: '+e.message, 3000, false);}
+    finally{ fixPycBtn.disabled=false; fixPycBtn.textContent='🛠️ 修复白屏（清理旧 pyc）';}
+  });
   if(updateAllBtn) updateAllBtn.addEventListener('click', ()=>doUpdate('all'));
 
   // ===== 卡片点击委托 =====
