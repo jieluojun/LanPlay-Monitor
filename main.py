@@ -154,7 +154,10 @@ REMOTE_SERVERS_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor
 REMOTE_FRONTEND_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/script.js"
 REMOTE_BACKEND_URL = "https://raw.githubusercontent.com/jieluojun/LanPlayMonitor/refs/heads/main/main.py"
 LOCAL_FRONTEND_FILE = str(SCRIPT_DIR / "script.js")
-LOCAL_BACKEND_FILE = str(Path(__file__).resolve())
+# 修复：APK 内 __file__ 可能是 main.pyc，必须固定指向 main.py，避免写入错误的 .pyc 路径导致更新后文件丢失
+LOCAL_BACKEND_FILE = str(SCRIPT_DIR / "main.py")
+# pyc 实际位置（APK 可能为同目录 main.pyc 或 __pycache__/main.*.pyc）
+LOCAL_BACKEND_PYC = str(SCRIPT_DIR / "main.pyc")
 
 def _remote_candidate_urls(url: str) -> list[str]:
     """根据 REMOTE_UPDATE_PROXY 生成候选 URL 列表：优先代理，失败自动重试直连。"""
@@ -513,12 +516,12 @@ def _compile_py_to_pyc(py_path: Path) -> dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 def _cleanup_stale_pyc(py_path: Path) -> None:
-    """选择 PY 源码格式时清理旧 pyc，避免版本不一致的 pyc 被优先加载导致白屏。"""
+    """清理旧 pyc，避免版本不一致的 pyc 被优先加载导致白屏。"""
     try:
         legacy = py_path.with_suffix(".pyc")
         if legacy.is_file():
             legacy.unlink()
-            info(f"[pyc] 已清理 {legacy.name}（PY 模式）")
+            info(f"[pyc] 已清理 {legacy.name}")
         cache_dir = py_path.parent / "__pycache__"
         if cache_dir.is_dir():
             for f in cache_dir.glob(f"{py_path.stem}.*.pyc"):
@@ -527,8 +530,46 @@ def _cleanup_stale_pyc(py_path: Path) -> None:
                     info(f"[pyc] 已清理缓存 {f.name}")
                 except Exception:
                     pass
+        # 额外清理 APK 常见的 _python_bundle / .bin 中的 pyc
+        for extra in [py_path.parent / "_python_bundle", py_path.parent / ".bin"]:
+            if extra.is_dir():
+                for p in list(extra.rglob("main.*.pyc")) + list(extra.rglob("main.pyc")):
+                    try:
+                        p.unlink()
+                        info(f"[pyc] 已清理额外 {p}")
+                    except Exception:
+                        pass
     except Exception as e:
         warn(f"[pyc] 清理失败: {e}")
+
+def _backend_candidates() -> list[Path]:
+    """APK 内 main.py 可能分散在多个位置（app/, _python_bundle/, .bin/），全部更新以确保 file manager 可见。"""
+    base = Path(SCRIPT_DIR)
+    cands = [base / "main.py"]
+    for sub in ["_python_bundle", ".bin", "app"]:
+        p = base / sub / "main.py"
+        if p.parent.is_dir():
+            cands.append(p)
+    # 去重
+    seen=set()
+    out=[]
+    for p in cands:
+        s=str(p.resolve()) if p.exists() else str(p)
+        if s not in seen:
+            seen.add(s)
+            out.append(p)
+    return out
+
+def _write_backend_all(data: bytes) -> None:
+    for p in _backend_candidates():
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            tmp = str(p) + f".tmp.{uuid.uuid4().hex[:6]}"
+            Path(tmp).write_bytes(data)
+            os.replace(tmp, str(p))
+            info(f"[更新] 已写入 {p} ({len(data)} bytes)")
+        except Exception as e:
+            warn(f"[更新] 写入 {p} 失败: {e}")
 
 def _ensure_pyc_for_existing(py_path: Path, label: str) -> None:
     if py_path.suffix.lower() != ".py" or not py_path.is_file():
@@ -686,20 +727,21 @@ def do_update_backend() -> dict[str, Any]:
             return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash, "mode": "py"}
         remote_hash_py = remote_hash
     try:
-        tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
-        Path(tmp).write_bytes(data)
-        os.replace(tmp, str(fp))
+        # 写入所有候选位置，确保 file manager 中可见且 APK 重启能加载到新代码
+        _write_backend_all(data)
+        # 同时保证主路径已写入
+        if not Path(fp).is_file():
+            tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
+            Path(tmp).write_bytes(data)
+            os.replace(tmp, str(fp))
         info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash_py[:8] if remote_hash_py else 'none'} [{'pyc' if pyc_mode else 'py'}]")
-        if pyc_mode:
-            # APK 实际使用 Python 3.14 的 pyc，与本机 3.13 不兼容，故不在服务端预编译 pyc；
-            # 仅更新 py 源码并清理本机产生的旧 pyc，让 APK 首次启动时自行编译为正确版本，避免白屏
-            _cleanup_stale_pyc(fp)
-            pyc_res = {"ok": True, "skipped": True, "reason": "PYC 模式：已更新源码并清理旧 pyc，APK 下次启动将自动生成匹配的 pyc"}
-            info(f"[更新] 后端 pyc 模式已就绪：源码已更新，旧 pyc 已清理")
-        else:
-            _cleanup_stale_pyc(fp)
-            pyc_res = {"ok": True, "skipped": True, "reason": "PY 模式已清理旧 pyc"}
-            info(f"[更新] 后端 py 模式已就绪：已清理旧 pyc，直接使用源码")
+        # 无论 py/pyc 模式，均只清理本机旧 pyc，让 APK 用自带 Python 重新编译，避免跨版本 Bad magic 白屏
+        _cleanup_stale_pyc(fp)
+        for cand in _backend_candidates():
+            if cand != fp:
+                _cleanup_stale_pyc(cand)
+        pyc_res = {"ok": True, "skipped": True, "reason": "已更新源码并清理旧 pyc，APK 下次启动将自动生成匹配版本"}
+        info(f"[更新] 后端 {'pyc' if pyc_mode else 'py'} 模式已就绪：源码已同步到 {len(_backend_candidates())} 个位置")
         return {"ok": True, "skipped": False, "message": "后端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash_py, "pyc": pyc_res, "mode": "pyc" if pyc_mode else "py"}
     except Exception as e:
         return {"ok": False, "error": str(e), "skipped": False}
