@@ -479,7 +479,6 @@ public class FileChooserHelper {
                 if (url == null || url.length() == 0) return false;
                 final String trimmed = url.trim();
                 if (trimmed.length() == 0) return false;
-                // 必须是 http/https,其他协议不通过(避免 file:/intent:/javascript: 等被滥用)
                 String lower = trimmed.toLowerCase();
                 if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
                     Log.w(TAG, "[外部浏览器] 拒绝非 http(s) 协议: " + trimmed);
@@ -492,18 +491,33 @@ public class FileChooserHelper {
                 }
                 final android.net.Uri uri = android.net.Uri.parse(trimmed);
                 if (uri == null) return false;
-                final Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-                // 从 WebView Activity 启动外部浏览器,必须加 NEW_TASK 标志
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                // 显式指定 "可被任何应用处理",避免某些定制 ROM 拦截
-                intent.addFlags(Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER); // Lollipop+ 反钓鱼
-                activity.runOnUiThread(new Runnable() {
+                final Intent baseIntent = new Intent(Intent.ACTION_VIEW, uri);
+                baseIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                // 已移除错误的 FLAG_ACTIVITY_REQUIRE_NON_BROWSER（该标志要求非浏览器处理，与打开浏览器相反）
+                final Activity act = activity;
+                act.runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
                         try {
-                            activity.startActivity(intent);
+                            Intent chooser = Intent.createChooser(baseIntent, "选择浏览器打开");
+                            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            act.startActivity(chooser);
+                            Log.i(TAG, "[外部浏览器] 已启动 chooser: " + trimmed);
+                        } catch (android.content.ActivityNotFoundException e) {
+                            Log.e(TAG, "[外部浏览器] 未找到可处理该链接的应用", e);
+                            try {
+                                android.widget.Toast.makeText(act, "未找到可打开链接的浏览器", android.widget.Toast.LENGTH_SHORT).show();
+                            } catch (Exception ignored) {}
+                            try {
+                                act.startActivity(baseIntent);
+                            } catch (Exception e2) {
+                                Log.e(TAG, "[外部浏览器] 降级启动也失败", e2);
+                            }
                         } catch (Exception e) {
-                            Log.e(TAG, "[外部浏览器] startActivity 失败,可能未装浏览器", e);
+                            Log.e(TAG, "[外部浏览器] startActivity 失败", e);
+                            try {
+                                android.widget.Toast.makeText(act, "打开外部浏览器失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+                            } catch (Exception ignored) {}
                         }
                     }
                 });
