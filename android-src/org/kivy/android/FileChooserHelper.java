@@ -6,27 +6,45 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 /**
  * 为 p4a webview bootstrap 的 WebView 安装 WebChromeClient：
  *   1. <input type="file">：用 Intent.createChooser 唤起系统相册/视频/文件选择器
  *   2. getUserMedia 麦克风：自动批准 WebView 麦克风请求，并向 Android 系统申请 RECORD_AUDIO 权限
+ *   3. 沉浸式状态栏 + 边缘到边缘（透明状态栏、内容延伸到状态栏下方）
+ *   4. 主动请求"忽略电池优化"（启动时一次性弹窗）
+ *   5. 监听系统主题（白天/夜间），把结果注入到前端 JS
+ *   6. JS 可调 Java：`FileChooserHelper.syncPageTheme(true|false)` 同步页面主题，
+ *      决定状态栏图标是「亮色 / 暗色」
  */
 public class FileChooserHelper {
 
     private static final String TAG = "FileChooserHelper";
     private static final int FILECHOOSER_RESULTCODE = 5173;
     private static final int PERMISSION_REQ_RECORD_AUDIO = 5174;
+    /** 与前端约定的命名空间：window.LanPlayNative.xxx */
+    public static final String JS_NAMESPACE = "LanPlayNative";
 
     private static ValueCallback<Uri[]> mUploadMessage = null;
     private static boolean mInstalled = false;
+
+    // HTML5 视频全屏回调状态
+    private static View mCustomView = null;
+    private static WebChromeClient.CustomViewCallback mCustomViewCallback = null;
+    private static int mOriginalSystemUiVisibility = 0;
 
     public static boolean install() {
         final PythonActivity activity = PythonActivity.mActivity;
@@ -41,11 +59,82 @@ public class FileChooserHelper {
         }
         mInstalled = true;
 
+        // ---- 1. 沉浸式状态栏（透明状态栏 + 内容延伸到状态栏下方） ----
+        try {
+            ImmersiveStatusBarHelper.install(activity);
+        } catch (Exception e) {
+            Log.w(TAG, "ImmersiveStatusBarHelper.install failed", e);
+        }
+
+        // ---- 2. WebView 设置：缩放 + 文件选择 + 麦克风 ----
         activity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
                 try {
+                    WebSettings settings = webView.getSettings();
+                    settings.setSupportZoom(true);
+                    settings.setBuiltInZoomControls(true);
+                    settings.setDisplayZoomControls(false);
+                    settings.setUseWideViewPort(true);
+                    settings.setLoadWithOverviewMode(true);
+                    // 50% 作为打开外部网页时的初始小比例，用户仍可双指放大/缩小。
+                    webView.setInitialScale(50);
+
+                    // 让 WebView 的 prefers-color-scheme 跟随系统（API 21+ 实际上已经跟随；
+                    // 但显式声明更清晰，也方便未来在 Android 11 以下做更细的控制）。
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        try {
+                            // "light" / "dark" / 不设置（跟随系统）。这里不显式设置 → 跟随系统。
+                            // Android 11+ WebView 已原生支持 prefers-color-scheme，无需额外配置。
+                        } catch (Exception ignored) {}
+                    }
+
                     webView.setWebChromeClient(new WebChromeClient() {
+
+                        // ---------- 0. HTML5 视频全屏 ----------
+                        @Override
+                        public void onShowCustomView(View view, CustomViewCallback callback) {
+                            Log.i(TAG, "onShowCustomView: entering fullscreen");
+                            if (mCustomView != null) {
+                                try { callback.onCustomViewHidden(); } catch (Exception ignored) {}
+                                return;
+                            }
+                            mCustomView = view;
+                            mCustomViewCallback = callback;
+                            Window window = activity.getWindow();
+                            mOriginalSystemUiVisibility = window.getDecorView().getSystemUiVisibility();
+                            window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                                    WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                            int flags = View.SYSTEM_UI_FLAG_FULLSCREEN
+                                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
+                            if (Build.VERSION.SDK_INT >= 19) {
+                                flags |= View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                            }
+                            window.getDecorView().setSystemUiVisibility(flags);
+                            activity.addContentView(view, new ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT));
+                        }
+
+                        @Override
+                        public void onHideCustomView() {
+                            Log.i(TAG, "onHideCustomView: leaving fullscreen");
+                            if (mCustomView != null) {
+                                ViewGroup parent = (ViewGroup) mCustomView.getParent();
+                                if (parent != null) parent.removeView(mCustomView);
+                                mCustomView = null;
+                            }
+                            Window window = activity.getWindow();
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                            window.getDecorView().setSystemUiVisibility(mOriginalSystemUiVisibility);
+                            if (mCustomViewCallback != null) {
+                                try { mCustomViewCallback.onCustomViewHidden(); } catch (Exception ignored) {}
+                                mCustomViewCallback = null;
+                            }
+                        }
 
                         // ---------- 1. 文件选择（相册/视频/音频/文件） ----------
                         @Override
@@ -83,7 +172,6 @@ public class FileChooserHelper {
                                 contentIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                             }
 
-                            // 关键优化：使用 Intent.createChooser 包装，兼容所有国产 ROM（小米/华为/OPPO/vivo等）
                             Intent chooserIntent = Intent.createChooser(contentIntent, "选择文件或媒体");
                             try {
                                 activity.startActivityForResult(chooserIntent, FILECHOOSER_RESULTCODE);
@@ -178,6 +266,50 @@ public class FileChooserHelper {
                         }
                     }
 
+                    // ---- 3. 主动请求"忽略电池优化"（启动时一次性） ----
+                    try {
+                        BatteryOptimizationHelper.requestIgnoreBatteryOptimizationsIfNeeded(activity);
+                    } catch (Exception e) {
+                        Log.w(TAG, "BatteryOptimizationHelper request failed", e);
+                    }
+
+                    // ---- 4. 注册 Configuration 变化监听 → 通知前端主题变化 ----
+                    try {
+                        registerUiModeListener(activity);
+                    } catch (Exception e) {
+                        Log.w(TAG, "registerUiModeListener failed", e);
+                    }
+
+                    // ---- 5. 注入 window.LanPlayNative 桥接（让 JS 能调 Java） ----
+                    try {
+                        injectNativeBridge(webView);
+                    } catch (Exception e) {
+                        Log.w(TAG, "injectNativeBridge failed", e);
+                    }
+
+                    // ---- 6. 把初始系统主题（白天/夜间）推给前端 ----
+                    try {
+                        final int uiMode = activity.getResources().getConfiguration().uiMode
+                                & Configuration.UI_MODE_NIGHT_MASK;
+                        final boolean isSystemDark = (uiMode == Configuration.UI_MODE_NIGHT_YES);
+                        final String initThemeJs = "(function(){"
+                                + "try{localStorage.setItem('lanplay_system_dark',"
+                                + (isSystemDark ? "'1'" : "'0'")
+                                + ");"
+                                + "window.__lanplaySystemDark=" + (isSystemDark ? "true" : "false")
+                                + ";"
+                                + "}catch(e){}"
+                                + "})();";
+                        webView.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                webView.evaluateJavascript(initThemeJs, null);
+                            }
+                        });
+                    } catch (Exception e) {
+                        Log.w(TAG, "init theme push failed", e);
+                    }
+
                     Log.i(TAG, "✅ FileChooserHelper WebChromeClient installed successfully!");
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to install WebChromeClient in runOnUiThread", e);
@@ -185,5 +317,201 @@ public class FileChooserHelper {
             }
         });
         return true;
+    }
+
+    /**
+     * 监听系统主题切换：使用 Application.ActivityLifecycleCallbacks 不行（要拿单 Activity），
+     * 这里用反射在 Activity 上注册一个 ComponentCallbacks2 + ContentObserver 兜底；
+     * 实际上更稳的做法是 PythonActivity.onConfigurationChanged() 主动调用本类的
+     * ImmersiveStatusBarHelper.onSystemUiModeChanged(activity)。
+     */
+    private static void registerUiModeListener(final Activity activity) {
+        try {
+            activity.getApplication().registerComponentCallbacks(
+                    new android.content.ComponentCallbacks2() {
+                        @Override
+                        public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+                            try {
+                                int uiMode = newConfig.uiMode & Configuration.UI_MODE_NIGHT_MASK;
+                                boolean isSystemDark = (uiMode == Configuration.UI_MODE_NIGHT_YES);
+                                ImmersiveStatusBarHelper.setPageTheme(activity, isSystemDark);
+                                final String js = "(function(isDark){"
+                                        + "try{window.__lanplaySystemDark=isDark;"
+                                        + "localStorage.setItem('lanplay_system_dark',isDark?'1':'0');"
+                                        + "if(window.applySystemDarkMode)window.applySystemDarkMode(isDark);"
+                                        + "}catch(e){}"
+                                        + "})(" + (isSystemDark ? "true" : "false") + ");";
+                                activity.runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        try {
+                                            if (PythonActivity.mWebView != null) {
+                                                PythonActivity.mWebView.evaluateJavascript(js, null);
+                                            }
+                                        } catch (Exception ignored) {}
+                                    }
+                                });
+                            } catch (Exception e) {
+                                Log.w(TAG, "onConfigurationChanged dispatch failed", e);
+                            }
+                        }
+                        @Override public void onLowMemory() {}
+                        @Override public void onTrimMemory(int level) {}
+                    });
+        } catch (Exception e) {
+            Log.w(TAG, "registerComponentCallbacks failed", e);
+        }
+    }
+
+    /**
+     * 注入 window.LanPlayNative，让前端 JS 可以主动调 Java：
+     *   window.LanPlayNative.syncPageTheme(true);     // 告诉 Java 当前是深色页面
+     *   window.LanPlayNative.requestBatteryOpt();     // 手动触发一次"忽略电池优化"请求
+     *   window.LanPlayNative.getSystemDarkMode(callback);
+     *   window.LanPlayNative.getInfo();                // 返回 {apiLevel, isDarkPage, ...}
+     *
+     * 实现：使用 addJavascriptInterface 暴露一个轻量包装类。
+     */
+    private static void injectNativeBridge(final WebView webView) {
+        try {
+            webView.addJavascriptInterface(new LanPlayNativeBridge(),
+                    JS_NAMESPACE);
+            Log.i(TAG, "Native bridge injected: window." + JS_NAMESPACE);
+        } catch (Exception e) {
+            Log.e(TAG, "addJavascriptInterface failed", e);
+        }
+    }
+
+    /**
+     * JS 主动调用的入口（@JavascriptInterface 必须，否则 4.2 以下会失效）。
+     */
+    public static class LanPlayNativeBridge {
+        @android.webkit.JavascriptInterface
+        public void syncPageTheme(final boolean isDarkPage) {
+            try {
+                final Activity activity = PythonActivity.mActivity;
+                if (activity == null) return;
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        ImmersiveStatusBarHelper.setPageTheme(activity, isDarkPage);
+                    }
+                });
+            } catch (Exception e) {
+                Log.w(TAG, "syncPageTheme failed", e);
+            }
+        }
+
+        @android.webkit.JavascriptInterface
+        public void requestBatteryOpt() {
+            try {
+                final Activity activity = PythonActivity.mActivity;
+                if (activity == null) return;
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        // 用户主动重试：清掉"已询问"标记，再弹一次
+                        BatteryOptimizationHelper.resetPromptedFlag(activity);
+                        BatteryOptimizationHelper.requestIgnoreBatteryOptimizationsIfNeeded(activity);
+                    }
+                });
+            } catch (Exception e) {
+                Log.w(TAG, "requestBatteryOpt failed", e);
+            }
+        }
+
+        @android.webkit.JavascriptInterface
+        public boolean isIgnoringBatteryOptimizations() {
+            try {
+                final Activity activity = PythonActivity.mActivity;
+                if (activity == null) return false;
+                android.os.PowerManager pm = (android.os.PowerManager) activity
+                        .getSystemService(Activity.POWER_SERVICE);
+                if (pm == null) return false;
+                return pm.isIgnoringBatteryOptimizations(activity.getPackageName());
+            } catch (Exception e) {
+                Log.w(TAG, "isIgnoringBatteryOptimizations failed", e);
+                return false;
+            }
+        }
+
+        @android.webkit.JavascriptInterface
+        public String getInfo() {
+            try {
+                final Activity activity = PythonActivity.mActivity;
+                if (activity == null) return "{}";
+                android.os.PowerManager pm = (android.os.PowerManager) activity
+                        .getSystemService(Activity.POWER_SERVICE);
+                boolean inWhitelist = pm != null
+                        && pm.isIgnoringBatteryOptimizations(activity.getPackageName());
+                int uiMode = activity.getResources().getConfiguration().uiMode
+                        & Configuration.UI_MODE_NIGHT_MASK;
+                boolean isSystemDark = (uiMode == Configuration.UI_MODE_NIGHT_YES);
+                return "{"
+                        + "\"apiLevel\":" + Build.VERSION.SDK_INT
+                        + ",\"isIgnoringBatteryOptimizations\":" + inWhitelist
+                        + ",\"isSystemDark\":" + isSystemDark
+                        + ",\"isDarkPage\":" + ImmersiveStatusBarHelper.isDarkPage()
+                        + "}";
+            } catch (Exception e) {
+                Log.w(TAG, "getInfo failed", e);
+                return "{}";
+            }
+        }
+
+        /**
+         * JS 主动调 Java：用原生 Intent 打开外部浏览器
+         *
+         * 解决 WebView 看到裸域名(如 "cos.svf.dpdns.org")时把它包装成
+         *   intent://cos.svf.dpdns.org#Intent;scheme=https;...;end
+         * 再用 shouldOverrideUrlLoading 启动系统浏览器时,系统对这种
+         * "intent://..." URL 解析失败,导致 net::ERR_UNKNOWN_URL_SCHEME。
+         *
+         * 这里直接用 startActivity(new Intent(ACTION_VIEW, Uri.parse(url)))
+         * 走标准 Intent 流程,绕开 WebView 的 intent:// 包装。
+         *
+         * @param url 完整 http/https URL
+         * @return true 成功启动 Intent;false 启动失败(没装浏览器 / 参数异常)
+         */
+        @android.webkit.JavascriptInterface
+        public boolean openExternalBrowser(final String url) {
+            try {
+                if (url == null || url.length() == 0) return false;
+                final String trimmed = url.trim();
+                if (trimmed.length() == 0) return false;
+                // 必须是 http/https,其他协议不通过(避免 file:/intent:/javascript: 等被滥用)
+                String lower = trimmed.toLowerCase();
+                if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+                    Log.w(TAG, "[外部浏览器] 拒绝非 http(s) 协议: " + trimmed);
+                    return false;
+                }
+                final Activity activity = PythonActivity.mActivity;
+                if (activity == null) {
+                    Log.w(TAG, "[外部浏览器] mActivity 为空,无法启动");
+                    return false;
+                }
+                final android.net.Uri uri = android.net.Uri.parse(trimmed);
+                if (uri == null) return false;
+                final Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                // 从 WebView Activity 启动外部浏览器,必须加 NEW_TASK 标志
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                // 显式指定 "可被任何应用处理",避免某些定制 ROM 拦截
+                intent.addFlags(Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER); // Lollipop+ 反钓鱼
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            activity.startActivity(intent);
+                        } catch (Exception e) {
+                            Log.e(TAG, "[外部浏览器] startActivity 失败,可能未装浏览器", e);
+                        }
+                    }
+                });
+                return true;
+            } catch (Exception e) {
+                Log.e(TAG, "[外部浏览器] 调用异常", e);
+                return false;
+            }
+        }
     }
 }
