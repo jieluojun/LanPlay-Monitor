@@ -483,6 +483,46 @@ def ensure_frontend_exists() -> None:
     else:
         warn("[更新] 前端自动下载失败（远程无数据）")
 
+def _compile_py_to_pyc(py_path: Path) -> dict[str, Any]:
+    """将 .py 编译为 pyc（APK 内实际使用格式），返回 {ok, pyc_path, error}。非 .py 文件直接跳过。"""
+    try:
+        if py_path.suffix.lower() != ".py":
+            return {"ok": True, "skipped": True, "reason": "非Python文件无需编译"}
+        if not py_path.is_file():
+            return {"ok": False, "error": "源文件不存在"}
+        import py_compile
+        # 先校验语法，避免生成损坏的 pyc
+        try:
+            compile(py_path.read_text(encoding="utf-8", errors="replace"), str(py_path), "exec")
+        except SyntaxError as se:
+            return {"ok": False, "error": f"语法错误无法编译: {se}"}
+        # 生成 __pycache__/xxx.cpython-*.pyc
+        cpath = py_compile.compile(str(py_path), cfile=None, doraise=True)
+        info(f"[pyc] ✅ 已编译 {py_path.name} -> {cpath}")
+        # 额外在同目录生成 legacy 同名 .pyc（部分 APK 加载器直接找 *.pyc）
+        try:
+            legacy = py_path.with_suffix(".pyc")
+            import shutil
+            shutil.copyfile(cpath, str(legacy))
+            info(f"[pyc] ↳ 已同步 {legacy.name}")
+        except Exception:
+            pass
+        return {"ok": True, "pyc_path": cpath}
+    except Exception as e:
+        warn(f"[pyc] 编译失败 {py_path}: {e}")
+        return {"ok": False, "error": str(e)}
+
+def _ensure_pyc_for_existing(py_path: Path, label: str) -> None:
+    """更新前：若检测到有更新，先将现有文件转成 pyc（APK 使用格式），失败不阻断更新。"""
+    if py_path.suffix.lower() != ".py" or not py_path.is_file():
+        return
+    info(f"[更新] 检测到{label}有更新，更新前先将现有文件编译为 pyc…")
+    res = _compile_py_to_pyc(py_path)
+    if res.get("ok"):
+        info(f"[更新] {label} 现有文件已预编译为 pyc")
+    else:
+        warn(f"[更新] {label} 预编译失败（不影响更新）: {res.get('error')}")
+
 def check_update_status() -> dict[str, Any]:
     frontend_local = _sha256_file(Path(LOCAL_FRONTEND_FILE))
     backend_local = _sha256_file(Path(LOCAL_BACKEND_FILE))
@@ -515,6 +555,8 @@ def do_update_frontend() -> dict[str, Any]:
     remote_hash = _sha256_bytes(data)
     if local_hash == remote_hash:
         return {"ok": True, "skipped": True, "message": "前端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash}
+    # 前后端有更新是点击更新前先文件转换成pyc格式（APK 内使用 pyc）
+    # 前端为 .js，无需 pyc；此处仅对 .py 后端生效，前端跳过
     try:
         tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
         Path(tmp).write_bytes(data)
@@ -524,7 +566,10 @@ def do_update_frontend() -> dict[str, Any]:
     except Exception as e:
         return {"ok": False, "error": str(e), "skipped": False}
 
-def do_update_backend() -> dict[str, Any]:
+def do_update_backend(backend_format: str = "py") -> dict[str, Any]:
+    backend_format = (backend_format or "py").strip().lower()
+    if backend_format not in ("py", "pyc"):
+        backend_format = "py"
     fp = Path(LOCAL_BACKEND_FILE)
     local_hash = _sha256_file(fp)
     data = _fetch_remote_bytes(REMOTE_BACKEND_URL)
@@ -532,13 +577,24 @@ def do_update_backend() -> dict[str, Any]:
         return {"ok": False, "error": "远程后端获取失败", "skipped": False}
     remote_hash = _sha256_bytes(data)
     if local_hash == remote_hash:
-        return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash}
+        return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash, "format": backend_format}
+    # 点击更新前先将现有文件转换成 pyc（APK 使用格式）
+    _ensure_pyc_for_existing(fp, "后端")
     try:
         tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
         Path(tmp).write_bytes(data)
         os.replace(tmp, str(fp))
-        info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash[:8]}")
-        return {"ok": True, "skipped": False, "message": "后端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash}
+        info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash[:8]} [{backend_format}]")
+        # 写入后编译为 pyc
+        pyc_res = _compile_py_to_pyc(fp)
+        if not pyc_res.get("ok") and not pyc_res.get("skipped"):
+            warn(f"[更新] 后端新文件 pyc 编译失败: {pyc_res.get('error')}")
+        # 若用户选择 pyc 格式，额外保证 pyc 可被 APK 直接加载：已生成 __pycache__ + legacy .pyc
+        if backend_format == "pyc":
+            info(f"[更新] 后端已按 pyc 格式就绪，APK 将优先加载 pyc")
+        else:
+            info(f"[更新] 后端已按 py 格式就绪（pyc 已同步生成作缓存）")
+        return {"ok": True, "skipped": False, "message": "后端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash, "pyc": pyc_res, "format": backend_format}
     except Exception as e:
         return {"ok": False, "error": str(e), "skipped": False}
 
@@ -1968,12 +2024,13 @@ class MonitorHandler(BaseHTTPRequestHandler):
 
             if path == "/api/update/backend":
                 try:
-                    result = do_update_backend()
+                    fmt = str(req_json.get("format") or req_json.get("type") or "py").strip().lower()
+                    result = do_update_backend(fmt)
                     if result.get("ok"):
                         if result.get("skipped"):
-                            data = {"ok": True, "skipped": True, "message": result.get("message"), "target": "backend"}
+                            data = {"ok": True, "skipped": True, "message": result.get("message"), "target": "backend", "format": result.get("format")}
                         else:
-                            data = {"ok": True, "skipped": False, "message": result.get("message", "后端更新完成请重启应用"), "target": "backend"}
+                            data = {"ok": True, "skipped": False, "message": result.get("message", "后端更新完成请重启应用"), "target": "backend", "format": result.get("format"), "pyc": result.get("pyc")}
                         body, headers, status = make_json_response(data)
                     else:
                         data = {"ok": False, "error": result.get("error", "更新失败"), "target": "backend"}
@@ -1986,8 +2043,9 @@ class MonitorHandler(BaseHTTPRequestHandler):
 
             if path == "/api/update/all":
                 try:
+                    fmt = str(req_json.get("format") or req_json.get("backend_format") or "py").strip().lower()
                     fe = do_update_frontend()
-                    be = do_update_backend()
+                    be = do_update_backend(fmt)
                     data = {"ok": True, "frontend": fe, "backend": be}
                     body, headers, status = make_json_response(data)
                 except Exception as e:

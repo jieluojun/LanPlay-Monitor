@@ -2338,10 +2338,16 @@ html.dark .msg-action-btn.recall {
       </div>
       <div class="custom-modal-body" style="display:grid;gap:12px;">
         <p style="margin:0;color:var(--muted);font-size:13px;line-height:1.6;">对比本地与远程哈希值，哈希一致则跳过更新。更新完成后请重启应用。</p>
-        <div id="updateStatus" style="background:rgba(125,175,210,.08);border-radius:12px;padding:12px;font-size:12px;line-height:1.7;color:var(--ink);white-space:pre-wrap;word-break:break-all;">点击下方按钮检查更新…</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div id="updateStatus" style="display:grid;gap:8px;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;">
           <button id="updateFrontendBtn" style="border:0;border-radius:12px;padding:11px;background:var(--cyan);color:#fff;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;">🖼️ 更新前端</button>
-          <button id="updateBackendBtn" style="border:0;border-radius:12px;padding:11px;background:#1a73c0;color:#fff;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;">⚙️ 更新后端</button>
+          <div style="display:grid;gap:6px;">
+            <select id="backendFormatSelect" title="选择后端更新格式" style="width:100%;padding:6px 8px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:12px;font-weight:700;">
+              <option value="py">PY 源码</option>
+              <option value="pyc">PYC 编译</option>
+            </select>
+            <button id="updateBackendBtn" style="border:0;border-radius:12px;padding:11px;background:#1a73c0;color:#fff;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;">⚙️ 更新后端</button>
+          </div>
         </div>
         <button id="updateAllBtn" style="border:0;border-radius:12px;padding:11px;background:linear-gradient(135deg,#19c8ae,#1a73c0);color:#fff;font-weight:800;cursor:pointer;">⬆️ 一键更新前后端</button>
       </div>
@@ -6489,11 +6495,14 @@ html.dark .msg-action-btn.recall {
       const d = await getJSON('/api/update/check?_='+Date.now());
       const fe = d.frontend||{}, be=d.backend||{};
       const feNeed = !!fe.need_update, beNeed=!!be.need_update;
-      let txt = '';
-      txt += '前端: '+(fe.local_exists===false?'本地缺失':(fe.local_hash||'—').slice(0,8))+' → '+(fe.remote_hash||'—').slice(0,8)+(feNeed?'  需要更新':'  已是最新')+'\\n';
-      txt += '后端: '+(be.local_hash||'—').slice(0,8)+' → '+(be.remote_hash||'—').slice(0,8)+(beNeed?'  需要更新':'  已是最新');
-      if(!fe.remote_available||!be.remote_available) txt += '\\n⚠️ 远程不可达，请检查网络';
-      updateStatus.textContent = txt;
+      const rowStyle = 'display:flex;align-items:center;justify-content:space-between;gap:8px;background:rgba(125,175,210,.08);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.4;word-break:break-all;';
+      const badge = (need)=> need ? '<span style="flex-shrink:0;background:linear-gradient(135deg,#ff8a3d,#ff5a3d);color:#fff;font-weight:800;font-size:11px;padding:3px 8px;border-radius:999px;">需要更新</span>' : '<span style="flex-shrink:0;background:rgba(25,200,174,.15);color:#178a78;font-weight:800;font-size:11px;padding:3px 8px;border-radius:999px;">已是最新</span>';
+      const hashLine = (local,remote)=> `<span style="font-family:monospace;opacity:.95;">${(local||'—').slice(0,8)} → ${(remote||'—').slice(0,8)}</span>`;
+      updateStatus.innerHTML = `
+        <div style="${rowStyle}"><span style="font-weight:800;">🖼️ 前端</span><span style="display:flex;align-items:center;gap:8px;">${hashLine(fe.local_exists===false?null:fe.local_hash, fe.remote_hash)}${badge(feNeed)}</span></div>
+        <div style="${rowStyle}"><span style="font-weight:800;">⚙️ 后端</span><span style="display:flex;align-items:center;gap:8px;">${hashLine(be.local_hash, be.remote_hash)}${badge(beNeed)}</span></div>
+        ${(!fe.remote_available||!be.remote_available)?'<div style="color:#d87a00;font-size:12px;text-align:center;">⚠️ 远程不可达，请检查网络</div>':''}
+      `;
       // 点击更新图片时如果检测到有更新就出现对应 toast
       if(feNeed) showToast('🔔 检测到前端有更新', 2500, true);
       else if(beNeed) showToast('🔔 检测到后端有更新', 2500, true);
@@ -6505,8 +6514,9 @@ html.dark .msg-action-btn.recall {
     if(btn) { btn.disabled=true; btn.style.opacity='0.6'; }
     try{
       if(target==='all'){
-        showToast('⏳ 正在更新前后端…', 2000, true);
-        const r = await fetch('/api/update/all', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        const fmtAll = document.getElementById('backendFormatSelect')?.value || 'py';
+        showToast('⏳ 正在更新前后端…（后端 '+fmtAll.toUpperCase()+'）', 2000, true);
+        const r = await fetch('/api/update/all', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({format: fmtAll, backend_format: fmtAll})});
         const d = await r.json().catch(()=>({}));
         if(!r.ok||!d.ok) throw new Error(d.error||'更新失败');
         const fe = d.frontend||{}, be=d.backend||{};
@@ -6522,8 +6532,10 @@ html.dark .msg-action-btn.recall {
         await checkRemoteUpdate();
       } else {
         const label = target==='frontend'?'前端':'后端';
-        showToast('⏳ 正在更新'+label+'…', 2000, true);
-        const r = await fetch('/api/update/'+target, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        const fmt = (target==='backend' || target==='all') ? (document.getElementById('backendFormatSelect')?.value || 'py') : 'py';
+        showToast('⏳ 正在更新'+label+(fmt==='pyc' && target!=='frontend' ? '（'+fmt.toUpperCase()+'）':'')+'…', 2000, true);
+        const body = target==='backend' ? JSON.stringify({format: fmt}) : target==='all' ? JSON.stringify({format: fmt, backend_format: fmt}) : '{}';
+        const r = await fetch('/api/update/'+target, {method:'POST', headers:{'Content-Type':'application/json'}, body});
         const d = await r.json().catch(()=>({}));
         if(!r.ok||!d.ok) throw new Error(d.error||'更新失败');
         if(d.skipped){ showToast('ℹ️ '+label+'已是最新，已跳过更新', 2000, true); }
