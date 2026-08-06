@@ -2339,18 +2339,12 @@ html.dark .msg-action-btn.recall {
       <div class="custom-modal-body" style="display:grid;gap:12px;">
         <p style="margin:0;color:var(--muted);font-size:13px;line-height:1.6;">对比本地与远程哈希值，哈希一致则跳过更新。更新完成后请重启应用。</p>
         <div id="updateStatus" style="display:grid;gap:8px;"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <button id="updateFrontendBtn" style="border:0;border-radius:12px;padding:11px;background:var(--cyan);color:#fff;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;">🖼️ 更新前端</button>
-          <div style="display:grid;gap:6px;">
-            <select id="backendFormatSelect" title="选择后端更新格式" style="width:100%;padding:6px 8px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:12px;font-weight:700;">
-              <option value="py">PY 源码</option>
-              <option value="pyc">PYC 编译</option>
-            </select>
-            <button id="updateBackendBtn" style="border:0;border-radius:12px;padding:11px;background:#1a73c0;color:#fff;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;">⚙️ 更新后端</button>
-          </div>
+          <button id="updateBackendBtn" style="border:0;border-radius:12px;padding:11px;background:#1a73c0;color:#fff;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;">⚙️ 更新后端</button>
         </div>
         <button id="updateAllBtn" style="border:0;border-radius:12px;padding:11px;background:linear-gradient(135deg,#19c8ae,#1a73c0);color:#fff;font-weight:800;cursor:pointer;">⬆️ 一键更新前后端</button>
-        <button id="fixPycBtn" style="border:1px solid var(--line);border-radius:12px;padding:9px;background:transparent;color:var(--muted);font-weight:700;font-size:12px;cursor:pointer;">🛠️ 修复白屏（清理旧 pyc）</button>
+
       </div>
     </div>
   </div>
@@ -6515,9 +6509,8 @@ html.dark .msg-action-btn.recall {
     if(btn) { btn.disabled=true; btn.style.opacity='0.6'; }
     try{
       if(target==='all'){
-        const fmtAll = document.getElementById('backendFormatSelect')?.value || 'py';
-        showToast('⏳ 正在更新前后端…（后端 '+fmtAll.toUpperCase()+'）', 2000, true);
-        const r = await fetch('/api/update/all', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({format: fmtAll, backend_format: fmtAll})});
+        showToast('⏳ 正在更新前后端…', 2000, true);
+        const r = await fetch('/api/update/all', {method:'POST', headers:{'Content-Type':'application/json'}, body: '{}'});
         const d = await r.json().catch(()=>({}));
         if(!r.ok||!d.ok) throw new Error(d.error||'更新失败');
         const fe = d.frontend||{}, be=d.backend||{};
@@ -6533,10 +6526,8 @@ html.dark .msg-action-btn.recall {
         await checkRemoteUpdate();
       } else {
         const label = target==='frontend'?'前端':'后端';
-        const fmt = (target==='backend' || target==='all') ? (document.getElementById('backendFormatSelect')?.value || 'py') : 'py';
-        showToast('⏳ 正在更新'+label+(fmt==='pyc' && target!=='frontend' ? '（'+fmt.toUpperCase()+'）':'')+'…', 2000, true);
-        const body = target==='backend' ? JSON.stringify({format: fmt}) : target==='all' ? JSON.stringify({format: fmt, backend_format: fmt}) : '{}';
-        const r = await fetch('/api/update/'+target, {method:'POST', headers:{'Content-Type':'application/json'}, body});
+        showToast('⏳ 正在更新'+label+'…', 2000, true);
+        const r = await fetch('/api/update/'+target, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
         const d = await r.json().catch(()=>({}));
         if(!r.ok||!d.ok) throw new Error(d.error||'更新失败');
         if(d.skipped){ showToast('ℹ️ '+label+'已是最新，已跳过更新', 2000, true); }
@@ -6548,17 +6539,6 @@ html.dark .msg-action-btn.recall {
   }
   if(updateFrontendBtn) updateFrontendBtn.addEventListener('click', ()=>doUpdate('frontend'));
   if(updateBackendBtn) updateBackendBtn.addEventListener('click', ()=>doUpdate('backend'));
-  const fixPycBtn = document.getElementById('fixPycBtn');
-  if(fixPycBtn) fixPycBtn.addEventListener('click', async ()=>{
-    fixPycBtn.disabled=true; fixPycBtn.textContent='⏳ 修复中…';
-    try{
-      const r = await fetch('/api/update/clean-pyc', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
-      const d = await r.json().catch(()=>({}));
-      if(r.ok && d.ok) showToast('✅ '+d.message, 3000, true);
-      else showToast('❌ 修复失败: '+(d.error||r.status), 3000, false);
-    }catch(e){ showToast('❌ 修复失败: '+e.message, 3000, false);}
-    finally{ fixPycBtn.disabled=false; fixPycBtn.textContent='🛠️ 修复白屏（清理旧 pyc）';}
-  });
   if(updateAllBtn) updateAllBtn.addEventListener('click', ()=>doUpdate('all'));
 
   // ===== 卡片点击委托 =====

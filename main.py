@@ -519,7 +519,6 @@ def _cleanup_stale_pyc(py_path: Path) -> None:
         if legacy.is_file():
             legacy.unlink()
             info(f"[pyc] 已清理 {legacy.name}（PY 模式）")
-        # 清理 __pycache__ 中对应文件的旧缓存
         cache_dir = py_path.parent / "__pycache__"
         if cache_dir.is_dir():
             for f in cache_dir.glob(f"{py_path.stem}.*.pyc"):
@@ -532,7 +531,6 @@ def _cleanup_stale_pyc(py_path: Path) -> None:
         warn(f"[pyc] 清理失败: {e}")
 
 def _ensure_pyc_for_existing(py_path: Path, label: str) -> None:
-    """更新前：若检测到有更新且用户选择 pyc 格式，才将现有文件转成 pyc；py 模式跳过。"""
     if py_path.suffix.lower() != ".py" or not py_path.is_file():
         return
     info(f"[更新] 检测到{label}有更新，更新前先将现有文件编译为 pyc…")
@@ -542,13 +540,84 @@ def _ensure_pyc_for_existing(py_path: Path, label: str) -> None:
     else:
         warn(f"[更新] {label} 预编译失败（不影响更新）: {res.get('error')}")
 
+# ===== 自动检测后端当前使用格式 =====
+def _get_local_pyc_path(py_path: Path) -> Path | None:
+    """查找后端本地 pyc：优先 __pycache__/main.cpython-*.pyc，其次同目录 main.pyc"""
+    legacy = py_path.with_suffix(".pyc")
+    if legacy.is_file():
+        return legacy
+    cache_dir = py_path.parent / "__pycache__"
+    if cache_dir.is_dir():
+        candidates = sorted(cache_dir.glob(f"{py_path.stem}.*.pyc"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if candidates:
+            return candidates[0]
+    return None
+
+def _is_backend_pyc_mode() -> bool:
+    """检测当前后端是否以 pyc 方式运行：__file__ 后缀为 .pyc/.pyo 或本地存在 pyc 且比 py 更新/ py 缺失。"""
+    cur = Path(__file__)
+    if cur.suffix.lower() in (".pyc", ".pyo"):
+        return True
+    py = Path(LOCAL_BACKEND_FILE)
+    pyc = _get_local_pyc_path(py)
+    if not py.is_file() and pyc is not None:
+        return True
+    if pyc is not None and py.is_file():
+        try:
+            if pyc.stat().st_mtime >= py.stat().st_mtime:
+                return True
+        except Exception:
+            pass
+        # 若 py 存在且 pyc 存在但不是最新，仍视为 py 模式（避免误判）
+        return False
+    return False
+
+def _hash_remote_py_as_pyc(py_bytes: bytes) -> str | None:
+    """将远程 py 源码编译为临时 pyc 并计算 pyc 文件哈希，用于 pyc 模式对比。"""
+    import py_compile, tempfile
+    tmp_py = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".py", delete=False) as f:
+            f.write(py_bytes)
+            tmp_py = f.name
+        # py_compile 会在同级 __pycache__ 生成 pyc
+        pyc_path = py_compile.compile(tmp_py, cfile=None, doraise=True)
+        if pyc_path and Path(pyc_path).is_file():
+            h = _sha256_file(Path(pyc_path))
+            try:
+                Path(pyc_path).unlink()
+                # 清理可能产生的 __pycache__ 空目录忽略
+            except Exception:
+                pass
+            return h
+    except Exception as e:
+        warn(f"[pyc] 远程源码转 pyc 哈希失败: {e}")
+    finally:
+        if tmp_py:
+            try:
+                Path(tmp_py).unlink()
+            except Exception:
+                pass
+    return None
+
 def check_update_status() -> dict[str, Any]:
     frontend_local = _sha256_file(Path(LOCAL_FRONTEND_FILE))
-    backend_local = _sha256_file(Path(LOCAL_BACKEND_FILE))
     fe_data = _fetch_remote_bytes(REMOTE_FRONTEND_URL)
-    be_data = _fetch_remote_bytes(REMOTE_BACKEND_URL)
     fe_remote = _sha256_bytes(fe_data) if fe_data else None
-    be_remote = _sha256_bytes(be_data) if be_data else None
+    # 后端：自动检测当前格式
+    pyc_mode = _is_backend_pyc_mode()
+    be_data = _fetch_remote_bytes(REMOTE_BACKEND_URL)
+    if pyc_mode:
+        # pyc 模式：先将远程 py 转成 pyc 再比哈希
+        local_pyc = _get_local_pyc_path(Path(LOCAL_BACKEND_FILE))
+        backend_local = _sha256_file(local_pyc) if local_pyc else None
+        backend_remote = _hash_remote_py_as_pyc(be_data) if be_data else None
+        backend_need = bool(backend_remote and backend_local != backend_remote)
+        info(f"[检查] 后端当前为 PYC 模式 local_pyc={backend_local[:8] if backend_local else 'none'} remote_pyc={backend_remote[:8] if backend_remote else 'none'}")
+    else:
+        backend_local = _sha256_file(Path(LOCAL_BACKEND_FILE))
+        backend_remote = _sha256_bytes(be_data) if be_data else None
+        backend_need = bool(backend_remote and backend_local != backend_remote)
     return {
         "frontend": {
             "local_hash": frontend_local,
@@ -559,9 +628,10 @@ def check_update_status() -> dict[str, Any]:
         },
         "backend": {
             "local_hash": backend_local,
-            "remote_hash": be_remote,
-            "need_update": bool(be_remote and backend_local != be_remote),
-            "remote_available": be_remote is not None,
+            "remote_hash": backend_remote,
+            "need_update": backend_need,
+            "remote_available": backend_remote is not None,
+            "mode": "pyc" if pyc_mode else "py",
         },
     }
 
@@ -585,37 +655,42 @@ def do_update_frontend() -> dict[str, Any]:
     except Exception as e:
         return {"ok": False, "error": str(e), "skipped": False}
 
-def do_update_backend(backend_format: str = "py") -> dict[str, Any]:
-    backend_format = (backend_format or "py").strip().lower()
-    if backend_format not in ("py", "pyc"):
-        backend_format = "py"
+def do_update_backend() -> dict[str, Any]:
     fp = Path(LOCAL_BACKEND_FILE)
-    local_hash = _sha256_file(fp)
+    pyc_mode = _is_backend_pyc_mode()
     data = _fetch_remote_bytes(REMOTE_BACKEND_URL)
     if not data:
         return {"ok": False, "error": "远程后端获取失败", "skipped": False}
-    remote_hash = _sha256_bytes(data)
-    if local_hash == remote_hash:
-        return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash, "format": backend_format}
-    # 点击更新前：仅 pyc 模式才先将旧文件转 pyc；py 模式避免额外 pyc 导致白屏
-    if backend_format == "pyc":
+    if pyc_mode:
+        # pyc 模式：先将远程源码转 pyc 再比对 pyc 哈希
+        local_pyc = _get_local_pyc_path(fp)
+        local_hash = _sha256_file(local_pyc) if local_pyc else None
+        remote_hash = _hash_remote_py_as_pyc(data)
+        if local_hash is not None and remote_hash is not None and local_hash == remote_hash:
+            return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash, "mode": "pyc"}
         _ensure_pyc_for_existing(fp, "后端")
+        remote_hash_py = _sha256_bytes(data)
+    else:
+        local_hash = _sha256_file(fp)
+        remote_hash = _sha256_bytes(data)
+        if local_hash == remote_hash:
+            return {"ok": True, "skipped": True, "message": "后端已是最新，无需更新", "local_hash": local_hash, "remote_hash": remote_hash, "mode": "py"}
+        remote_hash_py = remote_hash
     try:
         tmp = str(fp) + f".tmp.{uuid.uuid4().hex[:6]}"
         Path(tmp).write_bytes(data)
         os.replace(tmp, str(fp))
-        info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash[:8]} [{backend_format}]")
-        if backend_format == "pyc":
+        info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash_py[:8] if remote_hash_py else 'none'} [{'pyc' if pyc_mode else 'py'}]")
+        if pyc_mode:
             pyc_res = _compile_py_to_pyc(fp)
             if not pyc_res.get("ok") and not pyc_res.get("skipped"):
                 warn(f"[更新] 后端新文件 pyc 编译失败: {pyc_res.get('error')}")
-            info(f"[更新] 后端已按 pyc 格式就绪（__pycache__ 缓存已生成，源码保留）")
+            info(f"[更新] 后端 pyc 模式已就绪：已生成与当前解释器匹配的 pyc（源码保留）")
         else:
-            # py 模式：清理旧 pyc，避免旧 magic 的 pyc 被 APK 优先加载白屏
             _cleanup_stale_pyc(fp)
-            pyc_res = {"ok": True, "skipped": True, "reason": "PY 模式已清理旧 pyc，下次启动自动生成"}
-            info(f"[更新] 后端已按 py 源码格式就绪")
-        return {"ok": True, "skipped": False, "message": "后端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash, "pyc": pyc_res, "format": backend_format}
+            pyc_res = {"ok": True, "skipped": True, "reason": "PY 模式已清理旧 pyc"}
+            info(f"[更新] 后端 py 模式已就绪：已清理旧 pyc，直接使用源码")
+        return {"ok": True, "skipped": False, "message": "后端更新完成请重启应用", "local_hash": local_hash, "remote_hash": remote_hash_py, "pyc": pyc_res, "mode": "pyc" if pyc_mode else "py"}
     except Exception as e:
         return {"ok": False, "error": str(e), "skipped": False}
 
@@ -2045,13 +2120,12 @@ class MonitorHandler(BaseHTTPRequestHandler):
 
             if path == "/api/update/backend":
                 try:
-                    fmt = str(req_json.get("format") or req_json.get("type") or "py").strip().lower()
-                    result = do_update_backend(fmt)
+                    result = do_update_backend()
                     if result.get("ok"):
                         if result.get("skipped"):
-                            data = {"ok": True, "skipped": True, "message": result.get("message"), "target": "backend", "format": result.get("format")}
+                            data = {"ok": True, "skipped": True, "message": result.get("message"), "target": "backend", "mode": result.get("mode")}
                         else:
-                            data = {"ok": True, "skipped": False, "message": result.get("message", "后端更新完成请重启应用"), "target": "backend", "format": result.get("format"), "pyc": result.get("pyc")}
+                            data = {"ok": True, "skipped": False, "message": result.get("message", "后端更新完成请重启应用"), "target": "backend", "mode": result.get("mode"), "pyc": result.get("pyc")}
                         body, headers, status = make_json_response(data)
                     else:
                         data = {"ok": False, "error": result.get("error", "更新失败"), "target": "backend"}
@@ -2062,28 +2136,10 @@ class MonitorHandler(BaseHTTPRequestHandler):
                 self._send(body, headers, status)
                 return
 
-            if path == "/api/update/clean-pyc":
-                try:
-                    fp = Path(LOCAL_BACKEND_FILE)
-                    _cleanup_stale_pyc(fp)
-                    # 同时尝试编译当前 py 以生成与当前解释器匹配的缓存
-                    try:
-                        _compile_py_to_pyc(fp)
-                    except Exception:
-                        pass
-                    data = {"ok": True, "message": "已清理旧 pyc，白屏应已修复，请重启应用"}
-                    body, headers, status = make_json_response(data)
-                except Exception as e:
-                    data = {"ok": False, "error": str(e)}
-                    body, headers, status = make_json_response(data, status=500)
-                self._send(body, headers, status)
-                return
-
             if path == "/api/update/all":
                 try:
-                    fmt = str(req_json.get("format") or req_json.get("backend_format") or "py").strip().lower()
                     fe = do_update_frontend()
-                    be = do_update_backend(fmt)
+                    be = do_update_backend()
                     data = {"ok": True, "frontend": fe, "backend": be}
                     body, headers, status = make_json_response(data)
                 except Exception as e:
