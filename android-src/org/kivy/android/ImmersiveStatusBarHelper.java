@@ -13,123 +13,109 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
 /**
- * 透明状态栏最终版 v4 - 强制全透明 + 内容延伸
- * 解决构建后仍为不透明黑条的问题
+ * 状态栏跟随网页颜色版 - 2026-08-06 v5
+ * 浅色网页 -> 状态栏 #DFF3FF  + 黑色图标
+ * 深色网页 -> 状态栏 #0F1923  + 白色图标
+ * 导航栏同步跟随
  */
 public class ImmersiveStatusBarHelper {
     private static final String TAG = "ImmersiveStatusBar";
     private static boolean s_installed = false;
     private static volatile boolean s_isDarkPage = false;
 
+    // 与 script.js --bg 保持一致
+    private static final int COLOR_LIGHT_BG = Color.parseColor("#DFF3FF");
+    private static final int COLOR_DARK_BG  = Color.parseColor("#0F1923");
+
     public static synchronized void install(final Activity activity) {
         if (activity == null) return;
-        // 允许重复调用以覆盖被系统重置的值
-        applyTransparent(activity);
-        // 延迟二次应用，应对 p4a 后续的 setContentView 覆盖
+        applyFollowColor(activity, s_isDarkPage);
         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-            @Override public void run() { applyTransparent(activity); }
+            @Override public void run() { applyFollowColor(activity, s_isDarkPage); }
         }, 500);
-        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-            @Override public void run() { applyTransparent(activity); }
-        }, 1500);
         s_installed = true;
         dispatchSystemUiModeToFrontend(activity);
-        Log.i(TAG, "Transparent install requested (API " + Build.VERSION.SDK_INT + ")");
+        Log.i(TAG, "FollowColor install (API " + Build.VERSION.SDK_INT + ")");
     }
 
-    private static void applyTransparent(Activity activity) {
+    // 根据 isDarkPage 同时设置 背景色 + 图标色 + 延伸
+    private static void applyFollowColor(Activity activity, boolean isDarkPage) {
         try {
-            final Window window = activity.getWindow();
-            // 1) 清除所有半透明/透标记
+            Window window = activity.getWindow();
+            int bg = isDarkPage ? COLOR_DARK_BG : COLOR_LIGHT_BG;
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
                 window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
                 window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-                // 关键：状态栏 + 导航栏 全透明
-                window.setStatusBarColor(Color.TRANSPARENT);
-                window.setNavigationBarColor(Color.TRANSPARENT);
-                // 允许内容布局到系统栏下方（兼容旧版）
-                window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
-                // 某些 ROM 需要
-                window.setNavigationBarColor(Color.TRANSPARENT);
+                // 跟随网页：状态栏/导航栏 设为网页同色（非透明）
+                window.setStatusBarColor(bg);
+                window.setNavigationBarColor(bg);
+                // 仍允许内容延伸到栏下方，但由于颜色与网页一致，视觉上是“融合”
+                // 如需完全不透明可去掉 FLAG_LAYOUT_NO_LIMITS
+                // window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
             }
-            // 2) 内容延伸
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.setDecorFitsSystemWindows(false);
-                // 确保不被旧 flag 干扰
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    WindowInsetsController controller = window.getInsetsController();
-                    if (controller != null) {
-                        // 默认不强制，交给 setPageTheme
-                    }
-                }
             }
-            // 3) 旧版 layout 标志（所有版本都设，兼容）
+
+            // 延伸标志（保证切主题后不丢失）
             View decor = window.getDecorView();
             int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                     | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                     | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
-            // 保留已有的 LIGHT 标志
             int cur = decor.getSystemUiVisibility();
             int lightMask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                lightMask |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) lightMask |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             decor.setSystemUiVisibility(flags | (cur & lightMask));
-            Log.i(TAG, "applyTransparent executed, decor flags=" + decor.getSystemUiVisibility());
+
+            // 图标颜色
+            applyIconColor(activity, isDarkPage);
+
         } catch (Exception e) {
-            Log.e(TAG, "applyTransparent failed", e);
+            Log.e(TAG, "applyFollowColor failed", e);
         }
     }
 
-    public static void setPageTheme(final Activity activity, final boolean isDarkPage) {
-        s_isDarkPage = isDarkPage;
-        if (activity == null) return;
+    private static void applyIconColor(Activity activity, boolean isDarkPage) {
         try {
-            // 每次切主题都先确保透明未被重置
-            applyTransparent(activity);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                WindowInsetsController controller = activity.getWindow().getInsetsController();
-                if (controller != null) {
+                WindowInsetsController c = activity.getWindow().getInsetsController();
+                if (c != null) {
                     int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                             | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
                     int appearance = 0;
-                    try { appearance = controller.getSystemBarsAppearance(); } catch (Exception ignored) {}
+                    try { appearance = c.getSystemBarsAppearance(); } catch (Exception ignored) {}
                     appearance &= ~mask;
-                    if (!isDarkPage) {
-                        appearance |= mask; // 浅色页面 -> 深色图标
-                    }
-                    controller.setSystemBarsAppearance(appearance, mask);
+                    if (!isDarkPage) appearance |= mask; // 浅色背景 -> 黑图标
+                    c.setSystemBarsAppearance(appearance, mask);
                 }
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 View decor = activity.getWindow().getDecorView();
                 int flags = decor.getSystemUiVisibility();
                 int mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    mask |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-                }
-                int layoutMask = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
-                flags |= layoutMask;
-                if (isDarkPage) {
-                    flags &= ~mask;
-                } else {
-                    flags |= mask;
-                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) mask |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+                if (isDarkPage) flags &= ~mask;
+                else flags |= mask;
                 decor.setSystemUiVisibility(flags);
             }
-            Log.i(TAG, "Page theme applied: isDarkPage=" + isDarkPage);
-        } catch (Exception e) {
-            Log.w(TAG, "setPageTheme failed", e);
-        }
+        } catch (Exception e) { Log.w(TAG, "applyIconColor failed", e); }
+    }
+
+    public static void setPageTheme(final Activity activity, final boolean isDarkPage) {
+        s_isDarkPage = isDarkPage;
+        if (activity == null) return;
+        applyFollowColor(activity, isDarkPage);
+        Log.i(TAG, "Page theme applied: isDarkPage=" + isDarkPage + " bg=" + String.format("#%06X", (0xFFFFFF & (isDarkPage ? COLOR_DARK_BG : COLOR_LIGHT_BG))));
     }
 
     private static void dispatchSystemUiModeToFrontend(final Activity activity) {
         try {
-            final int uiMode = activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-            final boolean isSystemDark = (uiMode == Configuration.UI_MODE_NIGHT_YES);
-            final String js = "try{localStorage.setItem('lanplay_system_dark','" + (isSystemDark?"1":"0") + "');window.__lanplaySystemDark=" + (isSystemDark?"true":"false") + ";(window.applySystemDarkMode&&window.applySystemDarkMode(" + (isSystemDark?"true":"false") + "));}catch(e){}";
+            int uiMode = activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+            boolean isSystemDark = (uiMode == Configuration.UI_MODE_NIGHT_YES);
+            String js = "try{localStorage.setItem('lanplay_system_dark','" + (isSystemDark?"1":"0") + "');window.__lanplaySystemDark=" + (isSystemDark?"true":"false") + ";(window.applySystemDarkMode&&window.applySystemDarkMode(" + (isSystemDark?"true":"false") + "));}catch(e){}";
             activity.runOnUiThread(new Runnable() {
                 @Override public void run() {
                     try { if (PythonActivity.mWebView != null) PythonActivity.mWebView.evaluateJavascript(js, null); } catch (Exception e) { Log.w(TAG, "evaluateJavascript failed", e); }
