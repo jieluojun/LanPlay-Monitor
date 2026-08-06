@@ -572,26 +572,24 @@ def _is_backend_pyc_mode() -> bool:
         return False
     return False
 
-def _hash_remote_py_as_pyc(py_bytes: bytes) -> str | None:
-    """将远程 py 源码编译为临时 pyc 并计算 pyc 文件哈希，用于 pyc 模式对比。"""
+def _hash_py_bytes_as_pyc(py_bytes: bytes) -> str | None:
+    """将 py 源码（本地或远程）用本机解释器编译为临时 pyc 并取哈希，仅用于同机对比，跨版本不直接比对磁盘 pyc。"""
     import py_compile, tempfile
     tmp_py = None
     try:
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".py", delete=False) as f:
             f.write(py_bytes)
             tmp_py = f.name
-        # py_compile 会在同级 __pycache__ 生成 pyc
         pyc_path = py_compile.compile(tmp_py, cfile=None, doraise=True)
         if pyc_path and Path(pyc_path).is_file():
             h = _sha256_file(Path(pyc_path))
             try:
                 Path(pyc_path).unlink()
-                # 清理可能产生的 __pycache__ 空目录忽略
             except Exception:
                 pass
             return h
     except Exception as e:
-        warn(f"[pyc] 远程源码转 pyc 哈希失败: {e}")
+        warn(f"[pyc] 源码转 pyc 哈希失败: {e}")
     finally:
         if tmp_py:
             try:
@@ -599,6 +597,9 @@ def _hash_remote_py_as_pyc(py_bytes: bytes) -> str | None:
             except Exception:
                 pass
     return None
+
+def _hash_remote_py_as_pyc(py_bytes: bytes) -> str | None:
+    return _hash_py_bytes_as_pyc(py_bytes)
 
 def check_update_status() -> dict[str, Any]:
     frontend_local = _sha256_file(Path(LOCAL_FRONTEND_FILE))
@@ -608,12 +609,20 @@ def check_update_status() -> dict[str, Any]:
     pyc_mode = _is_backend_pyc_mode()
     be_data = _fetch_remote_bytes(REMOTE_BACKEND_URL)
     if pyc_mode:
-        # pyc 模式：先将远程 py 转成 pyc 再比哈希
-        local_pyc = _get_local_pyc_path(Path(LOCAL_BACKEND_FILE))
-        backend_local = _sha256_file(local_pyc) if local_pyc else None
+        # pyc 模式：先将远程 py 转成 pyc 再比哈希（用同机编译，避免跨版本 pyc magic 误判）
+        try:
+            local_py_bytes = Path(LOCAL_BACKEND_FILE).read_bytes() if Path(LOCAL_BACKEND_FILE).is_file() else b""
+        except Exception:
+            local_py_bytes = b""
+        backend_local = _hash_py_bytes_as_pyc(local_py_bytes) if local_py_bytes else None
         backend_remote = _hash_remote_py_as_pyc(be_data) if be_data else None
         backend_need = bool(backend_remote and backend_local != backend_remote)
-        info(f"[检查] 后端当前为 PYC 模式 local_pyc={backend_local[:8] if backend_local else 'none'} remote_pyc={backend_remote[:8] if backend_remote else 'none'}")
+        # 若 pyc 哈希因版本差异无法生成，回退到 py 源码对比
+        if backend_local is None or backend_remote is None:
+            backend_local = _sha256_file(Path(LOCAL_BACKEND_FILE))
+            backend_remote = _sha256_bytes(be_data) if be_data else None
+            backend_need = bool(backend_remote and backend_local != backend_remote)
+        info(f"[检查] 后端当前为 PYC 模式 local_pyc_hash={backend_local[:8] if backend_local else 'none'} remote_pyc_hash={backend_remote[:8] if backend_remote else 'none'}")
     else:
         backend_local = _sha256_file(Path(LOCAL_BACKEND_FILE))
         backend_remote = _sha256_bytes(be_data) if be_data else None
@@ -682,10 +691,11 @@ def do_update_backend() -> dict[str, Any]:
         os.replace(tmp, str(fp))
         info(f"[更新] ✅ 后端已更新 {local_hash[:8] if local_hash else 'none'} -> {remote_hash_py[:8] if remote_hash_py else 'none'} [{'pyc' if pyc_mode else 'py'}]")
         if pyc_mode:
-            pyc_res = _compile_py_to_pyc(fp)
-            if not pyc_res.get("ok") and not pyc_res.get("skipped"):
-                warn(f"[更新] 后端新文件 pyc 编译失败: {pyc_res.get('error')}")
-            info(f"[更新] 后端 pyc 模式已就绪：已生成与当前解释器匹配的 pyc（源码保留）")
+            # APK 实际使用 Python 3.14 的 pyc，与本机 3.13 不兼容，故不在服务端预编译 pyc；
+            # 仅更新 py 源码并清理本机产生的旧 pyc，让 APK 首次启动时自行编译为正确版本，避免白屏
+            _cleanup_stale_pyc(fp)
+            pyc_res = {"ok": True, "skipped": True, "reason": "PYC 模式：已更新源码并清理旧 pyc，APK 下次启动将自动生成匹配的 pyc"}
+            info(f"[更新] 后端 pyc 模式已就绪：源码已更新，旧 pyc 已清理")
         else:
             _cleanup_stale_pyc(fp)
             pyc_res = {"ok": True, "skipped": True, "reason": "PY 模式已清理旧 pyc"}
