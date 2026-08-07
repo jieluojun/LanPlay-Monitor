@@ -223,7 +223,7 @@
     if (!document.querySelector('meta[name="viewport"]')) {
       const __vpMeta = document.createElement('meta');
       __vpMeta.name = 'viewport';
-      __vpMeta.content = 'width=device-width,initial-scale=1,viewport-fit=cover';
+      __vpMeta.content = 'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover';
       document.head.appendChild(__vpMeta);
     }
 
@@ -1822,102 +1822,138 @@ html.dark .chat-media-file:hover {
 .chat-lightbox-img.is-dragging {
   cursor: grabbing;
 }
-/* ===== QQ 风格内置视频播放器：不使用原生 controls ===== */
+/* ===== 聊天内视频播放器：严格自适应，控件不出框 ===== */
 .chat-video-player {
   position: relative;
   display: inline-block;
+  width: fit-content;
   max-width: 100%;
-  overflow: hidden;
-  background: transparent;
-  line-height: normal;
-  border-radius: 0;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  background: transparent !important;
   isolation: isolate;
   padding: 0;
   margin: 0;
   vertical-align: top;
+  box-sizing: border-box;
 }
-.chat-video-player .chat-media-video,
-.chat-video-player .chat-lightbox-video {
+.chat-video-player .chat-media-video {
   display: block;
   width: auto;
   height: auto;
-  max-width: 100%;
-  max-height: 100%;
-  border-radius: 0 !important;
-  background: #000;
+  max-width: min(62vw, 240px);
+  max-height: 280px;
+  border-radius: 12px !important;
   object-fit: contain;
+  background: transparent !important;
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
   touch-action: manipulation;
 }
-.chat-video-wrap .chat-media-video {
-  max-width: 255px;
-  max-height: 180px;
-}
-.chat-video-lightbox-player {
-  width: min(96vw, 1200px);
-  max-width: 96vw;
-  max-height: 90vh;
-  touch-action: none;
-}
-.chat-video-lightbox-player .chat-lightbox-video {
-  width: 100%;
-  max-width: min(96vw, 1200px);
-  max-height: 90vh;
-}
-/* 竖屏视频：按原比例完整显示，不强行拉伸或裁切。 */
+/* 竖屏视频自适应尺寸与控件布局 */
 .chat-video-player.is-portrait .chat-media-video {
   width: auto;
   height: auto;
-  max-width: min(62vw, 220px);
-  max-height: min(58vh, 300px);
+  max-width: min(60vw, 200px);
+  max-height: min(55vh, 280px);
   object-fit: contain;
-  /* 裁掉竖屏源视频顶部极薄的黑边，避免预览出现黑色横条。 */
-  transform: scale(1.04);
-  transform-origin: center center;
+  background: transparent !important;
+}
+.chat-video-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 26px;
+  padding: 16px 3px 3px;
+  color: #fff;
+  background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.85) 100%);
+  line-height: 1;
+  opacity: .96;
+  z-index: 5;
+  overflow: hidden;
+}
+.chat-video-control-btn {
+  flex: 0 0 19px;
+  width: 19px;
+  height: 19px;
+  min-width: 19px;
+  max-width: 19px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.chat-video-control-btn:hover {
+  background: rgba(255,255,255,.2);
+}
+.chat-video-time {
+  flex: 0 0 auto;
+  min-width: 18px;
+  color: #fff;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+.chat-video-duration {
+  display: none !important;
+}
+.chat-video-progress {
+  flex: 1 1 0%;
+  width: 0;
+  min-width: 10px;
+  height: 3px;
+  margin: 0 1px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(to right, #25d8bd var(--video-progress, 0%), rgba(255,255,255,.42) var(--video-progress, 0%));
+}
+.chat-video-progress::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
   background: transparent;
 }
-.chat-video-lightbox-player.is-portrait {
-  width: auto;
-  max-width: 96vw;
-}
-.chat-video-lightbox-player.is-portrait .chat-lightbox-video {
-  width: auto;
-  height: auto;
-  max-width: 96vw;
-  max-height: 90vh;
-  object-fit: contain;
-}
-.chat-video-player.is-portrait .chat-video-controls {
-  gap: 2px;
-  padding: 20px 4px 5px;
-}
-.chat-video-player.is-portrait .chat-video-control-btn {
-  width: 21px;
-  height: 21px;
-  font-size: 13px;
-}
-.chat-video-player.is-portrait .chat-video-time {
-  min-width: 23px;
-  font-size: 9px;
-}
-.chat-video-player.is-portrait .chat-video-duration {
-  display: none;
-}
-.chat-video-player.is-portrait .chat-video-progress {
-  min-width: 18px;
-  margin: 0 1px;
+.chat-video-progress::-webkit-slider-thumb {
+  width: 8px;
+  height: 8px;
+  margin-top: -2.5px;
+  border: 0;
+  border-radius: 50%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.4);
 }
 .chat-video-center-play { 
   position: absolute;
   left: 50%;
   top: 50%;
   z-index: 4;
-  width: 64px;
-  height: 64px;
-  padding: 0 0 0 4px;
+  width: 44px;
+  height: 44px;
+  padding: 0 0 0 3px;
   border: 0;
   border-radius: 50%;
   display: grid;
@@ -1925,13 +1961,13 @@ html.dark .chat-media-file:hover {
   transform: translate(-50%, -50%);
   background: rgba(255,255,255,.78);
   color: #000;
-  font-size: 28px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 4px 18px rgba(0,0,0,.32);
+  box-shadow: 0 4px 14px rgba(0,0,0,.32);
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: transform .18s ease, background .18s ease, opacity .18s ease;
+  transition: transform .18s ease, background .18s ease;
 }
 .chat-video-center-play:hover {
   transform: translate(-50%, -50%) scale(1.06);
@@ -1943,130 +1979,149 @@ html.dark .chat-media-file:hover {
 .chat-video-center-play.is-hidden {
   display: none !important;
 }
-.chat-video-controls {
-  position: absolute;
-  touch-action: manipulation;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 5;
+
+/* 全屏大窗口视频播放器控件 */
+.chat-video-lightbox-player {
+  position: relative;
+  width: 100%;
+  max-width: min(96vw, 1200px);
+  max-height: 90vh;
+  border-radius: 0 !important;
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 38px;
-  padding: 24px 8px 7px;
-  color: #fff;
-  background: linear-gradient(to bottom, transparent, rgba(0,0,0,.82));
-  line-height: 1;
-  opacity: .96;
+  justify-content: center;
+  transition: transform 0.28s cubic-bezier(.4,0,.2,1);
 }
-.chat-video-control-btn {
-  flex: 0 0 auto;
-  width: 27px;
-  height: 27px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: transparent;
-  color: #fff;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-.chat-video-control-btn:hover {
-  background: rgba(255,255,255,.18);
-}
-.chat-video-time {
-  flex: 0 0 auto;
-  min-width: 34px;
-  color: #fff;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  white-space: nowrap;
-}
-.chat-video-progress {
-  flex: 1 1 auto;
-  min-width: 40px;
-  height: 4px;
-  margin: 0 2px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  appearance: none;
-  -webkit-appearance: none;
-  outline: none;
-  cursor: pointer;
-  background: linear-gradient(to right, #fff var(--video-progress, 0%), rgba(255,255,255,.42) var(--video-progress, 0%));
-}
-.chat-video-progress::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 999px;
-  background: transparent;
-}
-.chat-video-progress::-webkit-slider-thumb {
-  width: 12px;
-  height: 12px;
-  margin-top: -4px;
-  border: 0;
-  border-radius: 50%;
-  appearance: none;
-  -webkit-appearance: none;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,.35);
-}
-.chat-video-progress::-moz-range-track {
-  height: 4px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255,255,255,.42);
-}
-.chat-video-progress::-moz-range-progress {
-  height: 4px;
-  border-radius: 999px;
-  background: #fff;
-}
-.chat-video-progress::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
-  border: 0;
-  border-radius: 50%;
-  background: #fff;
+.chat-video-lightbox-player .chat-lightbox-video {
+  width: 100%;
+  max-width: min(96vw, 1200px);
+  max-height: 90vh;
+  object-fit: contain;
 }
 .chat-video-lightbox-player .chat-video-controls {
   min-height: 46px;
-  padding-bottom: 10px;
+  padding: 24px 12px 10px;
+  gap: 8px;
 }
 .chat-video-lightbox-player .chat-video-control-btn {
   width: 34px;
   height: 34px;
+  min-width: 34px;
   font-size: 19px;
 }
 .chat-video-lightbox-player .chat-video-time {
   font-size: 13px;
+  min-width: 34px;
 }
+.chat-video-lightbox-player .chat-video-duration {
+  display: inline-block !important;
+}
+.chat-video-lightbox-player .chat-video-progress {
+  height: 5px;
+}
+.chat-video-lightbox-player .chat-video-center-play {
+  width: 64px;
+  height: 64px;
+  font-size: 28px;
+}
+
+/* 横屏视频 90° 旋转拉伸满屏：完全填满手机屏幕 (100vh × 100vw)，保持真实宽高比 */
+.chat-video-lightbox-player.is-rotated {
+  position: fixed !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 100vh !important;
+  height: 100vw !important;
+  max-width: 100vh !important;
+  max-height: 100vw !important;
+  transform: translate(-50%, -50%) rotate(90deg) !important;
+  transform-origin: center center !important;
+  z-index: 1000 !important;
+}
+.chat-video-lightbox-player.is-rotated .chat-lightbox-video {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+}
+.chat-video-lightbox-player.is-rotated .chat-video-controls {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* 图片与视频大图查看器右上角关闭按钮（避开手机顶部状态栏/电量栏，靠右上角对齐） */
 .chat-lightbox-close,
 .chat-video-lightbox-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 2;
-  width: 40px;
-  height: 40px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(255,255,255,.15);
-  color: #fff;
-  font-size: 18px;
-  cursor: pointer;
+  position: fixed !important;
+  top: max(calc(58px + var(--safe-top, 0px)), 58px) !important;
+  right: max(calc(18px + var(--safe-right, 0px)), 18px) !important;
+  z-index: 100000 !important;
+  width: 40px !important;
+  height: 40px !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  border-radius: 50% !important;
+  background: rgba(0, 0, 0, 0.6) !important;
+  color: #ffffff !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+  transition: transform 0.15s ease, background 0.15s ease !important;
+  touch-action: manipulation !important;
 }
 .chat-lightbox-close:hover,
 .chat-video-lightbox-close:hover {
-  background: rgba(255,255,255,.28);
+  background: rgba(0, 0, 0, 0.85) !important;
+  transform: scale(1.08) !important;
+}
+.chat-lightbox-close:active,
+.chat-video-lightbox-close:active {
+  transform: scale(0.92) !important;
+}
+
+/* 视频内部右边缘中间悬浮旋转全屏按钮 */
+.chat-video-player .chat-video-rotate-btn,
+.chat-video-rotate-btn {
+  position: absolute !important;
+  right: 12px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  z-index: 30 !important;
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 50% !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  background: rgba(0, 0, 0, 0.65) !important;
+  color: #ffffff !important;
+  font-size: 22px !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+  transition: transform 0.2s ease, background 0.2s ease !important;
+  touch-action: manipulation !important;
+}
+.chat-video-rotate-btn:hover {
+  background: rgba(0, 0, 0, 0.85) !important;
+  transform: translateY(-50%) scale(1.1) !important;
+}
+.chat-video-rotate-btn:active {
+  transform: translateY(-50%) scale(0.9) !important;
 }
 .chat-video-lightbox-hint {
   position: absolute;
@@ -2082,19 +2137,6 @@ html.dark .chat-media-file:hover {
   pointer-events: none;
 }
 
-.chat-input-area .image-upload-btn {
-  font-size: 18px;
-  padding: 4px 6px;
-}
-
-/* ===== 聊天输入区：+ 菜单 + 语音按钮 ===== */
-.chat-input-area {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-top: 8px;
-  position: relative;
-}
 .chat-plus-wrap {
   position: relative;
   flex-shrink: 0;
@@ -2133,38 +2175,51 @@ html.dark .chat-media-file:hover {
   0%, 100% { box-shadow: 0 0 0 0 rgba(220,48,72,.35); }
   50% { box-shadow: 0 0 0 8px rgba(220,48,72,.08); }
 }
+.chat-plus-wrap {
+  position: static;
+  flex-shrink: 0;
+}
 .chat-plus-panel {
   display: none;
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
-  min-width: 132px;
-  background: var(--white);
+  width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0;
+  padding: 6px 8px;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 14px;
   box-shadow: var(--shadow);
-  padding: 6px;
-  z-index: 20;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  animation: plus-panel-fade .18s cubic-bezier(.4,0,.2,1);
 }
 .chat-plus-panel.open {
-  display: flex;
+  display: flex !important;
 }
 .chat-plus-panel button {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
   border: 0;
-  background: transparent;
-  text-align: left;
-  padding: 10px 12px;
+  background: rgba(125,175,210,.10);
+  text-align: center;
+  padding: 8px 6px;
   border-radius: 10px;
   font-size: 13px;
   font-weight: 700;
   color: var(--ink);
   cursor: pointer;
   white-space: nowrap;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
-.chat-plus-panel button:hover {
-  background: rgba(125,175,210,.12);
+.chat-plus-panel button:hover,
+.chat-plus-panel button:active {
+  background: rgba(125,175,210,.22);
 }
 html.dark .chat-plus-btn,
 html.dark .chat-voice-btn {
@@ -2175,10 +2230,25 @@ html.dark .chat-plus-btn:hover,
 html.dark .chat-voice-btn:hover {
   background: rgba(255,255,255,.14);
 }
-html.dark .chat-plus-panel {
-  background: var(--white);
-  border-color: var(--line);
+html.dark .chat-plus-panel,
+:root:not(.light) .chat-plus-panel {
+  background: #172735;
+  border-color: rgba(255,255,255,.08);
 }
+html.dark .chat-plus-panel button,
+:root:not(.light) .chat-plus-panel button {
+  background: rgba(255,255,255,.08);
+  color: #e7f1f5;
+}
+html.dark .chat-plus-panel button:hover,
+:root:not(.light) .chat-plus-panel button:hover {
+  background: rgba(255,255,255,.16);
+}
+@keyframes plus-panel-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .chat-input-area .chat-input {
   flex: 1;
   min-width: 0;
@@ -2853,6 +2923,361 @@ html:not(.dark) {
     top: calc(72px + var(--safe-top));
   }
 }
+
+/* ============================================================
+ * DPI 缩放体系（基于 CSS 变量 --dpi，默认 1）
+ * 作用范围严格限制在 #serverList 内部，不影响顶部栏/统计计数/标签页
+ * 保证卡片始终 100% 占满屏幕宽度，左右边距自然贴合，无黑边无裁剪；
+ * 展开的聊天区（+ 按钮、输入框、🎤 语音、发送）和房间列表随 DPI 等比缩放且不溢出。
+ * ============================================================ */
+#serverList, .server-list {
+  --dpi: 1;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  display: grid;
+  gap: calc(12px * var(--dpi, 1));
+  margin-top: calc(18px * var(--dpi, 1));
+  overflow-x: hidden !important;
+  contain: none !important;
+}
+
+/* 卡片外层与滑动层 */
+.server-group {
+  border-radius: calc(16px * var(--dpi, 1)) !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+.server-card-inner {
+  border-radius: calc(16px * var(--dpi, 1)) !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 服务器卡片头部 */
+.server-head {
+  padding: calc(14px * var(--dpi, 1)) calc(16px * var(--dpi, 1)) !important;
+  gap: calc(10px * var(--dpi, 1)) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  flex-wrap: nowrap !important;
+}
+.server-status-dot {
+  width: calc(11px * var(--dpi, 1)) !important;
+  height: calc(11px * var(--dpi, 1)) !important;
+  flex-shrink: 0 !important;
+}
+.server-info {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  align-self: stretch !important;
+  padding: 0 !important;
+}
+.server-name {
+  font-size: calc(14.5px * var(--dpi, 1)) !important;
+  font-weight: 700 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  line-height: 1.35 !important;
+  max-width: 100% !important;
+}
+.server-address {
+  font-size: calc(11.5px * var(--dpi, 1)) !important;
+  color: var(--muted) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  line-height: 1.35 !important;
+  max-width: 100% !important;
+}
+.card-region {
+  font-size: calc(10px * var(--dpi, 1)) !important;
+  line-height: 1.35 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.server-type-badge {
+  font-size: calc(10px * var(--dpi, 1)) !important;
+  padding: calc(1px * var(--dpi, 1)) calc(5px * var(--dpi, 1)) !important;
+  border-radius: calc(4px * var(--dpi, 1)) !important;
+}
+
+/* 头部右侧 4 项指标 */
+.server-stats {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: calc(5px * var(--dpi, 1)) !important;
+  align-items: center !important;
+  flex-shrink: 0 !important;
+  width: calc(215px * var(--dpi, 1)) !important;
+  max-width: 58% !important;
+  box-sizing: border-box !important;
+}
+.stat-item {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+  min-width: 0 !important;
+}
+.stat-item span {
+  font-size: calc(10px * var(--dpi, 1)) !important;
+  line-height: 1.25 !important;
+  margin-bottom: 2px !important;
+}
+.stat-item b {
+  font-size: calc(16px * var(--dpi, 1)) !important;
+  line-height: 1.25 !important;
+  font-weight: 900 !important;
+  height: auto !important;
+}
+.stat-item.latency b,
+.stat-item.latency .latency-badge {
+  font-size: calc(15px * var(--dpi, 1)) !important;
+  height: auto !important;
+  line-height: 1.25 !important;
+}
+.server-error-badge {
+  font-size: calc(10px * var(--dpi, 1)) !important;
+  top: calc(5px * var(--dpi, 1)) !important;
+}
+
+/* 展开区域 */
+.server-group.open .server-body {
+  overflow-x: hidden !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+.server-group.open .server-body > .body-inner {
+  padding: 0 calc(12px * var(--dpi, 1)) calc(12px * var(--dpi, 1)) !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* 聊天模块跟随 DPI 缩放 */
+.chat-wrapper {
+  margin: calc(6px * var(--dpi, 1)) 0 calc(2px * var(--dpi, 1)) !important;
+  padding: calc(10px * var(--dpi, 1)) calc(8px * var(--dpi, 1)) calc(6px * var(--dpi, 1)) !important;
+  border-radius: calc(16px * var(--dpi, 1)) !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+}
+.chat-messages, #publicChatMessages {
+  max-height: calc(260px * var(--dpi, 1)) !important;
+  min-height: calc(75px * var(--dpi, 1)) !important;
+  padding: calc(10px * var(--dpi, 1)) calc(8px * var(--dpi, 1)) !important;
+  gap: calc(8px * var(--dpi, 1)) !important;
+  border-radius: calc(14px * var(--dpi, 1)) !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+.chat-msg, .chat-msg-mine {
+  font-size: calc(13.5px * var(--dpi, 1)) !important;
+  padding: calc(7px * var(--dpi, 1)) calc(11px * var(--dpi, 1)) !important;
+  border-radius: calc(16px * var(--dpi, 1)) calc(16px * var(--dpi, 1)) calc(16px * var(--dpi, 1)) calc(4px * var(--dpi, 1)) !important;
+  max-width: min(84%, calc(360px * var(--dpi, 1))) !important;
+  box-sizing: border-box !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+}
+.chat-msg-mine {
+  border-radius: calc(16px * var(--dpi, 1)) calc(16px * var(--dpi, 1)) calc(4px * var(--dpi, 1)) calc(16px * var(--dpi, 1)) !important;
+}
+.chat-msg .msg-time {
+  font-size: calc(9.5px * var(--dpi, 1)) !important;
+  margin-left: calc(6px * var(--dpi, 1)) !important;
+}
+.chat-media-audio {
+  min-width: calc(180px * var(--dpi, 1)) !important;
+  max-width: calc(240px * var(--dpi, 1)) !important;
+  gap: calc(5px * var(--dpi, 1)) !important;
+}
+.chat-media-img {
+  max-width: calc(200px * var(--dpi, 1)) !important;
+  max-height: calc(200px * var(--dpi, 1)) !important;
+}
+.chat-media-video {
+  max-width: calc(220px * var(--dpi, 1)) !important;
+  max-height: calc(180px * var(--dpi, 1)) !important;
+}
+.chat-media-file {
+  max-width: calc(240px * var(--dpi, 1)) !important;
+  padding: calc(8px * var(--dpi, 1)) calc(10px * var(--dpi, 1)) !important;
+  border-radius: calc(12px * var(--dpi, 1)) !important;
+}
+.chat-media-file-icon {
+  font-size: calc(20px * var(--dpi, 1)) !important;
+}
+.chat-media-file-name {
+  font-size: calc(12px * var(--dpi, 1)) !important;
+}
+.chat-media-file-size {
+  font-size: calc(10px * var(--dpi, 1)) !important;
+}
+
+/* 聊天输入栏：+ 按钮、输入框、语音按钮、发送按钮在同一行自适应无溢出 */
+.chat-input-area {
+  display: flex !important;
+  align-items: center !important;
+  gap: calc(6px * var(--dpi, 1)) !important;
+  margin-top: calc(7px * var(--dpi, 1)) !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+}
+.chat-plus-wrap {
+  position: relative !important;
+  flex-shrink: 0 !important;
+}
+.chat-plus-btn,
+.chat-voice-btn {
+  width: calc(38px * var(--dpi, 1)) !important;
+  height: calc(38px * var(--dpi, 1)) !important;
+  min-width: calc(38px * var(--dpi, 1)) !important;
+  max-width: calc(38px * var(--dpi, 1)) !important;
+  flex: 0 0 calc(38px * var(--dpi, 1)) !important;
+  border-radius: 50% !important;
+  font-size: calc(18px * var(--dpi, 1)) !important;
+  padding: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  flex-shrink: 0 !important;
+}
+.chat-input {
+  flex: 1 1 0% !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  min-height: calc(38px * var(--dpi, 1)) !important;
+  max-height: calc(100px * var(--dpi, 1)) !important;
+  padding: calc(7px * var(--dpi, 1)) calc(12px * var(--dpi, 1)) !important;
+  border-radius: calc(20px * var(--dpi, 1)) !important;
+  font-size: calc(13.5px * var(--dpi, 1)) !important;
+  box-sizing: border-box !important;
+}
+.chat-send-btn {
+  height: calc(38px * var(--dpi, 1)) !important;
+  min-width: calc(64px * var(--dpi, 1)) !important;
+  padding: 0 calc(12px * var(--dpi, 1)) !important;
+  border-radius: calc(20px * var(--dpi, 1)) !important;
+  font-size: calc(14px * var(--dpi, 1)) !important;
+  font-weight: 700 !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* 房间列表跟随 DPI 缩放 */
+.room-list {
+  display: grid !important;
+  gap: calc(8px * var(--dpi, 1)) !important;
+  margin-top: calc(6px * var(--dpi, 1)) !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+.room-item {
+  padding: calc(12px * var(--dpi, 1)) calc(14px * var(--dpi, 1)) !important;
+  border-radius: calc(14px * var(--dpi, 1)) !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+.room-top {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: calc(10px * var(--dpi, 1)) !important;
+  flex-wrap: nowrap !important;
+}
+.room-game-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: calc(6px * var(--dpi, 1)) !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
+}
+.room-icon {
+  width: calc(20px * var(--dpi, 1)) !important;
+  height: calc(20px * var(--dpi, 1)) !important;
+  border-radius: calc(4px * var(--dpi, 1)) !important;
+  flex-shrink: 0 !important;
+}
+.room-game-left .game-name {
+  font-size: calc(11.5px * var(--dpi, 1)) !important;
+  padding: calc(2px * var(--dpi, 1)) calc(8px * var(--dpi, 1)) !important;
+  border-radius: calc(6px * var(--dpi, 1)) !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.room-meta {
+  display: flex !important;
+  align-items: center !important;
+  gap: calc(6px * var(--dpi, 1)) !important;
+  margin-top: calc(6px * var(--dpi, 1)) !important;
+  font-size: calc(11.5px * var(--dpi, 1)) !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+}
+.room-host-meta {
+  font-size: calc(11.5px * var(--dpi, 1)) !important;
+  max-width: calc(100px * var(--dpi, 1)) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.room-players {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: calc(4px * var(--dpi, 1)) !important;
+  margin-top: calc(6px * var(--dpi, 1)) !important;
+}
+.room-players .player {
+  font-size: calc(10.5px * var(--dpi, 1)) !important;
+  padding: calc(2px * var(--dpi, 1)) calc(7px * var(--dpi, 1)) !important;
+  border-radius: calc(6px * var(--dpi, 1)) !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+}
+.no-rooms, .no-rooms-empty, .no-rooms-match {
+  padding: calc(16px * var(--dpi, 1)) !important;
+  font-size: calc(12.5px * var(--dpi, 1)) !important;
+  border-radius: calc(12px * var(--dpi, 1)) !important;
+  margin-top: calc(6px * var(--dpi, 1)) !important;
+}
+.unread-indicator {
+  font-size: calc(10px * var(--dpi, 1)) !important;
+  min-width: calc(16px * var(--dpi, 1)) !important;
+  height: calc(16px * var(--dpi, 1)) !important;
+  line-height: calc(16px * var(--dpi, 1)) !important;
+}
+.server-actions {
+  width: calc(150px * var(--dpi, 1)) !important;
+}
+.action-btn {
+  font-size: calc(13.5px * var(--dpi, 1)) !important;
+}
 `;
     document.head.appendChild(__styleEl);
 
@@ -2910,15 +3335,13 @@ html:not(.dark) {
         <div id="publicChatMessages" style="height:300px;overflow-y:auto;background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px;display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);">
           <div style="color:var(--muted);text-align:center;padding:20px;font-size:14px;">暂无消息</div>
         </div>
+        <div id="publicChatPlusPanel" class="chat-plus-panel">
+          <button type="button" data-plus-action="image">🖼️ 图片</button>
+          <button type="button" data-plus-action="video">🎬 视频</button>
+          <button type="button" data-plus-action="file">📎 文件</button>
+        </div>
         <div class="chat-input-area">
-          <div class="chat-plus-wrap">
-            <button type="button" id="publicChatPlusBtn" class="chat-plus-btn" title="添加附件">＋</button>
-            <div id="publicChatPlusPanel" class="chat-plus-panel">
-              <button type="button" data-plus-action="image">🖼️ 图片</button>
-              <button type="button" data-plus-action="video">🎬 视频</button>
-              <button type="button" data-plus-action="file">📎 文件</button>
-            </div>
-          </div>
+          <button type="button" id="publicChatPlusBtn" class="chat-plus-btn" title="添加附件">＋</button>
           <textarea id="publicChatInput" rows="1" placeholder="输入公共消息..." style="flex:1;min-width:120px;padding:8px 14px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:14px;outline:none;resize:none;overflow-y:hidden;line-height:1.45;max-height:120px;"></textarea>
           <button type="button" id="publicChatVoiceBtn" class="chat-voice-btn" title="录制语音">🎤</button>
           <button id="publicChatSendBtn" style="padding:8px 20px;border:0;border-radius:20px;background:var(--cyan);color:#fff;font-weight:700;cursor:pointer;transition:var(--transition);">发送</button>
@@ -3449,45 +3872,66 @@ html:not(.dark) {
   const dpiResetBtn = document.getElementById('dpiResetBtn');
   const DPI_STORAGE_KEY = 'lan_play_dpi_percent';
 
-  dpiToggleBtn.textContent = '🔍';
+  if (dpiToggleBtn) dpiToggleBtn.textContent = '🔍';
   let currentDpiPercent = parseInt(localStorage.getItem(DPI_STORAGE_KEY), 10) || 100;
 
   function applyDpi(percent) {
     const clamped = Math.min(150, Math.max(60, percent));
+    const scale = clamped / 100;
     const serverList = document.getElementById('serverList');
     if (serverList) {
-      serverList.style.zoom = clamped / 100;
+      serverList.style.zoom = '';
+      serverList.style.transform = '';
+      serverList.style.transformOrigin = '';
+      serverList.style.width = '100%';
+      // 核心：设置 CSS 变量 --dpi，卡片宽度保持 100% 贴满屏幕，内部元素自适应等比缩放
+      serverList.style.setProperty('--dpi', String(scale));
     }
-    dpiLabel.textContent = Math.round(clamped) + '%';
-    dpiSlider.value = clamped;
+    // 若 DOM 中残留有旧的 __dpiWrap，则解包移除
+    const wrapper = document.getElementById('__dpiWrap');
+    if (wrapper && serverList && wrapper.contains(serverList)) {
+      wrapper.parentNode.insertBefore(serverList, wrapper);
+      wrapper.remove();
+    }
+    document.body.style.overflowX = 'hidden';
+    if (dpiLabel) dpiLabel.textContent = Math.round(clamped) + '%';
+    if (dpiSlider) dpiSlider.value = clamped;
     localStorage.setItem(DPI_STORAGE_KEY, String(clamped));
     currentDpiPercent = clamped;
   }
   applyDpi(currentDpiPercent);
 
-  dpiToggleBtn.addEventListener('click', () => {
-    dpiModal.classList.add('open');
-    dpiSlider.value = currentDpiPercent;
-    dpiLabel.textContent = Math.round(currentDpiPercent) + '%';
-  });
+  if (dpiToggleBtn && dpiModal) {
+    dpiToggleBtn.addEventListener('click', () => {
+      dpiModal.classList.add('open');
+      if (dpiSlider) dpiSlider.value = currentDpiPercent;
+      if (dpiLabel) dpiLabel.textContent = Math.round(currentDpiPercent) + '%';
+    });
+  }
 
   function closeDpiModal() {
-    dpiModal.classList.remove('open');
+    if (dpiModal) dpiModal.classList.remove('open');
   }
-  closeDpiModalBtn.addEventListener('click', closeDpiModal);
-  dpiModal.addEventListener('click', (e) => {
-    if (e.target === dpiModal) closeDpiModal();
-  });
+  if (closeDpiModalBtn) closeDpiModalBtn.addEventListener('click', closeDpiModal);
+  if (dpiModal) {
+    dpiModal.addEventListener('click', (e) => {
+      if (e.target === dpiModal) closeDpiModal();
+    });
+  }
 
-  dpiSlider.addEventListener('input', (e) => {
-    const val = parseFloat(e.target.value);
-    applyDpi(val);
-  });
+  if (dpiSlider) {
+    dpiSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      applyDpi(val);
+    });
+  }
 
-  dpiResetBtn.addEventListener('click', () => {
-    applyDpi(100);
-    showToast('✅ 已恢复默认缩放 (100%)', 1500, true);
-  });
+  if (dpiResetBtn) {
+    dpiResetBtn.addEventListener('click', () => {
+      applyDpi(100);
+      showToast('✅ 已恢复默认缩放 (100%)', 1500, true);
+    });
+  }
 
   try {
     const oldIndex = localStorage.getItem('lan_play_dpi_index');
@@ -4059,7 +4503,7 @@ html:not(.dark) {
       }
       prevTime = t;
       const cls = msg.isMine ? 'chat-msg-mine' : 'chat-msg-other';
-      const sender = msg.senderName || msg.sender || '匿名';
+      const sender = msg.senderName || msg.sender || '';
       const contentHtml = renderMessageContent(msg);
       const mediaType = msg.mediaType || '';
       const url = msg.url || '';
@@ -4082,9 +4526,15 @@ html:not(.dark) {
           downloadHtml = `<a class="chat-media-download" href="${esc(url)}" download="${esc(msg.fileName || '语音')}" target="_blank" rel="noopener noreferrer">下载语音</a>`;
         }
       }
+
+      let senderHtml = '';
+      if (!msg.isMine && sender && sender !== '0' && sender !== '匿名' && sender !== '系统') {
+        senderHtml = `<strong class="msg-sender">${esc(sender)}：</strong>`;
+      }
+
       html += `<div class="chat-msg ${cls}" data-msg-id="${esc(msg.id || '')}">
         <div class="msg-content">
-          <strong class="msg-sender">${esc(sender)}：</strong>
+          ${senderHtml}
           <div class="msg-body">${contentHtml}</div>
           <div class="msg-footer"><span class="msg-time">${esc(formatChatTime(t))}</span>${downloadHtml}</div>
         </div>
@@ -6084,7 +6534,7 @@ html:not(.dark) {
     const overlay = document.createElement('div');
     overlay.id = 'chatImageLightbox';
     overlay.className = 'chat-lightbox';
-    overlay.innerHTML = '<div class="chat-lightbox-stage"><img class="chat-lightbox-img" alt="预览" draggable="false"><button type="button" class="chat-lightbox-close" aria-label="关闭">✕</button></div>';
+    overlay.innerHTML = '<div class="chat-lightbox-stage"><img class="chat-lightbox-img" alt="预览" draggable="false"></div><button type="button" class="chat-lightbox-close" aria-label="关闭">✕</button>';
     document.body.appendChild(overlay);
     s.overlay = overlay;
     s.stage = overlay.querySelector('.chat-lightbox-stage');
@@ -6156,6 +6606,42 @@ html:not(.dark) {
     const s = _videoLightboxState;
     if (!s.overlay) return;
     s.overlay.classList.remove('open');
+    s.rotation = 0;
+    const player = s.video ? s.video.closest('.chat-video-lightbox-player') : null;
+    if (player) {
+      player.style.transform = '';
+      player.style.maxWidth = '';
+      player.style.maxHeight = '';
+    }
+    if (s.video) {
+      s.video.pause();
+      s.video.onloadedmetadata = null;
+      s.video.removeAttribute('src');
+      s.video.load();
+    }
+  }
+
+  function _applyVideoRotation() {
+    const s = _videoLightboxState;
+    if (!s.video) return;
+    const player = s.video.closest('.chat-video-lightbox-player');
+    if (!player) return;
+    if (s.rotation === 90) {
+      player.classList.add('is-rotated');
+    } else {
+      player.classList.remove('is-rotated');
+    }
+  }
+
+  function _closeVideoLightbox() {
+    const s = _videoLightboxState;
+    if (!s.overlay) return;
+    s.overlay.classList.remove('open');
+    s.rotation = 0;
+    const player = s.video ? s.video.closest('.chat-video-lightbox-player') : null;
+    if (player) {
+      player.classList.remove('is-rotated');
+    }
     if (s.video) {
       s.video.pause();
       s.video.onloadedmetadata = null;
@@ -6175,6 +6661,7 @@ html:not(.dark) {
         '<div class="chat-video-player chat-video-lightbox-player">' +
           '<video class="chat-lightbox-video" playsinline="true" webkit-playsinline="true" preload="metadata"></video>' +
           '<button type="button" class="chat-video-center-play" aria-label="播放视频">▶</button>' +
+          '<button type="button" class="chat-video-rotate-btn" title="旋转并全屏拉伸">🔄</button>' +
           '<div class="chat-video-controls">' + _videoControlsHTML() + '</div>' +
         '</div>' +
       '</div>' +
@@ -6184,6 +6671,7 @@ html:not(.dark) {
     s.stage = overlay.querySelector('.chat-video-lightbox-stage');
     s.video = overlay.querySelector('.chat-lightbox-video');
     const closeBtn = overlay.querySelector('.chat-video-lightbox-close');
+    const rotateBtn = overlay.querySelector('.chat-video-rotate-btn');
 
     s.stage.addEventListener('click', function (e) {
       if (e.target === s.stage) _closeVideoLightbox();
@@ -6197,6 +6685,15 @@ html:not(.dark) {
       e.stopPropagation();
       _closeVideoLightbox();
     });
+    if (rotateBtn) {
+      rotateBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // 来回切换 0° 与 90°，不进行 360° 繁复循环
+        s.rotation = (s.rotation === 90 ? 0 : 90);
+        _applyVideoRotation();
+      });
+    }
     return s;
   }
 
@@ -7256,15 +7753,13 @@ html:not(.dark) {
       const ready = state.goEasyReady && hasUsername;
       wrapper.innerHTML = `
         <div class="chat-messages"></div>
+        <div class="chat-plus-panel">
+          <button type="button" data-plus-action="image">🖼️ 图片</button>
+          <button type="button" data-plus-action="video">🎬 视频</button>
+          <button type="button" data-plus-action="file">📎 文件</button>
+        </div>
         <div class="chat-input-area">
-          <div class="chat-plus-wrap">
-            <button type="button" class="chat-plus-btn" title="添加附件">＋</button>
-            <div class="chat-plus-panel">
-              <button type="button" data-plus-action="image">🖼️ 图片</button>
-              <button type="button" data-plus-action="video">🎬 视频</button>
-              <button type="button" data-plus-action="file">📎 文件</button>
-            </div>
-          </div>
+          <button type="button" class="chat-plus-btn" title="添加附件">＋</button>
           <textarea rows="1" class="chat-input" placeholder="${ready ? '输入聊天内容...' : (state.goEasyReady ? '请先设置用户名' : '聊天未连接')}" ${ready ? '' : 'disabled'}></textarea>
           <button type="button" class="chat-voice-btn" title="录制语音">🎤</button>
           <button class="chat-send-btn" ${ready ? '' : 'disabled'}>发送</button>
