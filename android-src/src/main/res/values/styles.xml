@@ -1,14 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 跟随网页颜色版：初始为浅色，随 JS 切换后由代码动态改 -->
+<!-- FIXED v6: 全屏启动图 + 透明状态栏 + Android 12+ SplashScreen 真正生效 -->
 <resources>
+    <!-- AppTheme 必须以 NoTitleBar 为父，不要用 Fullscreen，Fullscreen 会导致 SplashScreen 被截断/黑边 -->
     <style name="AppTheme" parent="@android:style/Theme.NoTitleBar">
+        <!-- 启动图全屏背景：指向 drawable/presplash (由 buildozer presplash.filename 生成) -->
         <item name="android:windowBackground">@drawable/presplash</item>
-        <item name="android:statusBarColor">#DFF3FF</item>
-        <item name="android:navigationBarColor">#DFF3FF</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <!-- 关键：不要在这里开 windowFullscreen，否则状态栏会被系统强制隐藏，颜色同步失效 -->
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:windowIsTranslucent">false</item>
+
+        <!-- 透明栏由代码接管：初始透明，后续由 ImmersiveStatusBarHelper 动态设为 #DFF3FF / #0F1923 -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowTranslucentNavigation">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+
+        <!-- Android 12+ (API 31+) SplashScreen 兼容：
+             如果不设置 windowSplashScreenAnimatedIcon，系统会显示默认的 p4a 动态图标（圆圈加载）。
+             要显示自定义静态启动图，必须把 animatedIcon 指向同一张 presplash。
+             AnimationDuration=0 去掉缩放动画，立即进入 App。
+        -->
+        <item name="android:windowSplashScreenBackground">#DFF3FF</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/presplash</item>
+        <item name="android:windowSplashScreenAnimationDuration">0</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#DFF3FF</item>
+        <item name="android:windowSplashScreenBrandingImage">@null</item>
+        <!-- icon_preferred 让 SplashScreen 以图标居中方式显示；如果想全屏拉伸可改为后备 -->
+        <item name="android:windowSplashScreenBehavior">icon_preferred</item>
+    </style>
+
+    <!-- 可选：SplashScreen 结束后的主题，避免过渡时闪白 -->
+    <style name="PostSplashTheme" parent="@android:style/Theme.NoTitleBar">
+        <item name="android:windowBackground">@color/white</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 </resources>
