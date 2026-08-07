@@ -9272,7 +9272,7 @@ html:not(.dark) {
   if(closeUpdateModalBtn) closeUpdateModalBtn.addEventListener('click', closeUpdateModal);
   if(updateModal) updateModal.addEventListener('click', e=>{ if(e.target===updateModal) closeUpdateModal(); });
   // 导航栏 ⬆️ 图标点击：拉取远程哈希，若有更新则弹确认弹窗让用户选择
-  //  - 前端和后端都需更新：按需求优先更新前端（弹窗显示优先级）
+  //  - 前端和后端都需更新：一并更新前后端
   //  - 仅有其一需更新：弹窗提示是哪个，确认后直接更新
   //  - 都不需更新：toast 提示已是最新
   async function onManualUpdateIconClick() {
@@ -9292,20 +9292,17 @@ html:not(.dark) {
         return;
       }
       // 有更新：弹"是否更新"的确认弹窗
-      // 两端都需更新：按需求默认更新前端
+      // 两端都需更新：一并更新前后端
       // 仅前端需更新：更新前端
       // 仅后端需更新：更新后端
-      const targets = [];
-      if (feNeed) targets.push({ key: 'frontend', label: '前端' });
-      if (beNeed) targets.push({ key: 'backend', label: '后端' });
-      let primary = 'frontend';
+      let target = 'frontend';
       if (feNeed && beNeed) {
-        primary = 'frontend'; // 两端都需更新时优先前端
+        target = 'all';
       } else if (!feNeed && beNeed) {
-        primary = 'backend';
+        target = 'backend';
       }
       const confirmMsg = feNeed && beNeed
-        ? '前端和后端都有新版本，是否开始更新？\n(将优先更新前端，更新完成后请重启应用)'
+        ? '前端和后端都有新版本，是否一并更新？\n更新完成后请重启应用'
         : (feNeed
             ? '前端有新版本，是否立即更新？\n更新完成后请重启应用'
             : '后端有新版本，是否立即更新？\n更新完成后请重启应用');
@@ -9314,10 +9311,9 @@ html:not(.dark) {
         showToast('已取消更新', 1500, true);
         return;
       }
-      // 用户确认：按 primary 更新；如果两端都需更新，确认后只更 primary（不自动更另一个）
-      // 用户想都更则去模态框（长按图标进入）点"一键更新前后端"
-      showToast('⏳ 正在更新' + (primary === 'frontend' ? '前端' : '后端') + '…', 2000, true);
-      await doUpdate(primary);
+      const label = target === 'all' ? '前后端' : (target === 'frontend' ? '前端' : '后端');
+      showToast('⏳ 正在更新' + label + '…', 2000, true);
+      await doUpdate(target);
     } catch (e) {
       showToast('❌ 更新检查失败：' + (e && e.message ? e.message : e), 3000, false);
     } finally {
