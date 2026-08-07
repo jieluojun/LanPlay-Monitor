@@ -134,6 +134,14 @@ public class FileChooserHelper {
                                 try { mCustomViewCallback.onCustomViewHidden(); } catch (Exception ignored) {}
                                 mCustomViewCallback = null;
                             }
+                            // FIX: 退出全屏后重新应用沉浸式状态栏，避免颜色被重置为透明/黑色
+                            try {
+                                ImmersiveStatusBarHelper.install(activity);
+                                // 再根据当前缓存的主题同步一次
+                                ImmersiveStatusBarHelper.setPageTheme(activity, ImmersiveStatusBarHelper.isDarkPage());
+                            } catch (Exception e) {
+                                Log.w(TAG, "re-apply Immersive after fullscreen failed", e);
+                            }
                         }
 
                         // ---------- 1. 文件选择（相册/视频/音频/文件） ----------
