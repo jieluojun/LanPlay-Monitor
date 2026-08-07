@@ -239,16 +239,20 @@
   -webkit-touch-callout: none;
 }
 
-/* 允许输入框、聊天气泡、日志等内容正常选中与复制 */
-input, textarea, select, .log-content,
-.chat-input, #publicChatInput,
-.chat-msg, .chat-msg *,
-.msg-content, .msg-body, .msg-sender, .msg-footer, .msg-time {
-  -webkit-user-select: text !important;
-  -moz-user-select: text !important;
-  -ms-user-select: text !important;
-  user-select: text !important;
-  -webkit-touch-callout: default !important;
+/* 允许输入框等可交互元素正常选择 */
+input, textarea, select, button {
+  -webkit-user-select: auto;
+  -moz-user-select: auto;
+  -ms-user-select: auto;
+  user-select: auto;
+}
+
+/* 日志内容允许复制 */
+.log-content {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
 }
 
 :root{
@@ -571,34 +575,6 @@ html.dark .refresh:hover{background:rgba(255,255,255,.15)}
 .log-modal.open{display:flex}
 .log-box{background:var(--white);width:min(800px,calc(100% - 32px));height:500px;border-radius:var(--radius-md);box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line)}
 .log-header{padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);font-weight:800;font-size:15px}
-.log-autoscroll-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  cursor: pointer;
-  user-select: none;
-  font-weight: 600;
-  color: var(--muted);
-  background: rgba(125,175,210,.12);
-  padding: 4px 10px;
-  border-radius: 12px;
-  transition: var(--transition);
-}
-.log-autoscroll-toggle:hover {
-  background: rgba(125,175,210,.22);
-  color: var(--ink);
-}
-html.dark .log-autoscroll-toggle,
-:root:not(.light) .log-autoscroll-toggle {
-  background: rgba(255,255,255,.08);
-  color: #a8bfca;
-}
-html.dark .log-autoscroll-toggle:hover,
-:root:not(.light) .log-autoscroll-toggle:hover {
-  background: rgba(255,255,255,.16);
-  color: #fff;
-}
 .log-close{background:none;border:0;font-size:18px;cursor:pointer;color:var(--muted)}
 .log-content{flex:1;padding:16px;background:#0b131a;color:#3dd9b8;font-family:monospace;font-size:12.5px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.5}
 
@@ -2354,11 +2330,9 @@ html.light #publicChatMessages {
 .chat-msg video::-webkit-media-controls {
   -webkit-touch-callout: none;
 }
-/* 气泡内允许文字长按呼出系统复制菜单 */
+/* 气泡内所有子元素禁用原生长按菜单 */
 .chat-msg * {
-  -webkit-touch-callout: default !important;
-  -webkit-user-select: text !important;
-  user-select: text !important;
+  -webkit-touch-callout: none !important;
 }
 .chat-msg img,
 .chat-msg video,
@@ -3380,13 +3354,7 @@ html:not(.dark) {
   <div id="logModal" class="log-modal">
     <div class="log-box">
       <div class="log-header">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <span>🖥️ 实时运行日志</span>
-          <label class="log-autoscroll-toggle" title="切换是否自动滚动到底部">
-            <input type="checkbox" id="logAutoScrollCheckbox" checked style="cursor:pointer;accent-color:var(--cyan);width:14px;height:14px;margin:0;">
-            <span>自动滚动</span>
-          </label>
-        </div>
+        <span>🖥️ 实时运行日志</span>
         <button id="closeLogBtn" class="log-close">✕</button>
       </div>
       <div id="logContent" class="log-content">正在加载日志...</div>
@@ -3529,19 +3497,14 @@ html:not(.dark) {
 
 
   document.addEventListener('contextmenu', (e) => {
-    // 允许输入框、文本区域与聊天气泡长按呼出复制/粘贴/选择菜单
-    if (e.target && (e.target.closest('.chat-msg') || e.target.closest('.chat-input') || e.target.closest('input, textarea, select, .log-content'))) {
-      return;
-    }
+    // 始终阻止浏览器原生右键/长按菜单
     e.preventDefault();
-  });
-  document.addEventListener('selectstart', (e) => {
-    // 允许输入框、文本区域与聊天气泡内文字自由选择与复制
-    if (e.target && (e.target.closest('.chat-msg') || e.target.closest('.chat-input') || e.target.closest('input, textarea, select, .log-content'))) {
-      return;
+    // 如果在气泡内，也阻止视频/音频/图片的默认长按行为
+    if (e.target.closest('.chat-msg')) {
+      e.stopPropagation();
     }
-    e.preventDefault();
   });
+  document.addEventListener('selectstart', (e) => e.preventDefault());
 
   const CHAT_STORAGE_KEY = 'lanplay_chat_messages';
   const PUBLIC_STORAGE_KEY = 'lanplay_public_messages';
@@ -4456,53 +4419,13 @@ html:not(.dark) {
   // ===== 日志 =====
   const logModal = document.getElementById('logModal');
   const logContent = document.getElementById('logContent');
-  const logAutoScrollCheckbox = document.getElementById('logAutoScrollCheckbox');
   let logInterval = null;
-  const LOG_AUTOSCROLL_KEY = 'lanplay_log_autoscroll';
-  let logAutoScroll = localStorage.getItem(LOG_AUTOSCROLL_KEY) !== '0';
-
-  if (logAutoScrollCheckbox) {
-    logAutoScrollCheckbox.checked = logAutoScroll;
-    logAutoScrollCheckbox.addEventListener('change', (e) => {
-      logAutoScroll = e.target.checked;
-      localStorage.setItem(LOG_AUTOSCROLL_KEY, logAutoScroll ? '1' : '0');
-      if (logAutoScroll && logContent) {
-        logContent.scrollTop = logContent.scrollHeight;
-      }
-    });
-  }
-
   async function fetchLogs() {
-    try {
-      const d = await getJSON('/api/logs');
-      if (d.ok && Array.isArray(d.logs)) {
-        logContent.textContent = d.logs.join('\n');
-        if (logAutoScroll) {
-          logContent.scrollTop = logContent.scrollHeight;
-        }
-      }
-    } catch (e) {
-      logContent.textContent = '加载日志失败: ' + e.message;
-    }
+    try { const d = await getJSON('/api/logs'); if (d.ok && Array.isArray(d.logs)) { logContent.textContent = d.logs.join('\n'); logContent.scrollTop = logContent.scrollHeight; } } catch (e) { logContent.textContent = '加载日志失败: ' + e.message; }
   }
-
-  document.getElementById('openLogModalBtn').addEventListener('click', () => {
-    logModal.classList.add('open');
-    if (logAutoScrollCheckbox) logAutoScrollCheckbox.checked = logAutoScroll;
-    fetchLogs();
-    if (logInterval) clearInterval(logInterval);
-    logInterval = setInterval(fetchLogs, 2000);
-  });
-  document.getElementById('closeLogBtn').addEventListener('click', () => {
-    logModal.classList.remove('open');
-    if (logInterval) clearInterval(logInterval);
-  });
-  logModal.addEventListener('click', e => {
-    if (e.target === logModal) {
-      logModal.classList.remove('open');
-      if (logInterval) clearInterval(logInterval);
-    }
-  });
+  document.getElementById('openLogModalBtn').addEventListener('click', () => { logModal.classList.add('open'); fetchLogs(); if (logInterval) clearInterval(logInterval); logInterval = setInterval(fetchLogs, 2000); });
+  document.getElementById('closeLogBtn').addEventListener('click', () => { logModal.classList.remove('open'); if (logInterval) clearInterval(logInterval); });
+  logModal.addEventListener('click', e => { if (e.target === logModal) { logModal.classList.remove('open'); if (logInterval) clearInterval(logInterval); } });
 
   // ===== 辅助函数 =====
   const statusDot = s => s === 'online' ? 'online' : s === 'checking' ? 'checking' : 'offline';
