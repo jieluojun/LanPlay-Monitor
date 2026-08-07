@@ -4,7 +4,8 @@ package.name = monitor
 package.domain = com.lanplay
 source.dir = .
 source.include_exts = py, png, jpg, kv, atlas, ttf, json, html, css, js
-source.include_patterns = image/*, presplash.png, icon.png, assets/*
+source.include_patterns = image/*
+source.exclude_patterns = **/test/*, **/tests/*, presplash.png, icon.png, assets/*, assets, *.keystore
 version = 1.0.0
 
 icon.filename = icon.png
