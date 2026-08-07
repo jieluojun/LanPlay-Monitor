@@ -1,0 +1,23 @@
+/*
+ * 覆盖 p4a webview bootstrap 默认的三根紫色柱加载动画。
+ * 真正的样式在 _load.html 内联（保证背景色 #DFF3FF 与原生 presplash 一致）。
+ * 这里仅保留最小规则，确保即便被旧代码引用也不会出现紫色竖条。
+ */
+.loader,
+.loader:before,
+.loader:after {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+    -webkit-animation: none !important;
+    animation: none !important;
+    content: none !important;
+    box-shadow: none !important;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #DFF3FF;
+}
