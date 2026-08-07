@@ -4503,7 +4503,7 @@ html:not(.dark) {
       }
       prevTime = t;
       const cls = msg.isMine ? 'chat-msg-mine' : 'chat-msg-other';
-      const sender = msg.senderName || msg.sender || '';
+      const sender = (msg.senderName || msg.sender || (msg.isMine ? (state.username || '我') : '匿名用户')).trim();
       const contentHtml = renderMessageContent(msg);
       const mediaType = msg.mediaType || '';
       const url = msg.url || '';
@@ -4527,11 +4527,8 @@ html:not(.dark) {
         }
       }
 
-      let senderHtml = '';
-      if (!msg.isMine && sender && sender !== '0' && sender !== '匿名' && sender !== '系统') {
-        senderHtml = `<strong class="msg-sender">${esc(sender)}：</strong>`;
-      }
-
+      // 始终展示清晰的用户名标题行
+      const senderHtml = `<strong class="msg-sender">${esc(sender)}：</strong>`;
       html += `<div class="chat-msg ${cls}" data-msg-id="${esc(msg.id || '')}">
         <div class="msg-content">
           ${senderHtml}
@@ -5304,7 +5301,47 @@ html:not(.dark) {
     if (trimmed) {
       localStorage.setItem(USERNAME_KEY, trimmed);
       state.username = trimmed;
+
+      // 立即更新本地在线成员列表中的自身昵称
+      const myId = state.userId || getStoredUserId();
+      if (Array.isArray(state.onlineMembers)) {
+        let found = false;
+        for (let i = 0; i < state.onlineMembers.length; i++) {
+          if (state.onlineMembers[i].id === myId) {
+            state.onlineMembers[i].nickname = trimmed;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          state.onlineMembers.unshift({ id: myId, nickname: trimmed });
+        }
+      } else {
+        state.onlineMembers = [{ id: myId, nickname: trimmed }];
+      }
+      updateOnlineMembersUI();
+
+      // 在已建立的连接中广播昵称变更，绝不主动断开连接
+      if (goEasy && state.goEasyReady) {
+        try {
+          if (typeof goEasy.pubsub.publish === 'function') {
+            goEasy.pubsub.publish({
+              channel: PRESENCE_CHANNEL,
+              message: JSON.stringify({
+                action: 'set',
+                member: { id: myId, nickname: trimmed, data: { nickname: trimmed } }
+              })
+            });
+          }
+        } catch (e) {
+          console.warn('[GoEasy] 广播昵称更新异常', e);
+        }
+      }
+
+      // 刷新所有消息气泡
       updateAllMessagesIsMine();
+      state.servers.forEach(s => renderChatMessages(s.id, false));
+      renderPublicChat(false);
       updateChatUI();
       return true;
     }
@@ -7918,7 +7955,6 @@ html:not(.dark) {
 
   function normalizeMember(m) {
     if (!m) return { id: 'unknown', nickname: '未知用户', avatar: '' };
-    // 兼容新版 {id, data:{nickname}} 与旧版 {id, data:"字符串"} / {userId, userData}
     let id = m.id || m.userId || 'unknown';
     let nickname = id;
     let avatar = '';
@@ -7935,20 +7971,13 @@ html:not(.dark) {
         nickname = rawData;
       }
     }
-    return { id: String(id), nickname: String(nickname), avatar: String(avatar || '') };
+    const myId = state.userId || getStoredUserId();
+    if (String(id) === String(myId) && state.username) {
+      nickname = state.username;
+    }
+    return { id: String(id), nickname: String(nickname), avatar: String(avatar) };
   }
 
-  let _presenceHereNowTimer = null;
-  function scheduleHereNowRefresh(delay) {
-    if (_presenceHereNowTimer) clearTimeout(_presenceHereNowTimer);
-    _presenceHereNowTimer = setTimeout(function () {
-      _presenceHereNowTimer = null;
-      queryHereNow();
-    }, typeof delay === 'number' ? delay : 400);
-  }
-
-  // 上线 Toast：同一用户短时间内只提示一次
-  const _onlineToastAt = Object.create(null);
   function notifyMemberOnline(member) {
     if (!member) return;
     const norm = normalizeMember(member);
@@ -8185,7 +8214,6 @@ html:not(.dark) {
     const titleCount = document.getElementById('onlineMembersTitleCount');
     const list = document.getElementById('onlineMembersList');
 
-    // 数字严格跟随当前成员列表长度，彻底避免 amount 旧值卡住角标
     const listLen = (state.onlineMembers && state.onlineMembers.length) || 0;
     const count = listLen;
     state.onlineCount = count;
@@ -8210,20 +8238,21 @@ html:not(.dark) {
       return;
     }
 
+    const myId = state.userId || getStoredUserId();
     const html = state.onlineMembers.map(m => {
-      const rawName = m.nickname || m.id || '匿名';
+      const isMe = (m.id === myId) || (m.id === state.username) || (m.nickname === state.username);
+      const rawName = isMe ? (state.username || m.nickname || '我') : (m.nickname || m.id || '匿名');
       const rawId = m.id || '';
       const name = esc(rawName);
       const idStr = esc(rawId);
       const initial = String(rawName || '?').charAt(0).toUpperCase();
-      const isMe = (m.id === state.username) || (m.nickname === state.username);
       return `<div class="online-member-item" title="${idStr}">
         <div class="online-member-avatar">${esc(initial)}</div>
         <div class="online-member-info">
-          <div class="online-member-name">${name}${isMe ? ' <span style="color:var(--cyan);font-size:11px;">(我)</span>' : ''}</div>
+          <div class="online-member-name">${name}${isMe ? ' <span style="font-size:10px;background:var(--cyan);color:#062a2b;padding:1px 6px;border-radius:6px;font-weight:700;">我</span>' : ''}</div>
           <div class="online-member-id">${idStr}</div>
         </div>
-        <div class="online-member-dot" title="在线"></div>
+        <div class="online-member-dot"></div>
       </div>`;
     }).join('');
     list.innerHTML = html;

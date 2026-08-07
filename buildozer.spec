@@ -15,7 +15,7 @@ entrypoint = main.py
 # ===== 启动图配置 =====
 # presplash.png 必须真实存在于项目根目录，背景实色 #DFF3FF，不要透明，否则会透出系统默认动态图
 presplash.filename = presplash.png
-fullscreen = 0
+fullscreen = 1
 # 浅色背景，与网页浅色一致（Native presplash 背景色）
 android.presplash_color = #DFF3FF
 # Android 12+ 新闪屏背景（与 styles.xml 中 windowSplashScreenBackground 保持一致）
