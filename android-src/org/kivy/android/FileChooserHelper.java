@@ -287,23 +287,23 @@ public class FileChooserHelper {
                         Log.w(TAG, "injectNativeBridge failed", e);
                     }
 
-                    // ---- 6. 把初始系统主题（白天/夜间）推给前端 ----
+                    // ---- 6. 把初始系统主题（白天/夜间）推给前端 - 已修复：延迟重试并调用 applySystemDarkMode ----
                     try {
                         final int uiMode = activity.getResources().getConfiguration().uiMode
                                 & Configuration.UI_MODE_NIGHT_MASK;
-                        final boolean isSystemDark = (uiMode == Configuration.UI_MODE_NIGHT_YES);
-                        final String initThemeJs = "(function(){"
-                                + "try{localStorage.setItem('lanplay_system_dark',"
-                                + (isSystemDark ? "'1'" : "'0'")
-                                + ");"
-                                + "window.__lanplaySystemDark=" + (isSystemDark ? "true" : "false")
-                                + ";"
-                                + "}catch(e){}"
-                                + "})();";
+                        final boolean _isSystemDark = (uiMode == Configuration.UI_MODE_NIGHT_YES);
                         webView.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                webView.evaluateJavascript(initThemeJs, null);
+                            int retries = 0;
+                            @Override public void run() {
+                                try {
+                                    String js = "(function(){try{"
+                                            + "localStorage.setItem('lanplay_system_dark','" + (_isSystemDark?"1":"0") + "');"
+                                            + "window.__lanplaySystemDark=" + (_isSystemDark?"true":"false") + ";"
+                                            + "if(window.applySystemDarkMode) window.applySystemDarkMode(" + (_isSystemDark?"true":"false") + ");"
+                                            + "}catch(e){}})();";
+                                    webView.evaluateJavascript(js, null);
+                                    if (retries++ < 3) webView.postDelayed(this, 500);
+                                } catch (Exception e) { Log.w(TAG, "init theme push failed", e); }
                             }
                         });
                     } catch (Exception e) {
@@ -334,7 +334,7 @@ public class FileChooserHelper {
                             try {
                                 int uiMode = newConfig.uiMode & Configuration.UI_MODE_NIGHT_MASK;
                                 boolean isSystemDark = (uiMode == Configuration.UI_MODE_NIGHT_YES);
-                                ImmersiveStatusBarHelper.setPageTheme(activity, isSystemDark);
+                                // 已移除直接 setPageTheme，改为只通知 JS，由 JS 根据是否跟随再决定是否同步状态栏
                                 final String js = "(function(isDark){"
                                         + "try{window.__lanplaySystemDark=isDark;"
                                         + "localStorage.setItem('lanplay_system_dark',isDark?'1':'0');"
