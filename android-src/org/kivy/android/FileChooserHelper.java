@@ -72,13 +72,20 @@ public class FileChooserHelper {
             public void run() {
                 try {
                     WebSettings settings = webView.getSettings();
-                    settings.setSupportZoom(true);
-                    settings.setBuiltInZoomControls(true);
+                    // 除了图片查看器在 JS 层支持手势放大外，全局禁用 WebView 网页缩放
+                    settings.setSupportZoom(false);
+                    settings.setBuiltInZoomControls(false);
                     settings.setDisplayZoomControls(false);
                     settings.setUseWideViewPort(true);
                     settings.setLoadWithOverviewMode(true);
-                    // 50% 作为打开外部网页时的初始小比例，用户仍可双指放大/缩小。
-                    webView.setInitialScale(50);
+                    // 锁死 WebView 文本缩放为 100%，避免系统大字号撑破布局
+                    settings.setTextZoom(100);
+                    // 允许 WebView 内容占满设备宽度，不使用初始 scale=50%（那会让本地页面布局错乱）
+                    webView.setInitialScale(0);
+                    // 禁止 WebView 横向/纵向出现额外滚动条弹性（让前端 body overflow-x:hidden 接管）
+                    webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+                    webView.setHorizontalScrollBarEnabled(false);
+                    webView.setVerticalScrollBarEnabled(false);
 
                     // 让 WebView 的 prefers-color-scheme 跟随系统（API 21+ 实际上已经跟随；
                     // 但显式声明更清晰，也方便未来在 Android 11 以下做更细的控制）。
