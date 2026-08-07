@@ -199,59 +199,9 @@
     window.addEventListener('orientationchange', _applySafeArea, {passive:true});
   } catch(e){}
 
-  // 点击主题按钮：light -> dark -> 跟随系统（auto）三态循环，长按直接回到跟随
+  // 点击主题按钮逻辑已移至底部单例 bindThemeToggle()，顶部 IIFE 不再重复绑定，避免双重监听和 DOMContentLoaded 嵌套失效
   try {
-    document.addEventListener('DOMContentLoaded', function(){
-      const btn = document.getElementById('themeToggleBtn');
-      if(!btn) return;
-      // 单击：三态循环
-      btn.addEventListener('click', function(){
-        setTimeout(function(){
-          const manual = _getSavedManualTheme();
-          let next;
-          if (!manual) {
-            // 当前是跟随系统，点一下锁定为与当前相反的固定主题
-            const curIsDark = document.documentElement.classList.contains('dark')
-              || (!document.documentElement.classList.contains('light') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-            next = curIsDark ? 'light' : 'dark';
-            try{ localStorage.setItem('lan_play_theme', next); }catch(e){}
-          } else if (manual === 'light') {
-            next = 'dark';
-            try{ localStorage.setItem('lan_play_theme', 'dark'); }catch(e){}
-          } else {
-            // dark -> 回到跟随
-            try{ localStorage.removeItem('lan_play_theme'); }catch(e){}
-            next = _resolveTheme();
-          }
-          _applyThemeToDom(next);
-          _pushThemeToJava(next);
-          try{ if(typeof updateThemeIcon==='function') updateThemeIcon(); }catch(e){}
-        },0);
-      });
-      // 长按 600ms 回到跟随系统
-      let lpTimer=null, sx=0, sy=0;
-      btn.addEventListener('pointerdown', e=>{
-        sx=e.clientX; sy=e.clientY;
-        lpTimer=setTimeout(()=>{
-          window.resetToFollowSystem();
-          try{ if(navigator.vibrate) navigator.vibrate(20);}catch(e){}
-          // 阻止随后的 click
-          const blocker=(ev)=>{ev.preventDefault();ev.stopImmediatePropagation();};
-          btn.addEventListener('click', blocker, {capture:true, once:true});
-          setTimeout(()=>btn.removeEventListener('click', blocker, {capture:true}), 700);
-          // 提示
-          try{ if(typeof showToast==='function') showToast('已切换为跟随系统',1500,true);}catch(e){}
-        },600);
-      });
-      ['pointerup','pointercancel','pointerleave','pointermove'].forEach(ev=>{
-        btn.addEventListener(ev, e=>{
-          if(ev==='pointermove' && lpTimer){
-            const dx=e.clientX-sx, dy=e.clientY-sy;
-            if(dx*dx+dy*dy>64){ clearTimeout(lpTimer); lpTimer=null; }
-          } else { clearTimeout(lpTimer); lpTimer=null; }
-        }, {passive:true});
-      });
-    });
+    // 保留长按重置到跟随系统的全局方法已在顶部定义
   } catch(e){}
 
   // 监听外部事件：当 Java 或其它脚本分发 lanplay:system-theme-changed 时刷新图标
@@ -356,35 +306,60 @@ html.dark .glass{border-color:rgba(255,255,255,.05)}
   min-width:0;
   flex:1 1 auto;
   overflow-x:auto;
-  overflow-y:hidden;
+  overflow-y:visible;
   scrollbar-width:none;
   -ms-overflow-style:none;
   -webkit-overflow-scrolling:touch;
   touch-action:pan-x;
+  padding:4px 2px;
+  margin:-4px -2px;
+  min-height:46px;
 }
 .brand-area::-webkit-scrollbar{display:none}
-.brand-area > *{flex-shrink:0}
-/* 导航栏图标拖拽排序（虚线用内边框，避免被 overflow 裁切） */
+.brand-area > *{flex-shrink:0; position:relative; box-sizing:border-box;}
+/* FIX: 透明边框占位，避免切换border时尺寸变化导致边缘缺失裁切 */
+.brand-area > button{
+  border:2px solid transparent!important;
+  background-clip:padding-box;
+  box-sizing:border-box!important;
+  position:relative;
+  overflow:visible;
+  outline:none!important;
+  -webkit-tap-highlight-color:transparent;
+}
+/* 导航栏图标拖拽排序 */
 .brand-area > button.nav-dragging{
-  opacity:0.35;
-  transform:scale(0.9);
+  opacity:0.38;
+  transform:scale(0.92);
   z-index:5;
-  filter:grayscale(0.2);
+  filter:grayscale(0.15);
+  border-color:transparent!important;
+  box-shadow:none!important;
 }
 .brand-area > button.nav-drag-over{
-  /* 内描边虚线：不依赖 outline，不会被 overflow-x/y 裁掉 */
   border:2px dashed var(--cyan)!important;
   background:rgba(25,200,174,.14)!important;
-  box-sizing:border-box;
+  box-shadow:inset 0 0 0 1px rgba(25,200,174,.25);
 }
 html.dark .brand-area > button.nav-drag-over,
 :root:not(.light) .brand-area > button.nav-drag-over{
   background:rgba(46,230,200,.18)!important;
   border-color:var(--cyan)!important;
+  box-shadow:inset 0 0 0 1px rgba(46,230,200,.25);
 }
 .brand-area.nav-reordering{
   touch-action:none;
-  overflow:visible; /* 拖动时允许阴影/拖影溢出 */
+  overflow-x:auto;
+  overflow-y:visible;
+}
+/* FIX: 导航栏按钮hover上浮会因overflow被裁切，改为仅变亮，不位移 */
+.brand-area > button:hover{
+  transform:none!important;
+  filter:brightness(1.08);
+}
+.brand-area > button:active{
+  transform:scale(0.96)!important;
+  filter:brightness(0.96);
 }
 /* 跟手拖影（fixed，挂在 body 上，不受导航栏裁切） */
 .nav-drag-ghost{
@@ -3288,78 +3263,184 @@ html:not(.dark) {
     showToast(successMsg || '✓ 已复制');
   }
 
-  // ===== 主题切换（已修复：单例 + 实时同步状态栏） =====
+  // ===== 主题切换（已修复 v7：单例 + 实时同步状态栏 + 修复点击无反应） =====
   const themeToggleBtn = $('themeToggleBtn');
   const htmlEl = document.documentElement;
-  // savedTheme 逻辑已由顶部 setupSystemThemeAndImmersive 接管，这里只做兼容兜底
-  const __savedThemeCompat = localStorage.getItem('lan_play_theme');
-  if (__savedThemeCompat) {
-    if (__savedThemeCompat === 'dark') { htmlEl.classList.add('dark'); htmlEl.classList.remove('light'); }
-    else if (__savedThemeCompat === 'light') { htmlEl.classList.add('light'); htmlEl.classList.remove('dark'); }
-  }
 
-  function _syncStatusBarFromDom(isDark) {
-    try {
-      if (window.LanPlayNative && typeof window.LanPlayNative.syncPageTheme === 'function') {
-        window.LanPlayNative.syncPageTheme(isDark);
+  function _getSavedManualThemeCompat(){
+    try{
+      const v=localStorage.getItem('lan_play_theme');
+      if(v==='light'||v==='dark') return v;
+      if(v==='auto') return null;
+    }catch(e){}
+    return null;
+  }
+  function _fetchSystemDarkFromJavaCompat(){
+    try{
+      if(window.LanPlayNative && typeof window.LanPlayNative.getInfo==='function'){
+        const raw=window.LanPlayNative.getInfo();
+        const info=JSON.parse(raw);
+        if(info && typeof info.isSystemDark==='boolean') return info.isSystemDark;
       }
-    } catch(e){}
+    }catch(e){}
+    return null;
+  }
+  function _resolveThemeCompat(){
+    const manual=_getSavedManualThemeCompat();
+    if(manual) return manual;
+    const fromJava=_fetchSystemDarkFromJavaCompat();
+    if(fromJava!==null) return fromJava?'dark':'light';
+    try{
+      const cached=localStorage.getItem('lanplay_system_dark');
+      if(cached==='1') return 'dark';
+      if(cached==='0') return 'light';
+    }catch(e){}
+    if(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+    return 'light';
+  }
+  function _applyThemeToDomCompat(theme){
+    if(!htmlEl) return;
+    if(theme==='dark'){ htmlEl.classList.add('dark'); htmlEl.classList.remove('light'); }
+    else if(theme==='light'){ htmlEl.classList.add('light'); htmlEl.classList.remove('dark'); }
+    else { htmlEl.classList.remove('light','dark'); }
+  }
+  function _pushThemeToJavaCompat(theme){
+    try{
+      if(window.LanPlayNative && typeof window.LanPlayNative.syncPageTheme==='function'){
+        window.LanPlayNative.syncPageTheme(theme==='dark');
+      }
+    }catch(e){}
+  }
+  function _syncStatusBarFromDom(isDark){
+    _pushThemeToJavaCompat(isDark?'dark':'light');
   }
 
-  // 全局暴露，供顶部 IIFE 调用（避免 ReferenceError）
-  window.updateThemeColor = window.updateThemeColor || function() {
+  // 兼容兜底：顶部 IIFE 可能没来得及写 html class
+  const __savedThemeCompat = _getSavedManualThemeCompat();
+  if(__savedThemeCompat){
+    if(__savedThemeCompat==='dark'){ htmlEl.classList.add('dark'); htmlEl.classList.remove('light'); }
+    else if(__savedThemeCompat==='light'){ htmlEl.classList.add('light'); htmlEl.classList.remove('dark'); }
+  }
+
+  window.updateThemeColor = window.updateThemeColor || function(){
     const isDark = htmlEl.classList.contains('dark');
     const color = isDark ? '#0f1923' : '#dff3ff';
-    // 清理旧 meta
     document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.remove());
-    const meta = document.createElement('meta');
-    meta.name = 'theme-color';
-    meta.content = color;
+    const meta=document.createElement('meta'); meta.name='theme-color'; meta.content=color;
     document.head.appendChild(meta);
-    const iosMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-    if (iosMeta) iosMeta.content = isDark ? 'black-translucent' : 'default';
+    const iosMeta=document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if(iosMeta) iosMeta.content=isDark?'black-translucent':'default';
     _syncStatusBarFromDom(isDark);
   };
+  function updateThemeColor(){ return window.updateThemeColor(); }
 
-  function updateThemeColor() { return window.updateThemeColor(); }
-
-  window.updateThemeIcon = window.updateThemeIcon || function() {
-    const manual = localStorage.getItem('lan_play_theme');
+  window.updateThemeIcon = window.updateThemeIcon || function(){
+    const manual=localStorage.getItem('lan_play_theme');
     const isDark = htmlEl.classList.contains('dark') || (!manual && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    if (themeToggleBtn) themeToggleBtn.textContent = isDark ? '🌞' : '🌙';
+    if(themeToggleBtn) themeToggleBtn.textContent = isDark ? '🌞' : '🌙';
   };
+  function updateThemeIcon(){ return window.updateThemeIcon(); }
 
-  function updateThemeIcon() { return window.updateThemeIcon(); }
-
-  // 初始化图标与颜色（会同步状态栏）
   updateThemeIcon();
   updateThemeColor();
 
-  // 滚动时不再反复重设 theme-color，避免频繁触发 WebView 重绘导致状态栏闪烁
-  // 如需动态切换，可保留但节流
   let scrollColorTimer = null;
   document.addEventListener('scroll', () => {
-    if (scrollColorTimer) cancelAnimationFrame(scrollColorTimer);
+    if(scrollColorTimer) cancelAnimationFrame(scrollColorTimer);
     scrollColorTimer = requestAnimationFrame(() => {
-      // 仅在系统跟随模式下才更新，避免覆盖手动主题
-      if (!localStorage.getItem('lan_play_theme')) {
+      if(!localStorage.getItem('lan_play_theme')){
         updateThemeColor();
       }
-      scrollColorTimer = null;
+      scrollColorTimer=null;
     });
-  }, { passive: true });
+  }, {passive:true});
 
-  // 【关键修复】移除底部重复的 click 监听，主题切换已由顶部 IIFE 的三态循环接管。
-  // 这里只保留一个保险监听：如果顶部监听因 DOM 时序未绑定，则由本处接管并同步状态栏。
-  // 使用 {once:false} 但通过标记避免重复执行。
-  if (themeToggleBtn && !themeToggleBtn.dataset.__fixedBound) {
-    themeToggleBtn.dataset.__fixedBound = '1';
-    // 不再在此处 addEventListener('click', ...) 切换主题，
-    // 仅确保如果顶部 IIFE 未生效时，点一下仍能同步状态栏。
-    // 顶部 IIFE 的监听已在 DOMContentLoaded 时绑定，这里不再重复。
+  // 单例绑定：确保只绑定一次，点击真正生效
+  function bindThemeToggle(){
+    if(!themeToggleBtn) return false;
+    if(themeToggleBtn.dataset.__themeBound==='1') return true;
+    themeToggleBtn.dataset.__themeBound='1';
+
+    // 点击：light -> dark -> 跟随系统 三态
+    themeToggleBtn.addEventListener('click', (e)=>{
+      // 如果正在拖拽导航栏，忽略点击
+      if(themeToggleBtn.classList.contains('nav-dragging')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const manual=_getSavedManualThemeCompat();
+      let next;
+      if(!manual){
+        const curIsDark = htmlEl.classList.contains('dark') || (!htmlEl.classList.contains('light') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        next = curIsDark ? 'light' : 'dark';
+        try{ localStorage.setItem('lan_play_theme', next); }catch(e2){}
+      }else if(manual==='light'){
+        next='dark';
+        try{ localStorage.setItem('lan_play_theme','dark'); }catch(e2){}
+      }else{
+        try{ localStorage.removeItem('lan_play_theme'); }catch(e2){}
+        next=_resolveThemeCompat();
+      }
+      _applyThemeToDomCompat(next);
+      _pushThemeToJavaCompat(next);
+      updateThemeIcon();
+      updateThemeColor();
+      // 轻微缩放动效
+      document.body.style.transform='scale(0.999)';
+      const hero=document.querySelector('.hero');
+      if(hero) hero.style.transform='scale(0.999)';
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        document.body.style.transform='';
+        if(hero) hero.style.transform='';
+      }));
+      try{ if(typeof showToast==='function'){ 
+        const label = !localStorage.getItem('lan_play_theme') ? '已切换为跟随系统' : (next==='dark'?'已切换为深色':'已切换为浅色');
+        showToast(label, 1200, true);
+      }}catch(e2){}
+    });
+
+    // 长按 600ms 回到跟随系统
+    let lpTimer=null, sx=0, sy=0;
+    themeToggleBtn.addEventListener('pointerdown', ev=>{
+      if(ev.button!=null && ev.button!==0) return;
+      sx=ev.clientX; sy=ev.clientY;
+      lpTimer=setTimeout(()=>{
+        try{ localStorage.removeItem('lan_play_theme'); }catch(e3){}
+        const next=_resolveThemeCompat();
+        _applyThemeToDomCompat(next);
+        _pushThemeToJavaCompat(next);
+        updateThemeIcon(); updateThemeColor();
+        try{ if(navigator.vibrate) navigator.vibrate(20);}catch(e3){}
+        try{ if(typeof showToast==='function') showToast('已切换为跟随系统',1500,true);}catch(e3){}
+        // 阻止随后的 click
+        const blocker=(e4)=>{e4.preventDefault(); e4.stopImmediatePropagation();};
+        themeToggleBtn.addEventListener('click', blocker, {capture:true, once:true});
+        setTimeout(()=>{ try{ themeToggleBtn.removeEventListener('click', blocker, {capture:true}); }catch(e3){} }, 700);
+      },600);
+    });
+    ['pointerup','pointercancel','pointerleave','pointermove'].forEach(evName=>{
+      themeToggleBtn.addEventListener(evName, ev=>{
+        if(evName==='pointermove' && lpTimer){
+          const dx=ev.clientX-sx, dy=ev.clientY-sy;
+          if(dx*dx+dy*dy>64){ clearTimeout(lpTimer); lpTimer=null; }
+        }else{ clearTimeout(lpTimer); lpTimer=null; }
+      }, {passive:true});
+    });
+
+    return true;
   }
 
-  // ===== DPI 缩放 =====
+  // 立即尝试绑定 + DOMContentLoaded 再试一次，解决之前嵌套 DOMContentLoaded 导致不触发的 bug
+  if(!bindThemeToggle()){
+    document.addEventListener('DOMContentLoaded', bindThemeToggle);
+  }else{
+    // 即使已绑定，也再监听一次以防按钮被重新渲染
+    document.addEventListener('DOMContentLoaded', bindThemeToggle);
+  }
+  // 暴露给顶部 IIFE 或外部调用
+  window.__bindThemeToggle = bindThemeToggle;
+
+  
+    // ===== DPI 缩放 =====
   const dpiToggleBtn = document.getElementById('dpiToggleBtn');
   const dpiModal = document.getElementById('dpiModal');
   const closeDpiModalBtn = document.getElementById('closeDpiModalBtn');
