@@ -2,8 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <!-- 让 WebView 加载页背景与原生 presplash 完全一致，避免闪现紫色三柱 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <title>LanPlay Monitor</title>
     <style>
         html, body {
@@ -11,13 +10,23 @@
             padding: 0;
             width: 100%;
             height: 100%;
-            /* 与 buildozer.spec 中 android.presplash_color、styles.xml 中 windowSplashScreenBackground 保持一致 */
             background-color: #DFF3FF;
-            /* 去掉默认滚动条/高亮，保证从原生闪屏到 WebView 无视觉跳变 */
             overflow: hidden;
             -webkit-tap-highlight-color: transparent;
         }
-        /* 彻底隐藏默认 .loader 三根紫色柱（即使旧 CSS 被缓存也无效） */
+        .splash-img {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center;
+            display: block;
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        /* 彻底隐藏 p4a 默认 .loader 三根紫色柱 */
         .loader, .loader:before, .loader:after {
             display: none !important;
             width: 0 !important;
@@ -26,53 +35,10 @@
             animation: none !important;
             -webkit-animation: none !important;
         }
-        /* 可选：居中放一个和应用一致的 logo/文字，让等待更自然。
-           如不需要任何元素，把下面 .brand 块删掉即可，只剩纯色背景 */
-        .brand {
-            position: fixed;
-            left: 0; right: 0; top: 0; bottom: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-            color: #0F1923;
-            letter-spacing: 2px;
-            user-select: none;
-        }
-        .brand .logo {
-            width: 96px;
-            height: 96px;
-            border-radius: 22px;
-            background: #2E8BFF linear-gradient(135deg, #4FA3FF 0%, #1E6FE0 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            font-size: 40px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 24px rgba(46,139,255,0.28);
-        }
-        .brand .title {
-            font-size: 20px;
-            font-weight: 600;
-            opacity: 0.88;
-        }
-        .brand .sub {
-            margin-top: 8px;
-            font-size: 13px;
-            opacity: 0.55;
-        }
     </style>
 </head>
 <body>
-    <div class="brand">
-        <div class="logo">L</div>
-        <div class="title">LanPlay Monitor</div>
-        <div class="sub">正在启动...</div>
-    </div>
-    <!-- 保留 load 容器但清空，防止默认 loader 被脚本插入 -->
+    <img class="splash-img" src="_presplash.png" alt="LanPlay Monitor">
     <div id="load" style="height:100%"></div>
 </body>
 </html>
