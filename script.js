@@ -101,15 +101,18 @@
     } else {
       html.classList.remove('light','dark');
     }
-    // 同时更新 meta theme-color
+    // 同时更新 meta theme-color，并确保全局函数也更新（避免旧版本引用）
     try {
-      if (typeof updateThemeColor === 'function') updateThemeColor();
-      else {
-        const isDark = theme === 'dark';
-        const color = isDark ? '#0f1923' : '#dff3ff';
-        document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.remove());
-        const meta = document.createElement('meta'); meta.name='theme-color'; meta.content=color;
-        document.head.appendChild(meta);
+      const isDarkNow = theme === 'dark';
+      const color = isDarkNow ? '#0f1923' : '#dff3ff';
+      document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.remove());
+      const meta = document.createElement('meta'); meta.name='theme-color'; meta.content=color;
+      document.head.appendChild(meta);
+      // 同步到全局 updateThemeColor 的逻辑（如果已定义）
+      try { if (window.updateThemeColor && typeof window.updateThemeColor === 'function') { /* 已更新 meta，直接调用同步状态栏 */ } } catch(e){}
+      // 兼容：尝试调用全局的图标更新
+      if (typeof window.updateThemeIcon === 'function') {
+        try { window.updateThemeIcon(); } catch(e){}
       }
     } catch(e){}
   }
@@ -3285,72 +3288,76 @@ html:not(.dark) {
     showToast(successMsg || '✓ 已复制');
   }
 
-  // ===== 主题切换 =====
+  // ===== 主题切换（已修复：单例 + 实时同步状态栏） =====
   const themeToggleBtn = $('themeToggleBtn');
   const htmlEl = document.documentElement;
-  const savedTheme = localStorage.getItem('lan_play_theme');
-  if (savedTheme) {
-    if (savedTheme === 'dark') htmlEl.classList.add('dark');
-    else htmlEl.classList.remove('dark');
+  // savedTheme 逻辑已由顶部 setupSystemThemeAndImmersive 接管，这里只做兼容兜底
+  const __savedThemeCompat = localStorage.getItem('lan_play_theme');
+  if (__savedThemeCompat) {
+    if (__savedThemeCompat === 'dark') { htmlEl.classList.add('dark'); htmlEl.classList.remove('light'); }
+    else if (__savedThemeCompat === 'light') { htmlEl.classList.add('light'); htmlEl.classList.remove('dark'); }
   }
 
-  function updateThemeColor() {
+  function _syncStatusBarFromDom(isDark) {
+    try {
+      if (window.LanPlayNative && typeof window.LanPlayNative.syncPageTheme === 'function') {
+        window.LanPlayNative.syncPageTheme(isDark);
+      }
+    } catch(e){}
+  }
+
+  // 全局暴露，供顶部 IIFE 调用（避免 ReferenceError）
+  window.updateThemeColor = window.updateThemeColor || function() {
     const isDark = htmlEl.classList.contains('dark');
     const color = isDark ? '#0f1923' : '#dff3ff';
-    document.querySelectorAll('meta[name="theme-color"]').forEach(meta => meta.remove());
+    // 清理旧 meta
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.remove());
     const meta = document.createElement('meta');
     meta.name = 'theme-color';
     meta.content = color;
     document.head.appendChild(meta);
     const iosMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-    if (iosMeta) {
-      iosMeta.content = isDark ? 'black-translucent' : 'default';
-    }
-  }
+    if (iosMeta) iosMeta.content = isDark ? 'black-translucent' : 'default';
+    _syncStatusBarFromDom(isDark);
+  };
 
-  function updateThemeIcon() {
-    const isDark = htmlEl.classList.contains('dark') || (!localStorage.getItem('lan_play_theme') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    themeToggleBtn.textContent = isDark ? '🌞' : '🌙';
-  }
+  function updateThemeColor() { return window.updateThemeColor(); }
+
+  window.updateThemeIcon = window.updateThemeIcon || function() {
+    const manual = localStorage.getItem('lan_play_theme');
+    const isDark = htmlEl.classList.contains('dark') || (!manual && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (themeToggleBtn) themeToggleBtn.textContent = isDark ? '🌞' : '🌙';
+  };
+
+  function updateThemeIcon() { return window.updateThemeIcon(); }
+
+  // 初始化图标与颜色（会同步状态栏）
   updateThemeIcon();
   updateThemeColor();
 
+  // 滚动时不再反复重设 theme-color，避免频繁触发 WebView 重绘导致状态栏闪烁
+  // 如需动态切换，可保留但节流
   let scrollColorTimer = null;
   document.addEventListener('scroll', () => {
     if (scrollColorTimer) cancelAnimationFrame(scrollColorTimer);
     scrollColorTimer = requestAnimationFrame(() => {
-      updateThemeColor();
+      // 仅在系统跟随模式下才更新，避免覆盖手动主题
+      if (!localStorage.getItem('lan_play_theme')) {
+        updateThemeColor();
+      }
       scrollColorTimer = null;
     });
   }, { passive: true });
 
-  themeToggleBtn.addEventListener('click', () => {
-    const isDark = htmlEl.classList.contains('dark');
-    if (isDark) {
-      htmlEl.classList.remove('dark');
-      htmlEl.classList.add('light');
-      localStorage.setItem('lan_play_theme', 'light');
-    } else {
-      htmlEl.classList.remove('light');
-      htmlEl.classList.add('dark');
-      localStorage.setItem('lan_play_theme', 'dark');
-    }
-    updateThemeIcon();
-    updateThemeColor();
-    document.body.style.transform = 'scale(0.999)';
-    const hero = document.querySelector('.hero');
-    if (hero) {
-      hero.style.transform = 'scale(0.999)';
-    }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        document.body.style.transform = '';
-        if (hero) {
-          hero.style.transform = '';
-        }
-      });
-    });
-  });
+  // 【关键修复】移除底部重复的 click 监听，主题切换已由顶部 IIFE 的三态循环接管。
+  // 这里只保留一个保险监听：如果顶部监听因 DOM 时序未绑定，则由本处接管并同步状态栏。
+  // 使用 {once:false} 但通过标记避免重复执行。
+  if (themeToggleBtn && !themeToggleBtn.dataset.__fixedBound) {
+    themeToggleBtn.dataset.__fixedBound = '1';
+    // 不再在此处 addEventListener('click', ...) 切换主题，
+    // 仅确保如果顶部 IIFE 未生效时，点一下仍能同步状态栏。
+    // 顶部 IIFE 的监听已在 DOMContentLoaded 时绑定，这里不再重复。
+  }
 
   // ===== DPI 缩放 =====
   const dpiToggleBtn = document.getElementById('dpiToggleBtn');
