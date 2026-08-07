@@ -21,12 +21,13 @@ android.presplash_color = #DFF3FF
 # Android 12+ 新闪屏背景（与 styles.xml 中 windowSplashScreenBackground 保持一致）
 android.splash_background_color = #DFF3FF
 # 禁用 p4a 默认的加载动画 lottie（p4a develop 分支；留空禁用动态图标，避免覆盖静态 presplash）
-android.presplash_lottie =
+# android.presplash_lottie =
 
 # --- 关键：覆盖 p4a webview bootstrap 的 _load.html（三根紫柱加载页） ---
 # 使用 source:destination 显式映射，把 _load.html 和 _loading_style.css
-# 直接打入 APK 的 assets/ 根目录（替换 p4a 默认三根紫色柱）
-android.add_assets = assets/_load.html:_load.html, assets/_loading_style.css:_loading_style.css
+# 直接打入 APK 的 assets/ 根目录（替换 p4a 默认三根紫色柱），
+# 避免打包出重复的 assets/assets/ 路径导致自定义启动页失效。
+android.add_assets = assets/_load.html:_load.html, assets/_loading_style.css:_loading_style.css, assets/_presplash.png:_presplash.png
 # ===================================================================
 
 requirements = python3, pyjnius

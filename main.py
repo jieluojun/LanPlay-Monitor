@@ -2266,7 +2266,7 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
 
 def main() -> None:
-    time.sleep(1.0) # 启动等待时长
+    # time.sleep(2.0) # 启动等待时长
     ensure_frontend_exists()
     ctx.refresh_config()
     info(f"[配置] 初始服务器数: {len(ctx.servers)}")
