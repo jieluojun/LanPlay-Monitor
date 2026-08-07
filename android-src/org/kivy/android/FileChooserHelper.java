@@ -46,6 +46,43 @@ public class FileChooserHelper {
     private static WebChromeClient.CustomViewCallback mCustomViewCallback = null;
     private static int mOriginalSystemUiVisibility = 0;
 
+    public static void fixSplashScale(final Activity activity) {
+        if (activity == null) return;
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    View decor = activity.getWindow().getDecorView();
+                    if (decor instanceof ViewGroup) {
+                        fixImageViews((ViewGroup) decor);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "fixSplashScale failed", e);
+                }
+            }
+        });
+    }
+
+    private static void fixImageViews(ViewGroup parent) {
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            View child = parent.getChildAt(i);
+            if (child instanceof android.widget.ImageView) {
+                android.widget.ImageView iv = (android.widget.ImageView) child;
+                iv.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+                iv.setAdjustViewBounds(false);
+                ViewGroup.LayoutParams lp = iv.getLayoutParams();
+                if (lp != null) {
+                    lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                    lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                    iv.setLayoutParams(lp);
+                }
+            } else if (child instanceof ViewGroup) {
+                fixImageViews((ViewGroup) child);
+            }
+        }
+    }
+
+
     public static boolean install() {
         final PythonActivity activity = PythonActivity.mActivity;
         final WebView webView = PythonActivity.mWebView;
@@ -62,6 +99,7 @@ public class FileChooserHelper {
         // ---- 1. 沉浸式状态栏（透明状态栏 + 内容延伸到状态栏下方） ----
         try {
             ImmersiveStatusBarHelper.install(activity);
+            fixSplashScale(activity);
         } catch (Exception e) {
             Log.w(TAG, "ImmersiveStatusBarHelper.install failed", e);
         }
