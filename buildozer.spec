@@ -8,10 +8,17 @@ source.include_patterns = image/*
 version = 1.0.0
 
 icon.filename = icon.png
-presplash.filename = presplash.png
-fullscreen = 0
+# 锁定竖屏
 orientation = portrait
 entrypoint = main.py
+
+# ===== 启动图配置 =====
+presplash.filename = presplash.png
+fullscreen = 1
+android.presplash_color = #DFF3FF
+# Android12+ 新闪屏（否则API33上原presplash被系统SplashScreen顶掉）
+android.splash_background_color = #DFF3FF
+# ========================
 
 # ★ 改动 1：加入 pyjnius（Python 调用 Java 桥 FileChooserHelper 所必需）
 requirements = python3, pyjnius
