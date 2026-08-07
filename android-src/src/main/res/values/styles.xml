@@ -1,23 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 启动状态栏颜色与自定义启动图深度同步配置 -->
+<!-- 全屏沉浸式启动主题：启动图 100% 满屏铺满，不留上下白条 -->
 <resources>
-    <style name="AppTheme" parent="@android:style/Theme.NoTitleBar">
+    <style name="AppTheme" parent="@android:style/Theme.NoTitleBar.Fullscreen">
         <item name="android:windowBackground">@drawable/presplash</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowContentOverlay">@null</item>
-        <item name="android:windowFullscreen">false</item>
+        <item name="android:windowFullscreen">true</item>
         <item name="android:windowIsTranslucent">false</item>
 
-        <!-- 启动瞬间状态栏与导航栏立即呈现启动页背景色 #DFF3FF，浅色背景使用深色图标 -->
-        <item name="android:statusBarColor">#DFF3FF</item>
-        <item name="android:navigationBarColor">#DFF3FF</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
-        <item name="android:windowTranslucentStatus">false</item>
-        <item name="android:windowTranslucentNavigation">false</item>
+        <!-- 沉浸式透明状态栏/导航栏，启动图延伸至刘海与下巴 -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">true</item>
+        <item name="android:windowTranslucentNavigation">true</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
 
-        <!-- Android 12+ SplashScreen：与 presplash 背景严格统一 -->
+        <!-- 允许延伸到刘海屏与状态栏顶端（Android 9+ P API 28+） -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+
+        <!-- Android 12+ SplashScreen：与 presplash 背景完全融合 -->
         <item name="android:windowSplashScreenBackground">#DFF3FF</item>
         <item name="android:windowSplashScreenAnimatedIcon">@null</item>
         <item name="android:windowSplashScreenAnimationDuration">0</item>
@@ -26,12 +27,13 @@
         <item name="android:windowSplashScreenBehavior">icon_preferred</item>
     </style>
 
-    <style name="PostSplashTheme" parent="@android:style/Theme.NoTitleBar">
+    <style name="PostSplashTheme" parent="@android:style/Theme.NoTitleBar.Fullscreen">
         <item name="android:windowBackground">@drawable/presplash</item>
-        <item name="android:statusBarColor">#DFF3FF</item>
-        <item name="android:navigationBarColor">#DFF3FF</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">true</item>
+        <item name="android:windowTranslucentNavigation">true</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>
