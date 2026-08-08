@@ -11272,17 +11272,17 @@ html:not(.dark) {
   const addPort = document.getElementById('addPort');
   setupHostPortAutoFill(addHost, addPort);
 
-  // ===== 环境变量配置（env.json）：读取 /api/env 供 GoEasy 使用 =====
+  // ===== 环境变量配置：公开 runtime 仅供 GoEasy；完整密钥走受保护的 /api/env =====
   async function loadEnvConfig() {
     try {
-      const d = await getJSON('/api/env?_=' + Date.now());
+      // 聊天初始化只用最小公开配置，避免未授权访问 /api/env 泄露密钥
+      const d = await getJSON('/api/env/runtime?_=' + Date.now());
       if (d && d.ok === true && d.config && typeof d.config === 'object') {
         state.goEasyConfig = (d.config.goeasy && typeof d.config.goeasy === 'object') ? d.config.goeasy : {};
         state.r2Config = (d.config.cloudflare_r2 && typeof d.config.cloudflare_r2 === 'object') ? d.config.cloudflare_r2 : {};
-        if (d.file) state.envConfigFile = d.file;
       }
     } catch (e) {
-      console.warn('[env配置] 读取环境变量配置失败', e);
+      console.warn('[env配置] 读取运行时配置失败', e);
     }
   }
 
@@ -11451,8 +11451,38 @@ html:not(.dark) {
         if (el) el.value = (val == null ? '' : String(val));
       };
       try {
-        const d = await getJSON('/api/env?_=' + Date.now());
-        if (!d || d.ok !== true || !d.config) return;
+        // 完整密钥必须经安全密码；公网未授权返回 403，不再下发任何密钥。
+        const headers = { 'Accept': 'application/json' };
+        if (_envVerifiedPassword) headers['X-Env-Password'] = _envVerifiedPassword;
+        const r = await fetch('/api/env?_=' + Date.now(), { headers: headers, cache: 'no-store' });
+        const d = await r.json().catch(() => ({}));
+        if (r.status === 403 && d && d.need_set_password) {
+          showToast('🔒 公网访问请先设置安全密码', 2500, false);
+          _envVerifiedPassword = '';
+          const modal = document.getElementById('envSettingsModal');
+          if (modal) modal.classList.remove('open');
+          forceSetPassword(function () {
+            const m = document.getElementById('envSettingsModal');
+            if (m) m.classList.add('open');
+            loadEnvIntoForm();
+          });
+          return;
+        }
+        if (r.status === 403 || (d && d.need_password)) {
+          showToast('🔒 请先输入安全密码后再查看配置', 2500, false);
+          _envVerifiedPassword = '';
+          const modal = document.getElementById('envSettingsModal');
+          if (modal) modal.classList.remove('open');
+          requirePasswordToOpen(function () {
+            const m = document.getElementById('envSettingsModal');
+            if (m) m.classList.add('open');
+            loadEnvIntoForm();
+          });
+          return;
+        }
+        if (!r.ok || !d || d.ok !== true || !d.config) {
+          throw new Error((d && d.error) || ('请求失败 (' + r.status + ')'));
+        }
         if (d.file) {
           state.envConfigFile = d.file;
           const pathEl = document.getElementById('envFilePath');
@@ -11470,8 +11500,11 @@ html:not(.dark) {
         setVal('envR2MaxUploadMb', r2.max_upload_mb);
         setVal('envR2MaxStorageMb', r2.max_storage_mb);
         setVal('envR2CfApiToken', r2.cf_api_token);
+        if (d.config.goeasy) state.goEasyConfig = d.config.goeasy;
+        if (d.config.cloudflare_r2) state.r2Config = d.config.cloudflare_r2;
       } catch (e) {
         console.warn('[env配置] 加载失败', e);
+        showToast('❌ 加载环境变量失败：' + (e && e.message ? e.message : e), 2800, false);
       }
     }
 

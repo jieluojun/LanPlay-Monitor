@@ -4,7 +4,7 @@ package.name = monitor
 package.domain = com.lanplay
 source.dir = .
 source.include_exts = py, png, jpg, kv, atlas, ttf, json, html, css, js
-source.include_patterns = image/*
+source.include_patterns = image/*, android_native.py
 source.exclude_patterns = **/test/*, **/tests/*, presplash.png, icon.png, assets/*, assets, *.keystore
 version = 1.0.0
 

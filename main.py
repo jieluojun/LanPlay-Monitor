@@ -847,11 +847,7 @@ def empty_r2_bucket(preserve_avatars: bool = True) -> bool:
 
 
 def check_r2_bucket_capacity(source: str = "检查") -> int:
-    """检查 R2 桶容量：记录当前大小与剩余空间；达上限则清理聊天媒体并保留头像。
-
-    source 用于日志前缀，例如「启动检查」「上传后检查」。
-    返回当前桶总大小（字节）；未配置或失败时返回 0。
-    """
+    """检查 R2 桶容量：记录当前大小与剩余空间；达上限则清理聊天媒体并保留头像。"""
     if not (
         R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME
         and R2_MAX_STORAGE_MB > 0
@@ -984,6 +980,27 @@ def load_env_config() -> dict[str, Any]:
     except Exception as exc:
         err(f"[env配置] 读取配置文件失败: {exc}")
     return copy.deepcopy(DEFAULT_ENV_CONFIG)
+
+
+def _build_runtime_env_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """聊天启动所需的最小公开配置（不含 R2 密钥等敏感字段）。
+
+    GoEasy appkey 属于客户端 SDK 密钥，聊天功能必须下发；完整 env 仍受密码保护。
+    """
+    src = cfg if isinstance(cfg, dict) else {}
+    go = src.get("goeasy") if isinstance(src.get("goeasy"), dict) else {}
+    r2 = src.get("cloudflare_r2") if isinstance(src.get("cloudflare_r2"), dict) else {}
+    return {
+        "goeasy": {
+            "appkey": str(go.get("appkey", "") or "").strip(),
+            "host": str(go.get("host", "") or "").strip(),
+            "force_tls": bool(go.get("force_tls", True)),
+        },
+        "cloudflare_r2": {
+            "max_upload_mb": r2.get("max_upload_mb", "") if r2.get("max_upload_mb", "") != "" else "",
+            "max_storage_mb": r2.get("max_storage_mb", "") if r2.get("max_storage_mb", "") != "" else "",
+        },
+    }
 
 
 def apply_r2_config_to_runtime(cfg: dict[str, Any]) -> None:
@@ -2778,11 +2795,82 @@ class MonitorHandler(BaseHTTPRequestHandler):
                     self._send(body, headers, status)
                     return
 
+            if path == "/api/env/runtime":
+                # 公开最小配置：仅供前端初始化聊天，不含 R2 密钥。
+                try:
+                    cfg = load_env_config()
+                    data = {
+                        "ok": True,
+                        "config": _build_runtime_env_config(cfg),
+                        "full": False,
+                    }
+                    body, headers, status = make_json_response(data)
+                    headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                    self._send(body, headers, status)
+                    return
+                except Exception as e:
+                    err(f"[API] /api/env/runtime 异常: {e}")
+                    data = {"ok": False, "error": str(e)}
+                    body, headers, status = make_json_response(data, status=500)
+                    self._send(body, headers, status)
+                    return
+
             if path == "/api/env":
                 try:
                     cfg = load_env_config()
-                    data = {"ok": True, "config": cfg, "file": ENV_CONFIG_FILE}
+                    is_public, client_ip = is_public_request(self)
+                    password_set = is_password_set()
+                    provided_pw = (
+                        str(self.headers.get("X-Env-Password", "") or "").strip()
+                        or str(query.get("password", "") or "").strip()
+                    )
+                    pw_ok = bool(provided_pw) and verify_password(provided_pw)
+
+                    # 完整 /api/env（含全部密钥）访问策略：
+                    # - 已设密码：必须提供正确密码
+                    # - 公网且未设密码：拒绝，要求先设密码
+                    # - 局域网且未设密码：允许（与设置页「局域网跳过」一致）
+                    allow_full = False
+                    if password_set:
+                        if not pw_ok:
+                            data = {
+                                "ok": False,
+                                "error": "需要正确的安全密码才能查看环境变量配置",
+                                "need_password": True,
+                                "is_public": is_public,
+                                "client_ip": client_ip,
+                            }
+                            body, headers, status = make_json_response(data, status=403)
+                            headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                            self._send(body, headers, status)
+                            return
+                        allow_full = True
+                    elif is_public:
+                        data = {
+                            "ok": False,
+                            "error": "公网访问请先设置安全密码后再查看环境变量配置",
+                            "need_password": False,
+                            "need_set_password": True,
+                            "is_public": True,
+                            "client_ip": client_ip,
+                        }
+                        body, headers, status = make_json_response(data, status=403)
+                        headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                        self._send(body, headers, status)
+                        return
+                    else:
+                        allow_full = True
+
+                    data = {
+                        "ok": True,
+                        "config": cfg,
+                        "file": ENV_CONFIG_FILE,
+                        "full": True,
+                        "is_public": is_public,
+                        "client_ip": client_ip,
+                    }
                     body, headers, status = make_json_response(data)
+                    headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
                     self._send(body, headers, status)
                     return
                 except Exception as e:
