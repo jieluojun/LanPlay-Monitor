@@ -15,7 +15,7 @@ entrypoint = main.py
 
 # ===== 启动图配置 =====
 # presplash.png 必须真实存在于项目根目录，背景实色 #DFF3FF，不要透明，否则会透出系统默认动态图
-presplash.filename = presplash.png
+# presplash.filename = presplash.png
 fullscreen = 1
 # 浅色背景，与网页浅色一致（Native presplash 背景色）
 android.presplash_color = #DFF3FF
@@ -58,7 +58,7 @@ p4a.gradle_dependencies = gradle:7.6.4, androidx.webkit:webkit:1.9.0
 p4a.gradle_options = -Dorg.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64
 # ===== WebView 配置 =====
 p4a.bootstrap = webview
-p4a.port = 5000
+p4a.port = 11451
 # ========================
 
 # 禁止构建时将 py 编译为 pyc，APK 内保留 py 源码
