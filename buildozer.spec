@@ -18,9 +18,9 @@ entrypoint = main.py
 # presplash.filename = presplash.png
 fullscreen = 1
 # 浅色背景，与网页浅色一致（Native presplash 背景色）
-android.presplash_color = #DFF3FF
+# android.presplash_color = #DFF3FF
 # Android 12+ 新闪屏背景（与 styles.xml 中 windowSplashScreenBackground 保持一致）
-android.splash_background_color = #DFF3FF
+# android.splash_background_color = #DFF3FF
 # 禁用 p4a 默认的加载动画 lottie（p4a develop 分支；留空禁用动态图标，避免覆盖静态 presplash）
 android.presplash_lottie =
 
