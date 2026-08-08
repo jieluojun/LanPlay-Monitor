@@ -3553,15 +3553,8 @@ html:not(.dark) {
 <div class="page">
   <section class="hero glass">
     <div class="brand-area" id="brandArea">
-      <!-- 顺序：主题切换 → 日志 → 添加服务器 → 重置排序 → DPI → 更新 → 安装应用 → 自动展开 → 公共聊天 → 在线成员 → 插件 → 环境变量设置 -->
+      <!-- 顺序：主题切换 → 公共聊天 → 在线成员 → 日志 → 添加服务器 → 重置排序 → DPI → 更新 → 安装应用 → 自动展开 → 插件 → 环境变量设置 -->
       <button id="themeToggleBtn" class="theme-toggle" title="切换浅色/深色主题">🌙</button>
-      <button id="openLogModalBtn" class="icon-btn" title="查看运行日志">💻</button>
-      <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
-      <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
-      <button id="dpiToggleBtn" class="icon-btn" title="调节界面缩放 (DPI)">🔍</button>
-      <button id="manualUpdateBtn" class="icon-btn" title="点击检查并更新前后端">⬆️</button>
-      <button id="pwaInstallBtn" class="icon-btn" title="安装为桌面应用" aria-label="安装为桌面应用" style="display:none;">📲</button>
-      <button id="toggleAutoExpandBtn" class="icon-btn" title="切换自动展开房间">📂</button>
       <button id="openPublicChatBtn" class="icon-btn public-chat-btn" title="公共聊天">
         <span class="public-chat-icon">💬</span>
         <span id="publicUnreadBadge" class="online-count-badge zero">0</span>
@@ -3570,6 +3563,13 @@ html:not(.dark) {
         <span class="online-icon">👥</span>
         <span id="onlineCountBadge" class="online-count-badge">0</span>
       </button>
+      <button id="openLogModalBtn" class="icon-btn" title="查看运行日志">💻</button>
+      <button id="openAddModalBtn" class="icon-btn" title="添加自定义服务器">➕</button>
+      <button id="resetOrderBtn" class="icon-btn" title="恢复默认排序">🔄</button>
+      <button id="dpiToggleBtn" class="icon-btn" title="调节界面缩放 (DPI)">🔍</button>
+      <button id="manualUpdateBtn" class="icon-btn" title="点击检查并更新前后端">⬆️</button>
+      <button id="pwaInstallBtn" class="icon-btn" title="安装为桌面应用" aria-label="安装为桌面应用" style="display:none;">📲</button>
+      <button id="toggleAutoExpandBtn" class="icon-btn" title="切换自动展开房间">📂</button>
       <button id="copyPluginBtn" class="icon-btn" title="点击下载最新版联机插件">🎮</button>
       <button id="envSettingsBtn" class="icon-btn" title="设置环境变量 (GoEasy / CF R2)">⚙️</button>
     </div>
@@ -4549,6 +4549,8 @@ html:not(.dark) {
   const NAV_ORDER_KEY = 'lan_play_nav_order';
   const DEFAULT_NAV_ORDER = [
     'themeToggleBtn',
+    'openPublicChatBtn',
+    'onlineMembersBtn',
     'openLogModalBtn',
     'openAddModalBtn',
     'resetOrderBtn',
@@ -4556,8 +4558,6 @@ html:not(.dark) {
     'manualUpdateBtn',
     'pwaInstallBtn',
     'toggleAutoExpandBtn',
-    'openPublicChatBtn',
-    'onlineMembersBtn',
     'copyPluginBtn',
   ];
 
